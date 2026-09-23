@@ -11,6 +11,7 @@ export function Dialog({
   onClose,
   busy = false,
   dismissOnBackdrop = false,
+  shouldClose,
   children,
   ...props
 }: Omit<ComponentProps<"dialog">, "open" | "onClose"> & {
@@ -18,6 +19,8 @@ export function Dialog({
   onClose: () => void;
   busy?: boolean;
   dismissOnBackdrop?: boolean;
+  /** Return false to veto the Escape close (e.g. pipeline focus mode consumes Esc first). */
+  shouldClose?: () => boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -37,7 +40,7 @@ export function Dialog({
       ref={ref}
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy) onClose();
+        if (!busy && (shouldClose?.() ?? true)) onClose();
       }}
       onClose={() => {
         if (open && !busy && !ref.current?.open) onClose();

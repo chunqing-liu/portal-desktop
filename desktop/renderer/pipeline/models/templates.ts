@@ -43,7 +43,7 @@ export const defaultDemand: Demand = {
 export const defaultBugDemand: Demand = {
   ...structuredClone(editableDefaults),
   id: "star-track-bug-default",
-  title: "星图 V5 P0 修复",
+  title: "bug 修复",
   summary: "按 Jira 口述建模的 Bug 修复流程。",
   status: "demand.developing",
   flowRevision: bugFixWorkflow.version,
@@ -118,16 +118,19 @@ function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
   const flow = getPipelineFlow(workflowId);
   const status = DEMAND_STATUSES.includes(value.status as (typeof DEMAND_STATUSES)[number]) ? value.status as Demand["status"] : "demand.drafting";
   const nodeStates = isRecord(value.nodeStates) ? Object.fromEntries(Object.entries(value.nodeStates).filter(([, item]) => NODE_STATUSES.includes(item as (typeof NODE_STATUSES)[number]))) as Demand["nodeStates"] : {};
+  const isLegacyBugDefault = workflowId === bugFixWorkflow.id && ["星图 V5 P0 修复", "bug 修复组"].includes(value.title);
+  const title = isLegacyBugDefault ? "bug 修复" : value.title;
+  const groupName = typeof value.groupName === "string" && value.groupName === "bug 修复组" ? "bug 修复" : value.groupName;
   return {
     ...structuredClone(editableDefaults),
     id: value.id,
-    title: value.title,
+    title,
     summary: typeof value.summary === "string" ? value.summary : "待补充",
     status,
     flowRevision: typeof value.flowRevision === "string" ? value.flowRevision : flow.version,
     owner_group: typeof value.owner_group === "string" ? value.owner_group : "产品交付组",
     workflowId,
-    groupName: typeof value.groupName === "string" ? value.groupName : flow.groupName,
+    groupName: typeof groupName === "string" ? groupName : flow.groupName,
     sortOrder: typeof value.sortOrder === "number" && Number.isFinite(value.sortOrder) ? value.sortOrder : fallbackOrder,
     pinned: value.pinned === true,
     unread: value.unread === true,

@@ -1,96 +1,54 @@
-/* 星图 V4：交互只作用于 pipeline，避免扩散到聊天与其他页面。 */
-#pipeline-view .star-map-compact-header {
-  position: relative;
-  z-index: 20;
-  min-height: 48px;
-  padding: 7px 14px;
-  align-items: center;
+/* V7：沿用工具库/卷轴的“大标题 + 常驻功能栏”层级。大标题由 PlaceHeading 统一提供。 */
+#pipeline-view {
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
-/* 星图自带页面标题，隐藏弹窗重复标题行；保留功能切换行，共两行。 */
-#place-sheet:has(#pipeline-view:not([hidden])) .place-sheet-title-row { display: none; }
-
-.star-map-compact-header .pipeline-title-block {
+#pipeline-view .pipeline-page-toolbar {
+  z-index: 30;
   display: flex;
-  align-items: baseline;
-  min-width: 0;
-  gap: 10px;
-}
-
-.star-map-compact-header .pipeline-title-block h1 {
-  flex: 0 0 auto;
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.4;
-}
-
-.star-map-compact-header .pipeline-title-block strong {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 11px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.star-map-compact-header .pipeline-title-block p {
-  min-width: 0;
-  max-width: min(38vw, 420px);
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.star-map-compact-header .pipeline-header-actions {
   align-items: center;
-  gap: 6px;
+  flex: 0 0 auto;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
 }
 
-.star-map-more {
-  position: relative;
+.pipeline-toolbar-search,
+.pipeline-toolbar-filters select {
+  min-width: 0;
+  height: 32px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--control);
+  color: var(--text);
+  font-size: 12px;
 }
 
-.star-map-more summary {
-  min-width: 48px;
-  padding: 6px 8px;
+.pipeline-toolbar-search { flex: 1 1 260px; max-width: 360px; }
+.pipeline-toolbar-filters { display: flex; align-items: center; gap: 8px; }
+.pipeline-toolbar-filters select { max-width: 142px; color: var(--secondary); }
+.pipeline-toolbar-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.pipeline-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid transparent;
   border-radius: 7px;
   color: var(--secondary);
-  cursor: pointer;
-  font-size: 10px;
-  list-style: none;
-  text-align: center;
+  font-size: 11px;
+  white-space: nowrap;
 }
-
-.star-map-more summary::-webkit-details-marker { display: none; }
-.star-map-more summary:hover,
-.star-map-more[open] summary { background: var(--control); color: var(--text); }
-
-.star-map-more-panel {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 0;
-  z-index: 30;
-  display: grid;
-  width: 250px;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  box-shadow: 0 14px 34px #0002;
-}
-
-.star-map-more-panel .pipeline-legend {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 9px;
-}
+.pipeline-toolbar-button:hover:not(:disabled) { color: var(--text); }
+.pipeline-toolbar-button[aria-pressed=true] { border-color: var(--line); background: var(--selected); color: var(--text); }
+.pipeline-focus-button { border-color: var(--line); background: var(--control); }
 
 /* B 案：缩放只改变信息层级，节点卡片的布局尺寸始终固定。 */
 .star-map-canvas .react-flow__node-item { height: 86px; }
@@ -196,14 +154,6 @@
 .star-map-canvas-hint.is-connecting { border-color: color-mix(in srgb, #6d7cff 55%, var(--line)); }
 .star-map-canvas-hint.is-connecting span { color: #6d7cff; }
 
-.star-map-toolbar .star-map-focus-toggle {
-  width: auto;
-  min-width: 54px;
-  padding: 0 8px;
-  color: var(--secondary);
-  font-size: 10px;
-}
-
 /* V5：文字按钮使用正文微文案字号，避免继承缩放按钮的 14px 图标字号。 */
 .star-map-toolbar .star-map-fit {
   width: auto;
@@ -293,36 +243,97 @@
 .pipeline-history time { color: var(--muted); text-align: right; }
 .pipeline-history span { grid-column: 1 / -1; color: var(--secondary); line-height: 1.55; overflow-wrap: anywhere; }
 
-/* 应用内专注模式覆盖主导航与侧栏，不调用 Electron OS 全屏。 */
+/* V8 详情以描述为主体，状态/负责人/下一步收进紧凑元信息。 */
+.pipeline-detail-core { display: grid; gap: 12px; }
+.pipeline-detail-identity { display: grid; gap: 7px; }
+.pipeline-detail-identity > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.pipeline-detail-identity > strong { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.pipeline-detail-identity label { gap: 5px; }
+.pipeline-detail-description { gap: 6px; }
+.pipeline-detail-description textarea { min-height: 152px; line-height: 1.7; }
+.pipeline-detail-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.pipeline-detail-meta > label { min-width: 0; }
+.pipeline-detail-meta > span { display: grid; gap: 3px; min-width: 0; color: var(--secondary); font-size: 10px; line-height: 1.5; }
+.pipeline-detail-meta > span b { color: var(--muted); font-size: 9px; font-weight: 500; }
+.pipeline-core-facts { display: grid; gap: 8px; margin: 0; }
+.pipeline-core-facts > div { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; font-size: 11px; line-height: 1.6; }
+.pipeline-core-facts dt { color: var(--muted); }
+.pipeline-core-facts dd { margin: 0; color: var(--secondary); overflow-wrap: anywhere; }
+.pipeline-next-actions { display: grid; gap: 7px; padding-top: 2px; }
+.pipeline-next-actions > span { color: var(--muted); font-size: 10px; }
+.pipeline-next-actions button { width: 100%; min-height: 34px; }
+
+.pipeline-more-info,
+.pipeline-comments { border-top: 1px solid var(--line); }
+.pipeline-more-info > summary,
+.pipeline-comments > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 2px;
+  color: var(--secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 550;
+  list-style: none;
+}
+.pipeline-more-info > summary::-webkit-details-marker,
+.pipeline-comments > summary::-webkit-details-marker { display: none; }
+.pipeline-more-info > summary::after,
+.pipeline-comments > summary::after { color: var(--muted); content: "＋"; font-size: 13px; font-weight: 400; }
+.pipeline-more-info[open] > summary::after,
+.pipeline-comments[open] > summary::after { content: "−"; }
+.pipeline-comments > summary small { margin-left: auto; color: var(--muted); font-size: 9px; font-weight: 400; }
+.pipeline-more-info > div,
+.pipeline-comments-body { display: grid; gap: 14px; padding: 3px 0 4px; }
+
+.pipeline-comment-list { display: grid; gap: 10px; }
+.pipeline-comment-list article { padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent); }
+.pipeline-comment-list article:last-child { padding-bottom: 0; border-bottom: 0; }
+.pipeline-comment-list header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pipeline-comment-list strong { color: var(--secondary); font-size: 10px; font-weight: 600; }
+.pipeline-comment-list time { color: var(--muted); font-size: 8px; white-space: nowrap; }
+.pipeline-comment-list p { margin: 5px 0 0; color: var(--secondary); font-size: 10px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.pipeline-comments-body textarea { min-height: 70px; }
+.pipeline-comment-send { width: 100%; }
+
+/* 专注模式只放大原生顶层 dialog；不再在 dialog 内叠第二个 fixed 覆盖面。 */
+#place-sheet.pipeline-focus-sheet,
 #place-sheet:has(#pipeline-view.pipeline-focus-mode) {
   position: fixed;
   inset: 0;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   max-width: none;
   max-height: none;
   margin: 0;
+  border: 0;
   border-radius: 0;
 }
 
+#place-sheet.pipeline-focus-sheet .place-sheet-heading,
 #place-sheet:has(#pipeline-view.pipeline-focus-mode) .place-sheet-heading { display: none; }
 
 #pipeline-view.pipeline-focus-mode {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
+  position: relative;
   display: flex;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   background: var(--bg);
 }
 
 #pipeline-view.pipeline-focus-mode .star-map-shell.is-focus-mode {
+  flex: 1;
   width: 100%;
-  height: 100%;
-}
-
-#pipeline-view.pipeline-focus-mode .pipeline-header {
-  display: none;
+  min-height: 0;
 }
 
 #pipeline-view.pipeline-focus-mode .pipeline-main,
@@ -331,52 +342,59 @@
 }
 
 @media (max-width: 760px) {
-  .star-map-compact-header .pipeline-title-block p { display: none; }
   .star-map-canvas-hint small { display: none; }
 }
 
-/* V6：侧栏真正收为 0，控制器固定在画布内部，不随侧栏一起消失。 */
-#pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
-#pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }
+/* V8：侧栏折叠为始终可操作的窄栏，入口不再依赖顶栏或画布定位。 */
+#pipeline-view .pipeline-shell { --pipeline-left: 224px; --pipeline-right: 300px; }
+#pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 52px; }
+#pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 52px; }
 #pipeline-view .pipeline-demands.is-collapsed,
-#pipeline-view .pipeline-inspector.is-collapsed { display: none; }
+#pipeline-view .pipeline-inspector.is-collapsed {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+}
 
-.pipeline-canvas-sidebar-toggle {
+.pipeline-rail-toggle {
   position: absolute;
-  top: 56px;
-  z-index: 45;
+  z-index: 3;
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
-  box-shadow: 0 4px 14px #0002;
-  color: var(--secondary);
+  color: var(--muted);
+  font-size: 21px;
+  line-height: 1;
 }
-.pipeline-canvas-sidebar-toggle:hover { border-color: color-mix(in srgb, #6d7cff 45%, var(--line)); color: var(--text); }
-.pipeline-canvas-sidebar-toggle.is-left { left: 10px; }
-.pipeline-canvas-sidebar-toggle.is-right { right: 10px; }
-.sidebar-toggle-icon {
+.pipeline-rail-toggle:hover { border-color: color-mix(in srgb, #6d7cff 45%, var(--line)); background: var(--control); color: var(--text); }
+.pipeline-rail-toggle-left { top: 12px; left: 8px; }
+.pipeline-rail-toggle-right { top: 12px; right: 8px; }
+.pipeline-demands.is-collapsed .pipeline-rail-toggle,
+.pipeline-inspector.is-collapsed .pipeline-rail-toggle {
   position: relative;
-  box-sizing: border-box;
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
+  top: auto;
+  right: auto;
+  left: auto;
+  align-self: flex-start;
+  display: flex;
+  width: 100%;
+  height: 34px;
+  flex: 0 0 34px;
+  gap: 3px;
+  margin-top: 12px;
 }
-.sidebar-toggle-icon::after {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 4px;
-  width: 1.5px;
-  border-radius: 1px;
-  background: currentColor;
-  content: "";
-}
-.pipeline-canvas-sidebar-toggle.is-right .sidebar-toggle-icon::after { right: 4px; left: auto; }
+.pipeline-rail-icon { color: var(--secondary); font-size: 15px; line-height: 1; }
+.pipeline-rail-arrow { font-size: 21px; line-height: 1; }
+.pipeline-rail-content { min-width: 0; min-height: 0; width: 100%; }
+.pipeline-demands:not(.is-collapsed) .pipeline-rail-content { display: flex; flex-direction: column; height: 100%; }
+.pipeline-inspector:not(.is-collapsed) .pipeline-inspector-body { min-height: 0; }
 
 /* 专注模式仍是应用内覆盖层，但左右栏可由画布按钮临时唤出。 */
 #pipeline-view.pipeline-focus-mode .star-map-shell.is-focus-mode {
@@ -431,8 +449,27 @@
 
 /* 展开站的标题区保持独立，节点统一从 112px 以下开始。 */
 .star-map-station:not(.is-compact) .star-map-station-heading { min-height: 28px; }
-.star-map-canvas .react-flow__node-station { transition: width .16s ease, height .16s ease; }
+.star-map-canvas .react-flow__node-station { z-index: 0 !important; transition: width .16s ease, height .16s ease; }
+.star-map-canvas .react-flow__node-item { z-index: 2 !important; }
+.star-map-canvas .react-flow__node-item.selected { z-index: 4 !important; }
 .star-map-canvas .react-flow__edge.is-pending-station-link .react-flow__edge-path { stroke-dasharray: 5 5; }
+.star-map-canvas .react-flow__edge.pipeline-edge-node .react-flow__edge-path {
+  stroke: #3d86a8;
+  stroke-width: 2.2px;
+}
+.star-map-canvas .react-flow__edge.pipeline-edge-station .react-flow__edge-path {
+  stroke: #8b6bd1;
+  stroke-width: 2.2px;
+}
+.star-map-canvas .react-flow__edge.pipeline-edge-node.is-return .react-flow__edge-path {
+  stroke: #c06f4b;
+  stroke-dasharray: 6 4;
+}
+.star-map-canvas .react-flow__edge:hover .react-flow__edge-path,
+.star-map-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3.8px;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 45%, transparent));
+}
 .star-map-canvas .react-flow__selection {
   border: 1px solid #6d7cff;
   background: color-mix(in srgb, #6d7cff 10%, transparent);
@@ -447,6 +484,19 @@
 .pipeline-demand-context-menu button.is-danger { color: #b34b47; }
 
 @media (max-width: 760px) {
-  #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
-  #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }
+  #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 52px; }
+  #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 52px; }
+}
+
+@container stage (max-width: 700px) {
+  #pipeline-view .pipeline-page-toolbar { flex-wrap: wrap; gap: 8px; padding: 9px 16px; }
+  .pipeline-toolbar-search { flex: 1 1 180px; max-width: none; }
+  .pipeline-toolbar-actions { margin-left: 0; }
+}
+
+@container stage (max-width: 520px) {
+  .pipeline-toolbar-filters { flex: 1 1 auto; }
+  .pipeline-toolbar-filters select { flex: 1 1 0; max-width: none; }
+  .pipeline-toolbar-actions { width: 100%; }
+  .pipeline-toolbar-button { flex: 1 1 0; }
 }

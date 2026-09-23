@@ -1,6 +1,6 @@
 import type { PipelineFlow, PipelineNode, PipelineStation, PipelineTransition } from "./schema";
 
-const group = "bug 修复组";
+const group = "bug 修复";
 const station = (id: string, title: string, subtitle: string, nodeIds: string[]): PipelineStation => ({
   id, kind: "station", title, subtitle, nodeIds, locked: true,
 });

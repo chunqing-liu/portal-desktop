@@ -54,13 +54,48 @@ export function App({ model }: { model: AppModel }) {
         event.preventDefault();
         void app.openClientSettings();
       }
-      if (event.key === "Escape" && !dialog && app.workspace.open)
-        app.workspace.toggle(false);
+      if (event.key === "Escape") {
+        // 星图专注态优先消费 Escape。这个监听在 document capture 阶段，
+        // 必须先阻止原生 dialog cancel 和工作区关闭，再把退出动作交给星图。
+        if (document.querySelector("#pipeline-view.pipeline-focus-mode:not([hidden])")) {
+          event.preventDefault();
+          event.stopPropagation();
+          // 退出专注的动作交给原生 cancel 闸门与本分支共同处理：
+          // 先设 dataset 标记（不受 React flush 影响，专注态 class 被移除后仍可追踪），
+          // 再派发 exit-focus。cancel 闸门优先消费标记，确保面板不被关闭。
+          document.documentElement.dataset.pipelineFocusEsc = "1";
+          document.dispatchEvent(new CustomEvent("pipeline:exit-focus"));
+          return;
+        }
+        if (!dialog && app.workspace.open) app.workspace.toggle(false);
+      }
     };
     // Capture before focused controls can consume app-level shortcuts.
     document.addEventListener("keydown", keyboard, true);
     return () => document.removeEventListener("keydown", keyboard, true);
   }, [app]);
+  // 星图专注态拦截原生 dialog cancel：React 合成 onCancel 不会收到
+  // dialog 的 cancel 事件（实测验证），必须用原生监听才能在
+  // close watcher 关闭面板前拿到控制权。专注态时只退出专注，面板保持打开。
+  useEffect(() => {
+    const sheet = document.querySelector("#place-sheet");
+    if (!sheet) return;
+    const onSheetCancel = (event: Event) => {
+      const root = document.documentElement;
+      if (root.dataset.pipelineFocusEsc === "1") {
+        // 本次 Esc 源自专注态分支：只退专注，不关面板。
+        root.dataset.pipelineFocusEsc = "";
+        event.preventDefault();
+        return;
+      }
+      if (!document.querySelector("#pipeline-view.pipeline-focus-mode:not([hidden])"))
+        return;
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent("pipeline:exit-focus"));
+    };
+    sheet.addEventListener("cancel", onSheetCancel);
+    return () => sheet.removeEventListener("cancel", onSheetCancel);
+  }, []);
   return (
     <>
       <section
@@ -156,6 +191,14 @@ export function App({ model }: { model: AppModel }) {
         aria-labelledby="view-title"
         open={app.view !== "chat"}
         onClose={app.closePlace}
+        shouldClose={() => {
+          // 星图专注态优先消费 Esc：只退出专注，不关面板。
+          if (document.querySelector("#pipeline-view.pipeline-focus-mode:not([hidden])")) {
+            document.dispatchEvent(new CustomEvent("pipeline:exit-focus"));
+            return false;
+          }
+          return true;
+        }}
         dismissOnBackdrop
       >
         <PlaceHeading

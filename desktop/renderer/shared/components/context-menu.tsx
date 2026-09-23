@@ -9,11 +9,13 @@ type Context = {
 };
 
 export function EditContextMenu({ edit, onOpenChange, rootSelector = ".chat-root",
-  selectionSelector = "#messages, .panel" }: {
+  selectionSelector = "#messages, .panel", ignoreSelector }: {
   edit(command: ChatEditCommand): Promise<boolean>;
   onOpenChange?(open: boolean): void;
   rootSelector?: string;
   selectionSelector?: string;
+  /** Component-owned context menus can exclude their subtree from the global edit menu. */
+  ignoreSelector?: string;
 }) {
   const [context, setContext] = useState<Context | null>(null);
   const [error, setError] = useState<{ message: string; portal: HTMLElement } | null>(null);
@@ -26,6 +28,7 @@ export function EditContextMenu({ edit, onOpenChange, rootSelector = ".chat-root
       // A component-specific menu owns events it has already handled.
       if (event.defaultPrevented) return;
       if (!(event.target instanceof HTMLElement) || !event.target.closest(rootSelector)) return;
+      if (ignoreSelector && event.target.closest(ignoreSelector)) return;
       event.preventDefault();
       if (menu.current?.contains(event.target)) return;
       const element = event.target.closest<HTMLElement>("input, textarea, [contenteditable=true]");
@@ -70,7 +73,7 @@ export function EditContextMenu({ edit, onOpenChange, rootSelector = ".chat-root
       window.removeEventListener("resize", dismiss);
       window.removeEventListener("blur", dismiss);
     };
-  }, [rootSelector, selectionSelector]);
+  }, [rootSelector, selectionSelector, ignoreSelector]);
 
   useLayoutEffect(() => {
     onOpenChange?.(!!context);
