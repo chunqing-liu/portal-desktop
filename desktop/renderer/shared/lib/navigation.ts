@@ -1,4 +1,4 @@
-export const placeNames = { bonfire: '篝火', firesides: '围炉', mail: '私信', seeds: '种子花园', embers: '书架', scrolls: '卷轴', kits: '工具库', portal: 'Portal 设置' } as const;
+export const placeNames = { bonfire: '篝火', firesides: '围炉', mail: '私信', seeds: '种子花园', embers: '书架', scrolls: '卷轴', kits: '工具库', pipeline: '星图', portal: 'Portal 设置' } as const;
 export type PlaceView = keyof typeof placeNames;
 export interface PlaceTarget { view: PlaceView; id?: string }
 export function validPlaceTarget(value: unknown): value is PlaceTarget {

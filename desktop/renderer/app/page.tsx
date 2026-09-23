@@ -6,6 +6,7 @@ import { Topbar } from "./components/topbar";
 import { SceneRibbon, Companion } from "./components/workspace";
 import { Browser } from "../browser/page";
 import { Portal } from "../portal/page";
+import { Pipeline } from "../pipeline/page";
 import { Town } from "../town/page";
 import { TownAuth } from "../town/components/auth";
 import { TownComposer } from "../town/components/composer";
@@ -165,6 +166,7 @@ export function App({ model }: { model: AppModel }) {
         />
         <Portal model={app} />
         <Town model={app.town} />
+        <Pipeline model={app} />
       </Dialog>
       <ChatSearch model={app} />
       <TownComposer model={app.town} />

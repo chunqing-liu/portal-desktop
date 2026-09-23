@@ -74,6 +74,8 @@ export interface DesktopAPI {
   updateState(): Promise<UpdateState>;
   onUpdate(callback: (state: UpdateState) => void): () => void;
   appearance(theme?: 'light' | 'dark'): Promise<'light' | 'dark'>;
+  toggleFullscreen(): Promise<boolean>;
+  openExternal(url: string): Promise<void>;
   town(query: TownQuery): Promise<TownResult>;
   townLive(): Promise<TownLiveState>;
   reconnectTown(): Promise<void>;

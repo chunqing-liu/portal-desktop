@@ -487,6 +487,20 @@ async function ready() {
     if (!(process.platform === 'win32' && Number(os.release().split('.')[2]) >= 22621)) window?.setBackgroundColor(theme === 'dark' ? '#212121' : '#ffffff');
     return appearance;
   }));
+  handle('beings:fullscreen', () => {
+    const next = !window!.isFullScreen();
+    window!.setFullScreen(next);
+    return next;
+  });
+  handle('beings:open-external', async (url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('unsupported');
+      await shell.openExternal(parsed.href);
+    } catch {
+      throw new Error('外置浏览器只允许打开无凭据的 http/https 地址。');
+    }
+  });
   cancelTownPairing = registerTownIpc({
     handle, exclusive, town, townLive, townCredentials, store, secretStorage,
     fetcher: net.fetch.bind(net) as typeof fetch,

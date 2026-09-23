@@ -70,6 +70,16 @@ const places = [
     ),
   },
   {
+    view: "pipeline" as PlaceView,
+    label: "星图",
+    icon: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M8 4v16M14 4v16M5.5 8h1M10.5 11h1M16.5 7h2M16.5 13h2" />
+      </>
+    ),
+  },
+  {
     view: "kits" as PlaceView,
     label: "工具库",
     icon: (

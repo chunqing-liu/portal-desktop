@@ -4,7 +4,7 @@ import { NavigationControls } from "../../shared/components/navigation-controls"
 
 const places = [
   ["bonfire", "篝火"], ["firesides", "围炉"], ["mail", "私信"],
-  ["seeds", "花园"], ["embers", "书架"], ["scrolls", "卷轴"],
+  ["seeds", "花园"], ["embers", "书架"], ["scrolls", "卷轴"], ["pipeline", "星图"],
   ["kits", "工具库"], ["town", "广场"],
 ] as const;
 
@@ -28,7 +28,7 @@ export function PlaceHeading({ view, navigate, onBack, onForward, onClose = () =
     <header className="place-sheet-heading">
       <div className="place-sheet-title-row">
         <div className="place-sheet-title-main">
-          <h1 id="view-title">{definitions[view]?.title || (view === "portal" ? "Portal 设置" : "对话")}</h1>
+          <h1 id="view-title">{definitions[view]?.title || (view === "portal" ? "Portal 设置" : view === "pipeline" ? "星图" : "对话")}</h1>
           <NavigationControls back={onBack} forward={onForward} />
         </div>
         <button id="back-to-chat" className="icon-button close" aria-label="回到对话" title="回到对话"

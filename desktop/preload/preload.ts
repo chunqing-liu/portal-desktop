@@ -35,6 +35,8 @@ const api: DesktopAPI = {
     return () => ipcRenderer.removeListener('beings:update-state', listener);
   },
   appearance: theme => ipcRenderer.invoke('beings:appearance', theme),
+  toggleFullscreen: () => ipcRenderer.invoke('beings:fullscreen'),
+  openExternal: url => ipcRenderer.invoke('beings:open-external', url),
   town: query => ipcRenderer.invoke('beings:town', query),
   townLive: () => ipcRenderer.invoke('beings:town-live'),
   reconnectTown: () => ipcRenderer.invoke('beings:town-reconnect'),
