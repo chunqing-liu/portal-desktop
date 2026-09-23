@@ -317,13 +317,10 @@
 }
 
 #pipeline-view.pipeline-focus-mode .star-map-shell.is-focus-mode {
-  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   height: 100%;
 }
 
-#pipeline-view.pipeline-focus-mode .pipeline-demands,
-#pipeline-view.pipeline-focus-mode .pipeline-inspector,
 #pipeline-view.pipeline-focus-mode .pipeline-header {
   display: none;
 }
@@ -336,4 +333,120 @@
 @media (max-width: 760px) {
   .star-map-compact-header .pipeline-title-block p { display: none; }
   .star-map-canvas-hint small { display: none; }
+}
+
+/* V6：侧栏真正收为 0，控制器固定在画布内部，不随侧栏一起消失。 */
+#pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
+#pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }
+#pipeline-view .pipeline-demands.is-collapsed,
+#pipeline-view .pipeline-inspector.is-collapsed { display: none; }
+
+.pipeline-canvas-sidebar-toggle {
+  position: absolute;
+  top: 56px;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 4px 14px #0002;
+  color: var(--secondary);
+}
+.pipeline-canvas-sidebar-toggle:hover { border-color: color-mix(in srgb, #6d7cff 45%, var(--line)); color: var(--text); }
+.pipeline-canvas-sidebar-toggle.is-left { left: 10px; }
+.pipeline-canvas-sidebar-toggle.is-right { right: 10px; }
+.sidebar-toggle-icon {
+  position: relative;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+.sidebar-toggle-icon::after {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 4px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+  content: "";
+}
+.pipeline-canvas-sidebar-toggle.is-right .sidebar-toggle-icon::after { right: 4px; left: auto; }
+
+/* 专注模式仍是应用内覆盖层，但左右栏可由画布按钮临时唤出。 */
+#pipeline-view.pipeline-focus-mode .star-map-shell.is-focus-mode {
+  grid-template-columns: var(--pipeline-left) minmax(0, 1fr) var(--pipeline-right);
+}
+#pipeline-view.pipeline-focus-mode .pipeline-demands:not(.is-collapsed),
+#pipeline-view.pipeline-focus-mode .pipeline-inspector:not(.is-collapsed) { display: flex; }
+#pipeline-view.pipeline-focus-mode .pipeline-inspector:not(.is-collapsed) { display: block; }
+
+/* 新建星轨是一键动作；命名和归组都留到创建后。 */
+.pipeline-demand-create-button {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, #6d7cff 35%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #6d7cff 8%, var(--control));
+  color: var(--secondary);
+  font-size: 11px;
+  text-align: left;
+}
+.pipeline-demand-create-button:hover { background: color-mix(in srgb, #6d7cff 14%, var(--control)); color: var(--text); }
+.pipeline-demand-item { position: relative; cursor: grab; }
+.pipeline-demand-item:active { cursor: grabbing; }
+.pipeline-demand-item.is-pinned { border-color: color-mix(in srgb, #6d7cff 30%, var(--line)); }
+.pipeline-demand-unread {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--surface);
+  border-radius: 50%;
+  background: #92969d;
+}
+
+/* 注意力点放在卡片右上角，和 topline 内的状态色点分离。 */
+.star-map-item { position: relative; }
+.star-map-attention-dot {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 10;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 2px 5px #0003;
+}
+.star-map-attention-dot.is-action { background: #3478f6; }
+.star-map-attention-dot.is-update { background: #92969d; }
+
+/* 展开站的标题区保持独立，节点统一从 112px 以下开始。 */
+.star-map-station:not(.is-compact) .star-map-station-heading { min-height: 28px; }
+.star-map-canvas .react-flow__node-station { transition: width .16s ease, height .16s ease; }
+.star-map-canvas .react-flow__edge.is-pending-station-link .react-flow__edge-path { stroke-dasharray: 5 5; }
+.star-map-canvas .react-flow__selection {
+  border: 1px solid #6d7cff;
+  background: color-mix(in srgb, #6d7cff 10%, transparent);
+}
+.star-map-canvas .react-flow__pane { cursor: crosshair; }
+.star-map-canvas .react-flow__pane.dragging { cursor: grabbing; }
+
+.star-map-context-menu [role="separator"],
+.pipeline-demand-context-menu [role="separator"] { height: 1px; margin: 3px 5px; background: var(--line); }
+.star-map-context-menu button:disabled { color: var(--muted); opacity: .45; }
+.star-map-context-menu button.is-danger,
+.pipeline-demand-context-menu button.is-danger { color: #b34b47; }
+
+@media (max-width: 760px) {
+  #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
+  #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }
 }

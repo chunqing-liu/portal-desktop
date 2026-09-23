@@ -13,7 +13,8 @@ const gate = (id: string, stationId: string, title: string, owner: string, descr
   id, kind: "gate", gateRole: "product", stationId, title, status: "pending", owner,
   owner_group: group, description, trigger: ["人工"], execution: "being+人", evidenceLevel: "L2",
   input: "测试结论与复现证据", output: "审核结论与证据", timeout: "待补充", failureRoute: "重新打开",
-  options: ["通过", "重新打开"], defaultOption: "待补充", locked: true,
+  options: ["通过", "重新打开"], defaultOption: "待补充", requires_human_review: true,
+  assigned_user: "local-user", locked: true,
 });
 
 export const bugFixStations: PipelineStation[] = [

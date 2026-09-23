@@ -2,7 +2,7 @@ import { bugFixWorkflow } from "./bug-fix";
 import { beingsDevelopmentWorkflow } from "./beings-development";
 import type {
   BugHistoryEntry, BugIssue, BugPriority, BugStatus, Demand, NodeOverride, PipelineFlow,
-  PipelineLocalState, PipelineNode, PipelineStation, PipelineTransition, StationOverride,
+  PipelineLocalState, PipelineNode, PipelineStation, PipelineStationLink, PipelineTransition, StationOverride,
 } from "./schema";
 import { BUG_STATUSES, DEMAND_STATUSES, NODE_STATUSES } from "./schema";
 
@@ -14,8 +14,11 @@ export const getPipelineFlow = (workflowId?: string): PipelineFlow =>
 
 const editableDefaults = {
   stationOverrides: {}, customNodes: [], customStations: [], customTransitions: [],
-  deletedNodeIds: [], deletedStationIds: [], deletedTransitionIds: [], positions: {},
-} satisfies Pick<Demand, "stationOverrides" | "customNodes" | "customStations" | "customTransitions" | "deletedNodeIds" | "deletedStationIds" | "positions"> & { deletedTransitionIds: string[] };
+  stationLinks: [], deletedNodeIds: [], deletedStationIds: [], deletedTransitionIds: [], positions: {},
+} satisfies Pick<Demand, "stationOverrides" | "customNodes" | "customStations" | "customTransitions" | "stationLinks" | "deletedNodeIds" | "deletedStationIds" | "positions"> & { deletedTransitionIds: string[] };
+
+export const DEFAULT_DEMAND_GROUP = "默认组";
+export const LOCAL_USER_ID = "local-user";
 
 const defaultBugHistory: BugHistoryEntry = {
   status: "开放", at: new Date().toISOString(), content: "建立默认 Bug 修复星轨。",
@@ -31,6 +34,7 @@ export const defaultDemand: Demand = {
   owner_group: "产品交付组",
   workflowId: defaultPipeline.id,
   groupName: defaultPipeline.groupName,
+  sortOrder: 0,
   nodeStates: { H1: "waiting_human" },
   nodeOverrides: {},
   deliverables: [{ id: "deliverable-default", title: "开发交付", status: "deliv.developing" }],
@@ -46,6 +50,7 @@ export const defaultBugDemand: Demand = {
   owner_group: "产品交付组",
   workflowId: bugFixWorkflow.id,
   groupName: bugFixWorkflow.groupName,
+  sortOrder: 1,
   nodeStates: { B01: "ready" },
   nodeOverrides: {},
   bug: {
@@ -58,9 +63,10 @@ export const PIPELINE_STORAGE_KEY = "beings:star-map:v4";
 const PIPELINE_LEGACY_STORAGE_KEYS = ["beings:star-map:v3", "beings:pipeline-board:v2", "beings:pipeline-board:v1"];
 
 export function createInitialPipelineState(): PipelineLocalState {
-  return { schemaVersion: 3, board: {
-    id: "star-map-chunqing-main", name: "醇青的星图", version: "v5", sourceBoardId: "待补充",
-    sourceVersion: "pipeline/v5-requirements", branchName: "main", ownerGroup: "产品交付组", revision: 1,
+  return { schemaVersion: 4, board: {
+    id: "star-map-chunqing-main", name: "醇青的星图", version: "v6", sourceBoardId: "待补充",
+    sourceVersion: "pipeline/v6-requirements", branchName: "main", ownerGroup: "产品交付组",
+    currentUserId: LOCAL_USER_ID, revision: 1,
   }, selectedDemandId: defaultDemand.id, demands: [structuredClone(defaultDemand), structuredClone(defaultBugDemand)] };
 }
 
@@ -102,7 +108,11 @@ function normalizeBug(value: unknown): BugIssue | undefined {
   };
 }
 
-function normalizeDemand(value: unknown): Demand | null {
+const normalizeStationLinks = (value: unknown): PipelineStationLink[] => Array.isArray(value)
+  ? value.filter(isRecord).flatMap((item) => typeof item.id === "string" && typeof item.fromStationId === "string" && typeof item.toStationId === "string"
+    ? [{ id: item.id, fromStationId: item.fromStationId, toStationId: item.toStationId }] : []) : [];
+
+function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string") return null;
   const workflowId = typeof value.workflowId === "string" ? value.workflowId : defaultPipeline.id;
   const flow = getPipelineFlow(workflowId);
@@ -118,6 +128,9 @@ function normalizeDemand(value: unknown): Demand | null {
     owner_group: typeof value.owner_group === "string" ? value.owner_group : "产品交付组",
     workflowId,
     groupName: typeof value.groupName === "string" ? value.groupName : flow.groupName,
+    sortOrder: typeof value.sortOrder === "number" && Number.isFinite(value.sortOrder) ? value.sortOrder : fallbackOrder,
+    pinned: value.pinned === true,
+    unread: value.unread === true,
     bug: normalizeBug(value.bug),
     nodeStates,
     nodeOverrides: isRecord(value.nodeOverrides) ? value.nodeOverrides as Demand["nodeOverrides"] : {},
@@ -125,6 +138,7 @@ function normalizeDemand(value: unknown): Demand | null {
     customNodes: Array.isArray(value.customNodes) ? value.customNodes.filter(isRecord) as unknown as PipelineNode[] : [],
     customStations: Array.isArray(value.customStations) ? value.customStations.filter(isRecord) as unknown as PipelineStation[] : [],
     customTransitions: normalizeTransitions(value.customTransitions),
+    stationLinks: normalizeStationLinks(value.stationLinks),
     deletedNodeIds: Array.isArray(value.deletedNodeIds) ? value.deletedNodeIds.filter((item): item is string => typeof item === "string") : [],
     deletedStationIds: Array.isArray(value.deletedStationIds) ? value.deletedStationIds.filter((item): item is string => typeof item === "string") : [],
     deletedTransitionIds: Array.isArray(value.deletedTransitionIds) ? value.deletedTransitionIds.filter((item): item is string => typeof item === "string") : [],
@@ -135,10 +149,12 @@ function normalizeDemand(value: unknown): Demand | null {
 
 /** 写入前再次归一化，防止运行期旧对象/外部注入的 null 项重新污染 localStorage。 */
 export function sanitizePipelineState(state: PipelineLocalState): PipelineLocalState {
-  const demands = state.demands.map(normalizeDemand).filter((item): item is Demand => Boolean(item));
+  const demands = state.demands.map((demand, index) => normalizeDemand(demand, index)).filter((item): item is Demand => Boolean(item));
   const fallback = demands[0] || structuredClone(defaultDemand);
   return {
-    ...state, schemaVersion: 3, demands: demands.length ? demands : [fallback],
+    ...state, schemaVersion: 4,
+    board: { ...createInitialPipelineState().board, ...state.board, version: "v6", sourceVersion: "pipeline/v6-requirements" },
+    demands: demands.length ? demands : [fallback],
     selectedDemandId: demands.some((item) => item.id === state.selectedDemandId) ? state.selectedDemandId : fallback.id,
   };
 }
@@ -149,17 +165,16 @@ export function loadPipelineState(): PipelineLocalState {
     const legacy = current ? null : PIPELINE_LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
     const parsed = JSON.parse(current || legacy || "null") as unknown;
     if (isRecord(parsed) && Array.isArray(parsed.demands)) {
-      const parsedDemands = parsed.demands.map(normalizeDemand).filter((demand): demand is Demand => Boolean(demand));
+      const parsedDemands = parsed.demands.map((item, index) => normalizeDemand(item, index)).filter((demand): demand is Demand => Boolean(demand));
       if (parsedDemands.length) {
-        // V4 的 schemaVersion 仍是 3；用 board.version 判断是否已经完成 V5 双组迁移。
-        const isV5Board = isRecord(parsed.board) && parsed.board.version === "v5";
-        const demands = parsed.schemaVersion === 3
-          ? (isV5Board || parsedDemands.some((item) => item.workflowId === bugFixWorkflow.id) ? parsedDemands : [...parsedDemands, structuredClone(defaultBugDemand)])
-          : [structuredClone(defaultDemand), structuredClone(defaultBugDemand)];
+        // V3/V4/V5 均保留原实例；只对尚未完成 V5 双组迁移的数据补入默认 Bug 星轨。
+        const hasV5Content = parsedDemands.some((item) => item.workflowId === bugFixWorkflow.id) ||
+          (isRecord(parsed.board) && ["v5", "v6"].includes(String(parsed.board.version)));
+        const demands = hasV5Content ? parsedDemands : [...parsedDemands, { ...structuredClone(defaultBugDemand), sortOrder: parsedDemands.length }];
         const selectedDemandId = demands.some((demand) => demand.id === parsed.selectedDemandId) ? parsed.selectedDemandId as string : demands[0].id;
         return sanitizePipelineState({
-          schemaVersion: 3,
-          board: { ...createInitialPipelineState().board, ...(isRecord(parsed.board) ? parsed.board : {}), version: "v5", sourceVersion: "pipeline/v5-requirements" } as PipelineLocalState["board"],
+          schemaVersion: 4,
+          board: { ...createInitialPipelineState().board, ...(isRecord(parsed.board) ? parsed.board : {}), version: "v6", sourceVersion: "pipeline/v6-requirements" } as PipelineLocalState["board"],
           selectedDemandId, demands,
         });
       }
@@ -174,7 +189,8 @@ export function createDemand(title: string, ownerGroup = "产品交付组"): Dem
   return {
     ...structuredClone(editableDefaults), id: `star-track-${crypto.randomUUID()}`, title: title.trim() || "新建任务",
     summary: "待补充", status: "demand.drafting", flowRevision: defaultPipeline.version,
-    owner_group: ownerGroup || "产品交付组", workflowId: defaultPipeline.id, groupName: defaultPipeline.groupName,
+    owner_group: ownerGroup || "产品交付组", workflowId: defaultPipeline.id, groupName: DEFAULT_DEMAND_GROUP,
+    sortOrder: 0,
     nodeStates: {}, nodeOverrides: {}, deliverables: [],
   };
 }
@@ -184,7 +200,12 @@ export function effectiveNode(flow: PipelineFlow, demand: Demand, nodeId: string
   const source = demand.customNodes.find((item) => item.id === nodeId) || flow.nodes.find((item) => item.id === nodeId);
   if (!source) return undefined;
   const override: NodeOverride = demand.nodeOverrides[nodeId] || {};
-  return { ...source, ...override, status: demand.nodeStates[nodeId] || source.status };
+  const merged = { ...source, ...override, status: demand.nodeStates[nodeId] || source.status };
+  return {
+    ...merged,
+    stationId: override.stationId === null ? undefined : merged.stationId,
+    requires_human_review: merged.requires_human_review ?? merged.kind === "gate",
+  };
 }
 
 export function effectiveStation(flow: PipelineFlow, demand: Demand, stationId: string): PipelineStation | undefined {

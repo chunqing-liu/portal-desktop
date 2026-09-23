@@ -179,7 +179,7 @@ export function App({ model }: { model: AppModel }) {
       <KitInstall model={app.town} />
       <Toast message={app.toastMessage} />
       <EditContextMenu edit={app.api.editSelection} rootSelector="#client-main, dialog[open]"
-        selectionSelector=".reading-text, .dialog-body, #town-body" />
+        selectionSelector=".reading-text, .dialog-body, #town-body" ignoreSelector="#pipeline-view" />
     </>
   );
 }

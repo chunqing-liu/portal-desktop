@@ -83,8 +83,9 @@ export interface PipelinePoint { x: number; y: number }
 export interface PipelineNode {
   id: string;
   kind: PipelineNodeKind;
-  stationId: string;
-  /** 任意节点可拥有子节点；stationId 仍保留站级归属。 */
+  /** V6 起站只是分组容器；null/undefined 表示自由节点。 */
+  stationId?: string | null;
+  /** 任意节点可拥有子节点；与站级分组相互独立。 */
   parentNodeId?: string;
   title: string;
   status: NodeStatus;
@@ -107,6 +108,13 @@ export interface PipelineNode {
   defaultOption?: string;
   minimumEvidence?: `L${0 | 1 | 2 | 3 | 4 | 5}`;
   precondition?: string;
+  /** 节点本身是否需要人工审核，与审核任务是否分配给当前用户分开表达。 */
+  requires_human_review?: boolean;
+  /** 当前审核/操作任务被分配给谁；单机原型使用 board.currentUserId。 */
+  assigned_user?: string;
+  /** 协作更新序号与当前用户最后已读序号；update_seq > last_seen_seq 时显示更新圆点。 */
+  update_seq?: number;
+  last_seen_seq?: number;
   /** v0.2 锁定的 5 个产品闸口不可在编辑器中删除或改型。 */
   locked?: boolean;
 }
@@ -134,6 +142,13 @@ export interface PipelineTransition {
   note?: string;
 }
 
+/** 站到站的语义连接。空站先连接站边界，节点加入后按首尾节点自动解析。 */
+export interface PipelineStationLink {
+  id: string;
+  fromStationId: string;
+  toStationId: string;
+}
+
 export interface PipelineFlow {
   id: string;
   name: string;
@@ -153,7 +168,8 @@ export interface PipelineFlow {
 export type NodeOverride = Partial<Pick<
   PipelineNode,
   "title" | "owner" | "description" | "kind" | "stationId" | "parentNodeId" |
-  "trigger" | "execution" | "evidence" | "approver" | "gateRole"
+  "trigger" | "execution" | "evidence" | "approver" | "gateRole" |
+  "requires_human_review" | "assigned_user" | "update_seq" | "last_seen_seq"
 >>;
 export type StationOverride = Partial<Pick<PipelineStation, "title" | "subtitle" | "description" | "nodeIds">>;
 
@@ -168,6 +184,10 @@ export interface Demand {
   workflowId?: string;
   /** 左侧星轨分组；不参与星轨标题展示。 */
   groupName?: string;
+  /** 左栏排序、置顶与未读均属于星轨实例视图状态。 */
+  sortOrder: number;
+  pinned?: boolean;
+  unread?: boolean;
   /** bug 修复组的 Jira 兼容字段与状态历史。 */
   bug?: BugIssue;
   nodeStates: Partial<Record<string, NodeStatus>>;
@@ -176,6 +196,7 @@ export interface Demand {
   customNodes: PipelineNode[];
   customStations: PipelineStation[];
   customTransitions: PipelineTransition[];
+  stationLinks: PipelineStationLink[];
   deletedNodeIds: string[];
   deletedStationIds: string[];
   deletedTransitionIds: string[];
@@ -196,11 +217,13 @@ export interface PipelineBoardMetadata {
   sourceVersion: string;
   branchName: string;
   ownerGroup: string;
+  /** 单机身份占位；多人身份接入后替换为真实用户 id。 */
+  currentUserId: string;
   revision: number;
 }
 
 export interface PipelineLocalState {
-  schemaVersion: 3;
+  schemaVersion: 4;
   board: PipelineBoardMetadata;
   selectedDemandId: string;
   demands: Demand[];

@@ -15,7 +15,8 @@ const review = (id: `H${1 | 2 | 3 | 4}`, stationId: string, title: string, owner
   id, reviewCode: id, kind: "gate", gateRole: "agent_review", stationId, title, status: "pending", owner,
   owner_group: group, description, trigger: ["人工"], execution: "being+人", evidenceLevel: "L2",
   input: "待补充", output: "审核结论与证据", timeout: "待补充", failureRoute: "待补充",
-  options: ["通过", "退回"], defaultOption: "待补充", locked: true,
+  options: ["通过", "退回"], defaultOption: "待补充", requires_human_review: true,
+  assigned_user: "local-user", locked: true,
 });
 
 export const beingsDevelopmentStations: PipelineStation[] = [
