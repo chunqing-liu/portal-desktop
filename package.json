@@ -1,12 +1,18 @@
 {
   "name": "portal-desktop",
   "productName": "Portal Desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A desktop home for your Being, with Heart Portal built in.",
   "author": "Beings contributors",
   "license": "MIT",
   "main": ".vite/build/main.js",
   "scripts": {
+    "build:web:static": "node scripts/build-web-static.mjs",
+    "package:web:static": "node scripts/package-web-static.mjs",
+    "dev:web": "vite --config vite.web.config.mjs",
+    "build:web": "node scripts/build-web.mjs",
+    "package:web": "node scripts/package-web.mjs",
+    "start:web": "node out/web/server.mjs",
     "start": "npm run prepare:desktop && electron-forge start",
     "prepare:desktop": "node scripts/prepare-desktop.mjs",
     "build:portal": "node scripts/build-portal.mjs",
@@ -32,7 +38,10 @@
     "test:browser": "node tests/browser-e2e.mjs",
     "build:chat": "node scripts/build-chat.mjs",
     "test:chat-react": "npm run build:chat && node tests/chat-react.mjs",
+    "test:chat-scroll": "npm run build:chat && node tests/chat-scroll.mjs",
     "test:chat-context-menu": "npm run build:chat && node tests/chat-context-menu.mjs",
+    "test:chat-sessions": "npm run build:chat && node tests/chat-sessions-electron.mjs",
+    "test:client-context": "npm run build:chat && node tests/client-context-electron.mjs",
     "test:chat-history": "npm run build:chat && node tests/chat-history.mjs"
   },
   "devDependencies": {
@@ -48,6 +57,7 @@
     "electron": "44.2.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
+    "fflate": "^0.8.3",
     "playwright": "^1.58.0",
     "typescript": "^5.9.3",
     "vite": "^6.4.1",

@@ -1,6 +1,7 @@
 import type {
   DesktopAPI,
   Snapshot,
+  ChatSceneActivity,
   PortalState,
   SaveSettings,
   ClientStartup,
@@ -24,11 +25,39 @@ export class AppModel extends Store {
   chatLoading = false;
   chatHistoryScope: HistoryScope = "current";
   chatHistoryScopeKnown = false;
+  chatSessionCreateRequest = 0;
+  chatSceneActivity: Record<string, ChatSceneActivity> = {};
+  private readSceneReplies = new Set<string>();
+  setChatSceneActivity(activity: Record<string, ChatSceneActivity>) {
+    for (const id of this.readSceneReplies) if (activity[id] !== "done") this.readSceneReplies.delete(id);
+    const current = this.snapshot?.chatScene?.scene_id;
+    if (this.view === "chat" && this.chatHistoryScope === "current" && current && activity[current] === "done") this.readSceneReplies.add(current);
+    this.chatSceneActivity = Object.fromEntries(Object.entries(activity).filter(([id, status]) =>
+      status !== "done" || !this.readSceneReplies.has(id)));
+    this.changed();
+  }
   connection = "";
   sbsEnabled = true;
   sbsKnown = false;
   toastMessage = "";
   settingsOpen = false;
+  subagentSettingsOpen = false;
+  subagentFromConnection = false;
+  modelSettingsTarget: "Heart" | "subagent" = "Heart";
+  openSubagentSettings(fromConnection = false) {
+    this.modelSettingsTarget = "subagent";
+    this.subagentFromConnection = fromConnection;
+    if (fromConnection) this.settingsOpen = false;
+    else this.post({ type: "beings:chat-action", action: "close" });
+    this.subagentSettingsOpen = true;
+    this.changed();
+  }
+  closeSubagentSettings = () => {
+    this.subagentSettingsOpen = false;
+    if (!this.subagentFromConnection) this.dismissSettingsRoute();
+    if (this.subagentFromConnection) this.settingsOpen = true;
+    this.changed();
+  };
   clientSettingsOpen = false;
   settingsRoute: SettingsRoute = "";
   settingsForwardRoute: SettingsRoute = "";
@@ -181,6 +210,11 @@ export class AppModel extends Store {
   };
   navigate = (view: string, id?: string) => {
     this.view = view;
+    const scene = this.snapshot?.chatScene?.scene_id;
+    if (view === "chat" && this.chatHistoryScope === "current" && scene && this.chatSceneActivity[scene] === "done") {
+      this.readSceneReplies.add(scene);
+      delete this.chatSceneActivity[scene];
+    }
     this.workspace.enter(view);
     this.workspace.toggle(false);
     this.town.show(view, id);
@@ -199,17 +233,21 @@ export class AppModel extends Store {
     this.snapshot = next;
     this.workspace.snapshot(next);
     if (next.settings.hasToken && (!this.chatSource || reload)) {
+      this.chatSceneActivity = {};
+      this.readSceneReplies.clear();
       this.sbsKnown = false;
       this.chatLoading = true;
       if (!sameChat) this.chatHistoryScope = next.chatScene ? "current" : "all";
       this.chatHistoryScopeKnown = false;
       this.connection = "connecting";
-      this.chatSource = `beings://chat/?name=${encodeURIComponent(next.settings.being)}&history_scope=${encodeURIComponent(next.settings.endpoint)}&scene_scope=${this.chatHistoryScope}&theme=${this.theme}&revision=${crypto.randomUUID()}`;
+      this.chatSource = `beings://chat/?name=${encodeURIComponent(next.settings.being)}&history_scope=${encodeURIComponent(next.settings.endpoint)}&scene_scope=${this.chatHistoryScope}&scene_strict=1&theme=${this.theme}&revision=${crypto.randomUUID()}`;
       if (next.chatScene) {
         this.chatSource += `&scene_id=${encodeURIComponent(next.chatScene.scene_id)}&scene_label=${encodeURIComponent(next.chatScene.scene_meta.scene_label)}`;
       }
     }
     if (!next.settings.hasToken) {
+      this.chatSceneActivity = {};
+      this.readSceneReplies.clear();
       this.sbsKnown = false;
       this.chatSource = "";
       this.chatLoading = false;
@@ -224,6 +262,7 @@ export class AppModel extends Store {
     this.search = "";
     this.searchEntries = [];
     this.workspace.frameLoaded();
+    this.postCurrentSession();
     this.postAppearance();
     this.post({ type: "beings:sbs-request" });
     if (this.chatSource) this.post({ type: "beings:history-scope-request", revision: new URL(this.chatSource).searchParams.get("revision") });
@@ -238,8 +277,26 @@ export class AppModel extends Store {
     this.post({ type: "beings:sbs-toggle" });
     this.changed();
   }
+  async changeChatSession(operation: "create" | "bind" | "select" | "rename" | "delete", value: string, sceneId?: string) {
+    const endpoint = this.snapshot?.settings.endpoint;
+    if (!endpoint) throw new Error("请先连接 Being。");
+    const next = await this.api.changeChatSession(operation, value, endpoint, sceneId);
+    if (this.snapshot?.settings.endpoint !== endpoint) return;
+    this.applySnapshot(next);
+    this.chatHistoryScope = "current";
+    this.navigate("chat");
+    this.postCurrentSession();
+  }
+  private postCurrentSession() {
+    if (this.chatSource && this.snapshot?.chatScene) this.post({
+      type: "beings:session-select", scene: this.snapshot.chatScene, scope: this.chatHistoryScope,
+      scenes: this.snapshot.chatSessions,
+      revision: new URL(this.chatSource).searchParams.get("revision"),
+    });
+  }
   changeChatHistoryScope(scope: HistoryScope) {
     if (!this.chatSource || this.chatLoading || !this.chatHistoryScopeKnown || (scope === "current" && !this.snapshot?.chatScene)) return;
+    this.chatHistoryScope = scope;
     this.navigate("chat");
     this.post({ type: "beings:history-scope", scope, revision: new URL(this.chatSource).searchParams.get("revision") });
   }
@@ -306,7 +363,10 @@ export class AppModel extends Store {
   openModelSettings() {
     this.beginSettingsRoute("model");
     this.navigate("chat");
-    this.post({ type: "beings:chat-action", action: "model", returnToSettings: true });
+    this.subagentFromConnection = false;
+    this.modelSettingsTarget = "Heart";
+    this.subagentSettingsOpen = true;
+    this.changed();
   }
   openPortalSettings() {
     this.beginSettingsRoute("portal");
@@ -331,9 +391,10 @@ export class AppModel extends Store {
       this.settingsOpen = false;
       ++this.defaultsRevision;
       clearTimeout(this.defaultsTimer);
-      if (this.form) this.form.connectionLink = "";
+      if (this.form) { this.form.connectionLink = ""; this.form.subagentSetup = undefined; }
     }
     this.diagnosticsOpen = false;
+    this.subagentSettingsOpen = false;
     if (route === "model")
       this.post({ type: "beings:chat-action", action: "close" });
     if (this.view !== "chat") this.navigate("chat");
@@ -544,7 +605,7 @@ export class AppModel extends Store {
     this.settingsForwardRoute = "";
     ++this.defaultsRevision;
     clearTimeout(this.defaultsTimer);
-    if (this.form) this.form.connectionLink = "";
+    if (this.form) { this.form.connectionLink = ""; this.form.subagentSetup = undefined; }
     this.changed();
   }
   editForm<K extends keyof SaveSettings>(key: K, value: SaveSettings[K]) {
@@ -589,8 +650,14 @@ export class AppModel extends Store {
     this.changed();
     try {
       if (!this.nameEdited) await this.fillDefaults();
+      const expectedSubagent = this.form.subagentEnabled;
       const next = await this.api.save({ ...this.form });
       this.applySnapshot(next, true);
+      if (expectedSubagent !== undefined) {
+        const persisted = await this.api.subagentConfig();
+        if ((persisted.enabled !== false) !== expectedSubagent)
+          throw new Error('subagent 开关未写入配置，请完全退出并重新打开客户端后重试。');
+      }
       this.closeSettings();
       this.navigate("chat");
     } catch (error) {

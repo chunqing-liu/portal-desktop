@@ -32,7 +32,7 @@ export function TownHome({ town, data }: { town: TownModel; data: Data }) {
       key: name.trim().split(/\s+/).at(-1)!,
       service: record(raw),
     }))
-    .filter(({ key }) => key !== "beings");
+    .filter(({ key }) => key !== "beings" && (key !== 'portal' || town.supportsLocalKits));
   const routes: Record<string, [string, string, string]> = {
     grove: ["◇", "Grove 工具市集", "kits"],
     bonfire: ["♧", "篝火", "bonfire"],
@@ -229,7 +229,6 @@ export function Catalog({ town, data }: { town: TownModel; data: Data }) {
 export function Pagination({ town }: { town: TownModel }) {
   if (
     !town.data ||
-    town.loading ||
     town.error ||
     town.directId ||
     ["town", "bonfire", "mail", "firesides"].includes(town.view)
@@ -241,7 +240,7 @@ export function Pagination({ town }: { town: TownModel }) {
     <>
       <button
         className="secondary"
-        disabled={town.offset === 0}
+        disabled={town.loading || town.offset === 0}
         onClick={() => {
           town.offset = Math.max(0, town.offset - 24);
           void town.load();
@@ -254,7 +253,7 @@ export function Pagination({ town }: { town: TownModel }) {
       </span>
       <button
         className="secondary"
-        disabled={entries.length < 24 || town.offset + entries.length >= total}
+        disabled={town.loading || entries.length < 24 || town.offset + entries.length >= total}
         onClick={() => {
           town.offset += 24;
           void town.load();
@@ -493,7 +492,7 @@ function KitDetail({ town, data }: { town: TownModel; data: Data }) {
           查看经验墙
         </button>
         {repo && <button className="secondary" onClick={() => void town.run(() => town.api.openBrowser(repo))}>查看 App 仓库 ↗</button>}
-        {downloadable && (
+        {downloadable && town.supportsLocalKits && (
           <button
             className="primary"
             disabled={town.prepareBusy || town.installBusy || Boolean(installed) || town.installedLoading || !town.installedLibrary}

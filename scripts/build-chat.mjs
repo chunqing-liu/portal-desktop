@@ -29,10 +29,9 @@ await copyFile(
   "node_modules/highlight.js/styles/github-dark.min.css",
   path.join(output, "highlight.css"),
 );
-await copyFile(
-  "desktop/renderer/chat/styles.css",
-  path.join(output, "chat.css"),
-);
+await writeFile(path.join(output, "chat.css"),
+  await readFile("desktop/renderer/chat/styles.css", "utf8") + "\n" +
+  await readFile("desktop/renderer/shared/model-settings.css", "utf8"));
 const notices = [];
 for (const [name, file] of [
   ["marked", "LICENSE.md"],
@@ -50,3 +49,12 @@ await writeFile(
   notices.join("\n\n---\n\n"),
 );
 console.log("Built React chat assets in desktop/generated.");
+await build({
+  entryPoints: ["desktop/renderer/chat/client-context.ts"], bundle: true,
+  format: "iife", platform: "browser", minify: true,
+  outfile: path.join(output, "client-context.js"),
+});
+await writeFile(path.join(output, "client-context.html"), '<!doctype html><meta charset="utf-8"><script src="client-context.js"></script>');
+
+// Match the chat iframe's top-level site so Chromium uses the same storage key.
+await writeFile(path.join(output, "client-context-host.html"), '<!doctype html><meta charset="utf-8"><iframe src="beings://chat/client-context.html"></iframe>');

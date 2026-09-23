@@ -1,3 +1,4 @@
+import { splitSchedulingHint } from '../models/scheduling';
 import {
   useEffect,
   useImperativeHandle,
@@ -238,7 +239,7 @@ export function ChatIndex({
         .map((item) => ({
           id: item.turnId!,
           messageId: item.id,
-          text: markdownText(item.text).slice(0, 240) || "附件消息",
+          text: markdownText(splitSchedulingHint(item.text).text).slice(0, 240) || "附件消息",
         })),
     [signature],
   );
@@ -332,7 +333,7 @@ export function ChatIndex({
     for (const item of items.slice(start + 1)) {
       if (item.kind !== "message") continue;
       if (item.role === "user") break;
-      if (item.role === "being") replies.push(markdownText(item.text));
+      if (item.role === "being") replies.push(markdownText(splitSchedulingHint(item.text).text));
       if (replies.join(" ").length >= 240) break;
     }
   useLayoutEffect(() => {

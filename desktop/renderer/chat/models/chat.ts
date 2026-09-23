@@ -18,10 +18,14 @@ export interface Message extends MessageScene {
   text: string;
   streaming: boolean;
   timestamp: string;
+  createdAt?: number;
   label: string;
   consecutive: boolean;
   retry?: () => void | Promise<void>;
   retryLabel?: string;
+  queued?: boolean;
+  queueNotice?: string;
+  cancelQueued?: () => void;
 }
 export interface ActivityEntry {
   type: string;
@@ -45,6 +49,9 @@ export interface Run extends MessageScene {
   label: string;
   hint: string;
   arg: string;
+  waitingForReply?: boolean;
+  scheduling?: { hint: string; tasks: import("../../../shared/types").SceneTask[] };
+  synthetic?: boolean;
   outcome?: "stopped" | "error" | "done";
 }
 export type ChatItem =
@@ -52,6 +59,8 @@ export type ChatItem =
   | Run
   | ({ kind: "separator"; id: string; text: string; marker?: boolean } & MessageScene);
 export interface Preset {
+  base_url?: string;
+  api?: string;
   id: string;
   label: string;
   model: string;
@@ -59,6 +68,9 @@ export interface Preset {
   has_key?: boolean;
 }
 export interface LlmConfig {
+  enabled?: boolean;
+  base_url?: string;
+  api?: string;
   model?: string;
   provider?: string;
   presets?: Preset[];
@@ -83,7 +95,10 @@ export interface Soul {
 }
 export class ChatState extends Store {
   items: ChatItem[] = [];
-  currentScene = messageScene(Object.fromEntries(new URLSearchParams(location.search)));
+  subagentReady = false;
+  sceneTasks: import('../../../shared/types').SceneTask[] = [];
+  sceneNames: Record<string, string> = {};
+  currentScene: MessageScene = { ...messageScene(Object.fromEntries(new URLSearchParams(location.search))), ...(new URLSearchParams(location.search).get("scene_strict") === "1" ? { strict: true } : {}) };
   activeScene: MessageScene = this.currentScene;
   historyScope: HistoryScope = this.currentScene.sceneId && new URLSearchParams(location.search).get("scene_scope") !== "all" ? "current" : "all";
   name = new URLSearchParams(location.search).get("name") || "being";
@@ -106,7 +121,9 @@ export class ChatState extends Store {
   configLoading = false;
 }
 export interface ChatRuntime {
+  updateSceneTasks(tasks: import("../../../shared/types").SceneTask[], subagentReady?: boolean): void;
   start(): Promise<void>;
+  selectScene(scene: MessageScene): Promise<void>;
   dispose(): void;
   send(text: string, files?: Attachment[] | null): Promise<void>;
   stopCurrentTurn(): Promise<void>;
@@ -123,6 +140,8 @@ export interface ChatRuntime {
   request(path: string, init?: RequestInit): Promise<Response>;
 }
 export interface RuntimeOptions {
+  connection?: { api: string; token: string; relaySecret?: string };
+  onSceneActivity?(activity: Record<string, import("../../../shared/types").ChatSceneActivity>): void;
   onSbs?(enabled: boolean): void;
   onConnection?(state: string): void;
   beforeSend?(text: string): Promise<((ok: boolean) => void) | undefined>;
