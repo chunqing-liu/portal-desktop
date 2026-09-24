@@ -463,30 +463,42 @@ function PipelineCanvas({
     latestById.set(dragged.id, dragged);
     const moving = currentNodes.filter((node) => node.type === "item" && node.selected);
     if (!moving.some((node) => node.id === dragged.id)) moving.splice(0, moving.length, dragged);
-    const movingIds = new Set(moving.map((node) => node.id));
+    // P15：先算落点归属。同站拖动不得改变 nodeIds 顺序——否则站内拖一下首/尾节点就会跳到队尾，锚定虚线跟着跳变（2026-09-24 醇青反馈）。
+    const targetByMovingId = new Map<string, PipelineStation | null>();
+    moving.forEach((movingNode) => {
+      const latest = latestById.get(movingNode.id) || movingNode;
+      const center = { x: latest.position.x + NODE_WIDTH / 2, y: latest.position.y + NODE_HEIGHT / 2 };
+      const target = stations.find((station) => {
+        const origin = stationPositionById.get(station.id) || { x: 80, y: 120 };
+        const size = stationSizeById.get(station.id) || { width: STATION_MIN_WIDTH, height: STATION_EMPTY_HEIGHT };
+        return center.x >= origin.x && center.x <= origin.x + size.width && center.y >= origin.y && center.y <= origin.y + size.height;
+      }) || null;
+      targetByMovingId.set(movingNode.id, target);
+    });
     onDemandChange((current) => ({ ...current, demands: current.demands.map((entry) => {
       if (entry.id !== demand.id) return entry;
       const stationOverrides = { ...entry.stationOverrides };
-      stations.forEach((station) => {
-        stationOverrides[station.id] = { ...stationOverrides[station.id], nodeIds: (stationOverrides[station.id]?.nodeIds || station.nodeIds).filter((id) => !movingIds.has(id)) };
-      });
       const nodeOverrides = { ...entry.nodeOverrides };
       const nextPositions = { ...entry.positions };
+      const previousStationIdOf = (nodeId: string) => (nodeId in nodeOverrides ? nodeOverrides[nodeId]?.stationId ?? null : nodeById.get(nodeId)?.stationId ?? null);
+      stations.forEach((station) => {
+        const leavingIds = moving.filter((movingNode) => previousStationIdOf(movingNode.id) === station.id && targetByMovingId.get(movingNode.id)?.id !== station.id).map((movingNode) => movingNode.id);
+        if (!leavingIds.length) return;
+        stationOverrides[station.id] = { ...stationOverrides[station.id], nodeIds: (stationOverrides[station.id]?.nodeIds || station.nodeIds).filter((id) => !leavingIds.includes(id)) };
+      });
       moving.forEach((movingNode) => {
         const latest = latestById.get(movingNode.id) || movingNode;
-        const center = { x: latest.position.x + NODE_WIDTH / 2, y: latest.position.y + NODE_HEIGHT / 2 };
-        const target = stations.find((station) => {
-          const origin = stationPositionById.get(station.id) || { x: 80, y: 120 };
-          const size = stationSizeById.get(station.id) || { width: STATION_MIN_WIDTH, height: STATION_EMPTY_HEIGHT };
-          return center.x >= origin.x && center.x <= origin.x + size.width && center.y >= origin.y && center.y <= origin.y + size.height;
-        });
+        const target = targetByMovingId.get(movingNode.id);
+        const previousStationId = previousStationIdOf(movingNode.id);
         const position = target ? {
           x: Math.max(latest.position.x, (stationPositionById.get(target.id)?.x || 80) + STATION_PADDING),
           y: Math.max(latest.position.y, (stationPositionById.get(target.id)?.y || 120) + STATION_HEADER_HEIGHT),
         } : latest.position;
         nextPositions[movingNode.id] = position;
         nodeOverrides[movingNode.id] = { ...nodeOverrides[movingNode.id], stationId: target?.id || null };
-        if (target) stationOverrides[target.id] = { ...stationOverrides[target.id], nodeIds: [...(stationOverrides[target.id]?.nodeIds || []), movingNode.id] };
+        if (target && previousStationId !== target.id) {
+          stationOverrides[target.id] = { ...stationOverrides[target.id], nodeIds: [...(stationOverrides[target.id]?.nodeIds || target.nodeIds), movingNode.id] };
+        }
       });
       return { ...entry, positions: nextPositions, nodeOverrides, stationOverrides };
     }) }));
