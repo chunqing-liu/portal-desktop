@@ -81,6 +81,8 @@ const SIDEBAR_WIDTHS_STORAGE_KEY = "beings:star-map:sidebar-widths:v1";
 const DEFAULT_SIDEBAR_WIDTHS = { left: 180, right: 230 };
 const SIDEBAR_WIDTH_LIMITS = { left: { min: 180, max: 420 }, right: { min: 220, max: 520 } };
 const STATION_ANCHOR_EDGE_PREFIX = "station-anchor-";
+const COLLISION_TOLERANCE = 8;
+const COLLISION_VERTICAL_GAP = 24;
 
 const statusLabels: Record<NodeStatus, string> = {
   pending: "待开始", ready: "可开始", running: "运行中", waiting_human: "等待审核",
@@ -139,6 +141,38 @@ function loadSidebarWidths() {
 }
 
 type StationSize = { width: number; height: number };
+type StationAnchorSide = "start" | "end";
+type CollisionRect = PipelinePoint & { width: number; height: number };
+
+function parseStationAnchorEdgeId(id: string): { stationId: string; side: StationAnchorSide } | null {
+  const match = id.match(/^station-anchor-(.+)-(start|end)$/);
+  return match ? { stationId: match[1], side: match[2] as StationAnchorSide } : null;
+}
+
+function overlapsWithTolerance(a: CollisionRect, b: CollisionRect) {
+  return a.x - COLLISION_TOLERANCE < b.x + b.width + COLLISION_TOLERANCE &&
+    a.x + a.width + COLLISION_TOLERANCE > b.x - COLLISION_TOLERANCE &&
+    a.y - COLLISION_TOLERANCE < b.y + b.height + COLLISION_TOLERANCE &&
+    a.y + a.height + COLLISION_TOLERANCE > b.y - COLLISION_TOLERANCE;
+}
+
+function resolveCollision(position: PipelinePoint, obstacles: CollisionRect[], maxIterations: number): PipelinePoint {
+  let next = position;
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const candidate: CollisionRect = { ...next, width: NODE_WIDTH, height: NODE_HEIGHT };
+    const obstacle = obstacles.find((item) => overlapsWithTolerance(candidate, item));
+    if (!obstacle) return next;
+    const candidateCenterY = next.y + NODE_HEIGHT / 2;
+    const obstacleCenterY = obstacle.y + obstacle.height / 2;
+    next = {
+      x: next.x,
+      y: candidateCenterY < obstacleCenterY
+        ? obstacle.y - NODE_HEIGHT - COLLISION_VERTICAL_GAP
+        : obstacle.y + obstacle.height + COLLISION_VERTICAL_GAP,
+    };
+  }
+  return next;
+}
 
 function visibleNodePosition(node: PipelineNode, positions: Record<string, PipelinePoint>, stationPositions: Map<string, PipelinePoint>) {
   const raw = positions[node.id] || { x: 80, y: 120 };
@@ -213,8 +247,8 @@ function StationNode({ data }: NodeProps<Node<StationData>>) {
   return <div className={`star-map-station${data.compact ? " is-compact" : ""}${data.stationLinked ? " is-station-linked" : ""}${data.stationChainBroken ? " is-station-chain-broken" : ""}`}>
     <Handle id="input" type="target" position={Position.Left} className="star-map-port is-input" title="连接输入" aria-label={`${data.item.title} 连接输入`} data-testid={`connect-target-${data.item.id}`}><span>●</span></Handle>
     <Handle id="output" type="source" position={Position.Right} className="star-map-port is-output" title="拖动以连接" aria-label={`从 ${data.item.title} 开始连接`} data-testid={`connect-source-${data.item.id}`}><span>＋</span></Handle>
-    <Handle id="anchor-input" type="target" position={Position.Right} className="star-map-anchor-port is-anchor-input" style={{ top: "66%" }} isConnectable={false} aria-hidden="true" />
-    <Handle id="anchor-output" type="source" position={Position.Left} className="star-map-anchor-port is-anchor-output" style={{ top: "34%" }} isConnectable={false} aria-hidden="true" />
+    <Handle id="anchor-input" type="target" position={Position.Right} className="star-map-anchor-port is-anchor-input" style={{ top: "66%" }} title="调整站尾锚定" aria-label={`${data.item.title} 站尾锚定目标`} />
+    <Handle id="anchor-output" type="source" position={Position.Left} className="star-map-anchor-port is-anchor-output" style={{ top: "34%" }} title="调整站首锚定" aria-label={`从 ${data.item.title} 调整站首锚定`} />
     <div className="star-map-station-heading"><span>{data.item.id}</span><strong>{data.item.title}</strong></div>
     <p>{data.compact ? data.summary : data.item.subtitle}</p>
     {!data.compact && <span className="star-map-station-caption">站 · {data.count} 个节点</span>}
@@ -226,8 +260,8 @@ function ItemNode({ data }: NodeProps<Node<ItemData>>) {
   return <div className={`star-map-item status-${item.status}${item.kind === "gate" ? " is-review" : ""}${data.detailed ? " is-detailed" : ""}`}>
     <Handle id="input" type="target" position={Position.Left} className="star-map-port is-input" title="连接输入" aria-label={`${item.title} 连接输入`} data-testid={`connect-target-${item.id}`}><span>●</span></Handle>
     <Handle id="output" type="source" position={Position.Right} className="star-map-port is-output" title="拖动以连接" aria-label={`从 ${item.title} 开始连接`} data-testid={`connect-source-${item.id}`}><span>＋</span></Handle>
-    <Handle id="anchor-input" type="target" position={Position.Left} className="star-map-anchor-port is-anchor-input" style={{ top: "35%" }} isConnectable={false} aria-hidden="true" />
-    <Handle id="anchor-output" type="source" position={Position.Right} className="star-map-anchor-port is-anchor-output" style={{ top: "65%" }} isConnectable={false} aria-hidden="true" />
+    <Handle id="anchor-input" type="target" position={Position.Left} className="star-map-anchor-port is-anchor-input" style={{ top: "35%" }} title="作为站首节点" aria-label={`${item.title} 作为站首锚定节点`} />
+    <Handle id="anchor-output" type="source" position={Position.Right} className="star-map-anchor-port is-anchor-output" style={{ top: "65%" }} title="作为站尾节点" aria-label={`${item.title} 作为站尾锚定节点`} />
     {data.attention && <span className={`star-map-attention-dot is-${data.attention}`} title={data.attention === "action" ? "需要你操作" : "有更新"} aria-label={data.attention === "action" ? "需要你操作" : "有更新"} />}
     <div className="star-map-item-topline"><code>{item.reviewCode || item.id}</code><i /><b>{item.kind === "gate" ? "闸口" : data.statusLabel || statusLabels[item.status]}</b></div>
     <strong>{item.title}</strong>
@@ -266,11 +300,11 @@ function CommentSection({ comments, currentUserId, onSubmit }: {
 }
 
 const nodeTypes = { station: StationNode, item: ItemNode };
-type CanvasMenu = { x: number; y: number; kind: "pane" | "node" | "station" | "selection"; ids: string[] };
+type CanvasMenu = { x: number; y: number; kind: "pane" | "node" | "station" | "selection" | "edge"; ids: string[] };
 
 function PipelineCanvas({
   demand, flow, stations, nodes, positions, currentUserId, selectedItemIds,
-  onDemandChange, onSelectionChange, onCreateItem, onDeleteItems, onDuplicateItems,
+  onDemandChange, onSelectionChange, onCreateItem, onDeleteItems, onDuplicateItems, onToast,
   onConvertNode, onMarkNodeUpdated, onRenameStation, onAutoArrange, onCreateStationFromSelection,
 }: {
   demand?: Demand;
@@ -282,6 +316,7 @@ function PipelineCanvas({
   selectedItemIds: string[];
   onDemandChange(change: (current: PipelineLocalState) => PipelineLocalState): void;
   onSelectionChange(ids: string[]): void;
+  onToast(message: string): void;
   onCreateItem(kind: "station" | "node" | "gate", position: PipelinePoint): void;
   onDeleteItems(ids: string[]): void;
   onDuplicateItems(ids: string[], options?: { offset?: number; select?: boolean }): void;
@@ -396,19 +431,33 @@ function PipelineCanvas({
     if (!compact) {
       stations.forEach((station) => {
         const orderedNodes = orderedStationNodes(station.id);
-        const firstNode = orderedNodes[0];
-        const lastNode = orderedNodes.at(-1);
+        const override = demand.stationAnchors?.[station.id];
+        const defaultFirstNode = orderedNodes[0];
+        const defaultLastNode = orderedNodes.at(-1);
+        const firstOverrideNode = override?.start ? orderedNodes.find((node) => node.id === override.start) : undefined;
+        const lastOverrideNode = override?.end ? orderedNodes.find((node) => node.id === override.end) : undefined;
+        const firstNode = firstOverrideNode || defaultFirstNode;
+        const lastNode = lastOverrideNode || defaultLastNode;
         if (!firstNode || !lastNode) return;
-        edges.push({
-          id: `${STATION_ANCHOR_EDGE_PREFIX}${station.id}-start`, source: station.id, sourceHandle: "anchor-output",
-          target: firstNode.id, targetHandle: "anchor-input", type: "default", selectable: false, deletable: false,
-          focusable: false, zIndex: 1, className: "pipeline-edge-station-anchor",
-        });
-        if (lastNode.id !== firstNode.id) {
+        const addAnchorEdge = (side: StationAnchorSide, source: string, sourceHandle: string, target: string, targetHandle: string, editable: boolean) => {
+          edges.push({
+            id: `${STATION_ANCHOR_EDGE_PREFIX}${station.id}-${side}`, source, sourceHandle, target, targetHandle,
+            type: "default", selectable: editable, deletable: editable, focusable: editable, zIndex: 1,
+            className: `pipeline-edge-station-anchor${editable ? " is-editable" : ""}`,
+          });
+        };
+        const startEditable = Boolean(firstOverrideNode);
+        const endEditable = Boolean(lastOverrideNode);
+        if (orderedNodes.length === 1 && endEditable && !startEditable) {
+          addAnchorEdge("end", lastNode.id, "anchor-output", station.id, "anchor-input", true);
+        } else {
+          addAnchorEdge("start", station.id, "anchor-output", firstNode.id, "anchor-input", startEditable);
+        }
+        if (orderedNodes.length > 1) {
           edges.push({
             id: `${STATION_ANCHOR_EDGE_PREFIX}${station.id}-end`, source: lastNode.id, sourceHandle: "anchor-output",
-            target: station.id, targetHandle: "anchor-input", type: "default", selectable: false, deletable: false,
-            focusable: false, zIndex: 1, className: "pipeline-edge-station-anchor",
+            target: station.id, targetHandle: "anchor-input", type: "default", selectable: endEditable, deletable: endEditable,
+            focusable: endEditable, zIndex: 1, className: `pipeline-edge-station-anchor${endEditable ? " is-editable" : ""}`,
           });
         }
       });
@@ -475,6 +524,25 @@ function PipelineCanvas({
       }) || null;
       targetByMovingId.set(movingNode.id, target);
     });
+    const proposedPositions = new Map<string, PipelinePoint>();
+    nodes.forEach((item) => proposedPositions.set(item.id, visibleNodePosition(item, positions, stationPositionById)));
+    moving.forEach((movingNode) => {
+      const latest = latestById.get(movingNode.id) || movingNode;
+      const target = targetByMovingId.get(movingNode.id);
+      proposedPositions.set(movingNode.id, target ? {
+        x: Math.max(latest.position.x, (stationPositionById.get(target.id)?.x || 80) + STATION_PADDING),
+        y: Math.max(latest.position.y, (stationPositionById.get(target.id)?.y || 120) + STATION_HEADER_HEIGHT),
+      } : latest.position);
+    });
+    moving.forEach((movingNode) => {
+      const candidate = proposedPositions.get(movingNode.id);
+      if (!candidate) return;
+      const obstacles = nodes.filter((item) => item.id !== movingNode.id).map((item) => ({
+        ...(proposedPositions.get(item.id) || visibleNodePosition(item, positions, stationPositionById)),
+        width: NODE_WIDTH, height: NODE_HEIGHT,
+      }));
+      proposedPositions.set(movingNode.id, resolveCollision(candidate, obstacles, Math.max(1, nodes.length)));
+    });
     onDemandChange((current) => ({ ...current, demands: current.demands.map((entry) => {
       if (entry.id !== demand.id) return entry;
       const stationOverrides = { ...entry.stationOverrides };
@@ -490,10 +558,7 @@ function PipelineCanvas({
         const latest = latestById.get(movingNode.id) || movingNode;
         const target = targetByMovingId.get(movingNode.id);
         const previousStationId = previousStationIdOf(movingNode.id);
-        const position = target ? {
-          x: Math.max(latest.position.x, (stationPositionById.get(target.id)?.x || 80) + STATION_PADDING),
-          y: Math.max(latest.position.y, (stationPositionById.get(target.id)?.y || 120) + STATION_HEADER_HEIGHT),
-        } : latest.position;
+        const position = proposedPositions.get(movingNode.id) || latest.position;
         nextPositions[movingNode.id] = position;
         nodeOverrides[movingNode.id] = { ...nodeOverrides[movingNode.id], stationId: target?.id || null };
         if (target && previousStationId !== target.id) {
@@ -505,10 +570,21 @@ function PipelineCanvas({
   };
 
   const removeEdges = (ids: string[]) => {
+    if (!demand || !ids.length) return;
+    const anchorIds = ids.map(parseStationAnchorEdgeId).filter((item): item is { stationId: string; side: StationAnchorSide } => Boolean(item));
     const persistedIds = ids.filter((id) => !id.startsWith(STATION_ANCHOR_EDGE_PREFIX));
-    if (!demand || !persistedIds.length) return;
+    if (!anchorIds.length && !persistedIds.length) return;
     onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
-      ...item,
+      ...item, stationAnchors: (() => {
+        const stationAnchors = { ...(item.stationAnchors || {}) };
+        anchorIds.forEach(({ stationId, side }) => {
+          const next = { ...(stationAnchors[stationId] || {}) };
+          delete next[side];
+          if (next.start || next.end) stationAnchors[stationId] = next;
+          else delete stationAnchors[stationId];
+        });
+        return stationAnchors;
+      })(),
       stationLinks: item.stationLinks.filter((link) => !persistedIds.includes(link.id)),
       deletedTransitionIds: [...new Set([...item.deletedTransitionIds, ...persistedIds])],
     } : item) }));
@@ -525,6 +601,27 @@ function PipelineCanvas({
 
   const onConnect = (connection: Connection) => {
     if (!demand || !connection.source || !connection.target || connection.source === connection.target) return;
+    const sourceHandle = connection.sourceHandle || "";
+    const targetHandle = connection.targetHandle || "";
+    if (sourceHandle.startsWith("anchor-") || targetHandle.startsWith("anchor-")) {
+      const isStartAnchor = sourceHandle === "anchor-output" && targetHandle === "anchor-input" && stationById.has(connection.source) && nodeById.has(connection.target);
+      const isEndAnchor = sourceHandle === "anchor-output" && targetHandle === "anchor-input" && nodeById.has(connection.source) && stationById.has(connection.target);
+      const stationId = isStartAnchor ? connection.source : isEndAnchor ? connection.target : "";
+      const nodeId = isStartAnchor ? connection.target : isEndAnchor ? connection.source : "";
+      const side: StationAnchorSide = isStartAnchor ? "start" : "end";
+      const node = nodeById.get(nodeId);
+      if (!stationId || !node || node.stationId !== stationId) {
+        onToast("锚定节点须在本站内");
+        setLastConnection("锚定节点须在本站内"); setConnectingFromId("");
+        return;
+      }
+      onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
+        ...item,
+        stationAnchors: { ...(item.stationAnchors || {}), [stationId]: { ...(item.stationAnchors?.[stationId] || {}), [side]: nodeId } },
+      } : item) }));
+      setLastConnection(`${stationId} ${side === "start" ? "首" : "尾"}锚定 ${nodeId}`); setConnectingFromId("");
+      return;
+    }
     if (stationById.has(connection.source) && stationById.has(connection.target)) {
       const id = `station-link-${crypto.randomUUID()}`;
       onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
@@ -560,6 +657,30 @@ function PipelineCanvas({
     setContextMenu({ x: event.clientX, y: event.clientY, kind: ids.length > 1 ? "selection" : isStationNode(node) ? "station" : "node", ids });
   };
 
+  const restoreStationAnchor = (edgeId: string) => {
+    const anchor = parseStationAnchorEdgeId(edgeId);
+    if (!anchor || !demand) return;
+    onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => {
+      if (item.id !== demand.id) return item;
+      const stationAnchors = { ...(item.stationAnchors || {}) };
+      const next = { ...(stationAnchors[anchor.stationId] || {}) };
+      delete next[anchor.side];
+      if (next.start || next.end) stationAnchors[anchor.stationId] = next;
+      else delete stationAnchors[anchor.stationId];
+      return { ...item, stationAnchors };
+    }) }));
+    setContextMenu(null);
+  };
+
+  const openEdgeMenu = (event: ReactMouseEvent, edge: Edge) => {
+    event.preventDefault(); event.stopPropagation();
+    const anchor = parseStationAnchorEdgeId(edge.id);
+    const isEditableAnchor = Boolean(anchor && edge.selectable && edge.deletable);
+    const isStationLink = demand?.stationLinks.some((link) => link.id === edge.id) || false;
+    if (!isEditableAnchor && !isStationLink) return;
+    setContextMenu({ x: event.clientX, y: event.clientY, kind: "edge", ids: [edge.id] });
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Delete" || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
@@ -584,6 +705,9 @@ function PipelineCanvas({
   }, [onSelectionChange]);
 
   const menuNodeIds = contextMenu?.ids.filter((id) => nodeById.has(id)) || [];
+  const menuEdgeId = contextMenu?.kind === "edge" ? contextMenu.ids[0] : "";
+  const menuEdgeAnchor = menuEdgeId ? parseStationAnchorEdgeId(menuEdgeId) : null;
+  const menuEdgeIsStationLink = Boolean(menuEdgeId && demand?.stationLinks.some((link) => link.id === menuEdgeId));
   return <div ref={wrapper} className="star-map-canvas" style={{ "--star-map-zoom": zoom } as CSSProperties} onWheelCapture={onWheelCapture} onContextMenuCapture={(event) => event.preventDefault()}>
     <ReactFlow
       nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes}
@@ -592,6 +716,7 @@ function PipelineCanvas({
       onConnectEnd={() => setConnectingFromId("")}
       onNodeClick={(_event, node) => { onSelectionChange([node.id]); setContextMenu(null); }}
       onNodeContextMenu={openNodeMenu}
+      onEdgeContextMenu={openEdgeMenu}
       onNodeDragStart={(event, node) => {
         altDragIds.current = [];
         if (!("altKey" in event) || !event.altKey || isStationNode(node)) return;
@@ -635,6 +760,8 @@ function PipelineCanvas({
       {contextMenu.kind === "pane" && <><button type="button" onClick={() => { createAtViewportCenter("node"); setContextMenu(null); }}>新建节点</button><button type="button" onClick={() => { createAtViewportCenter("gate"); setContextMenu(null); }}>新建闸口</button><button type="button" onClick={() => { createAtViewportCenter("station"); setContextMenu(null); }}>新建站</button></>}
       {contextMenu.kind === "node" && <><button type="button" onClick={() => { onDuplicateItems(contextMenu.ids); setContextMenu(null); }}>复制节点</button><button type="button" onClick={() => { onConvertNode(contextMenu.ids[0]); setContextMenu(null); }}>转为闸口</button><button type="button" onClick={() => { onMarkNodeUpdated(contextMenu.ids); setContextMenu(null); }}>标记有更新</button><div role="separator" /><button type="button" className="is-danger" onClick={() => { onDeleteItems(contextMenu.ids); setContextMenu(null); }}>删除节点</button></>}
       {contextMenu.kind === "station" && <><button type="button" onClick={() => { onRenameStation(contextMenu.ids[0]); setContextMenu(null); }}>重命名站</button><button type="button" className="is-danger" onClick={() => { onDeleteItems(contextMenu.ids); setContextMenu(null); }}>删除站</button></>}
+      {contextMenu.kind === "edge" && menuEdgeAnchor && <button type="button" onClick={() => restoreStationAnchor(menuEdgeId)}>恢复默认锚定</button>}
+      {contextMenu.kind === "edge" && menuEdgeIsStationLink && <button type="button" className="is-danger" onClick={() => { removeEdges([menuEdgeId]); setContextMenu(null); }}>删除站间连线</button>}
       {contextMenu.kind === "selection" && <><button type="button" disabled={!menuNodeIds.length} onClick={() => { onDuplicateItems(menuNodeIds); setContextMenu(null); }}>复制选中节点</button><button type="button" disabled={!menuNodeIds.length} onClick={() => { onAutoArrange(menuNodeIds); setContextMenu(null); }}>自动排序</button><button type="button" disabled={!menuNodeIds.length} onClick={() => { onCreateStationFromSelection(menuNodeIds); setContextMenu(null); }}>创建站</button><button type="button" disabled={!menuNodeIds.length} onClick={() => { onMarkNodeUpdated(menuNodeIds); setContextMenu(null); }}>标记有更新</button><div role="separator" /><button type="button" className="is-danger" onClick={() => { onDeleteItems(contextMenu.ids); setContextMenu(null); }}>删除选中项</button></>}
     </div>}
   </div>;
@@ -1116,7 +1243,7 @@ function PipelineContent({ model }: { model: AppModel }) {
         </>}
       </aside>
       <section className="pipeline-main" aria-label="星图画布">
-        <ReactFlowProvider><PipelineCanvas demand={demand} flow={flow} stations={stations} nodes={nodes} positions={positions} currentUserId={state.board.currentUserId} selectedItemIds={selectedItemIds} onDemandChange={changeState} onSelectionChange={handleCanvasSelectionChange} onCreateItem={addItem} onDeleteItems={deleteItems} onDuplicateItems={duplicateItems} onConvertNode={convertNode} onMarkNodeUpdated={markNodesUpdated} onRenameStation={renameStation} onAutoArrange={autoArrange} onCreateStationFromSelection={createStationFromSelection} /></ReactFlowProvider>
+        <ReactFlowProvider><PipelineCanvas demand={demand} flow={flow} stations={stations} nodes={nodes} positions={positions} currentUserId={state.board.currentUserId} selectedItemIds={selectedItemIds} onDemandChange={changeState} onSelectionChange={handleCanvasSelectionChange} onCreateItem={addItem} onDeleteItems={deleteItems} onDuplicateItems={duplicateItems} onToast={app.toast} onConvertNode={convertNode} onMarkNodeUpdated={markNodesUpdated} onRenameStation={renameStation} onAutoArrange={autoArrange} onCreateStationFromSelection={createStationFromSelection} /></ReactFlowProvider>
       </section>
       <aside className={`pipeline-inspector${rightCollapsed ? " is-collapsed" : ""}`} aria-label="节点详情">
         {!rightCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-right" role="separator" aria-orientation="vertical" aria-label="调整右侧详情栏宽度" onPointerDown={(event) => startSidebarResize("right", event)} />}

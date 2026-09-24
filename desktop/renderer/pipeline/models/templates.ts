@@ -19,10 +19,16 @@ export const pipelineFlows: PipelineFlow[] = [beingsDevelopmentWorkflow, bugFixW
 export const getPipelineFlow = (workflowId?: string): PipelineFlow =>
   pipelineFlows.find((flow) => flow.id === workflowId) || defaultPipeline;
 
+const stationLinksFromFlow = (flow: PipelineFlow): PipelineStationLink[] => (flow.stationLinks || []).map((link) => ({
+  id: `station-link-${crypto.randomUUID()}`,
+  fromStationId: link.fromStationId,
+  toStationId: link.toStationId,
+}));
+
 const editableDefaults = {
   stationOverrides: {}, customNodes: [], customStations: [], customTransitions: [],
-  stationLinks: [], deletedNodeIds: [], deletedStationIds: [], deletedTransitionIds: [], positions: {},
-} satisfies Pick<Demand, "stationOverrides" | "customNodes" | "customStations" | "customTransitions" | "stationLinks" | "deletedNodeIds" | "deletedStationIds" | "positions"> & { deletedTransitionIds: string[] };
+  stationLinks: [], stationAnchors: {}, deletedNodeIds: [], deletedStationIds: [], deletedTransitionIds: [], positions: {},
+} satisfies Pick<Demand, "stationOverrides" | "customNodes" | "customStations" | "customTransitions" | "stationLinks" | "stationAnchors" | "deletedNodeIds" | "deletedStationIds" | "positions"> & { deletedTransitionIds: string[] };
 
 export const DEFAULT_DEMAND_GROUP = "默认组";
 export const LOCAL_USER_ID = "local-user";
@@ -41,6 +47,7 @@ export const defaultDemand: Demand = {
   owner_group: "产品交付组",
   workflowId: defaultPipeline.id,
   groupName: defaultPipeline.groupName,
+  stationLinks: stationLinksFromFlow(defaultPipeline),
   sortOrder: 0,
   nodeStates: { H1: "waiting_human" },
   nodeOverrides: {},
@@ -119,6 +126,18 @@ const normalizeStationLinks = (value: unknown): PipelineStationLink[] => Array.i
   ? value.filter(isRecord).flatMap((item) => typeof item.id === "string" && typeof item.fromStationId === "string" && typeof item.toStationId === "string"
     ? [{ id: item.id, fromStationId: item.fromStationId, toStationId: item.toStationId }] : []) : [];
 
+const normalizeStationAnchors = (value: unknown): Demand["stationAnchors"] => {
+  if (!isRecord(value)) return {};
+  const result: NonNullable<Demand["stationAnchors"]> = {};
+  Object.entries(value).forEach(([stationId, raw]) => {
+    if (!isRecord(raw)) return;
+    const start = typeof raw.start === "string" && raw.start ? raw.start : undefined;
+    const end = typeof raw.end === "string" && raw.end ? raw.end : undefined;
+    if (start || end) result[stationId] = { ...(start ? { start } : {}), ...(end ? { end } : {}) };
+  });
+  return result;
+};
+
 function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string") return null;
   const workflowId = typeof value.workflowId === "string" ? value.workflowId : defaultPipeline.id;
@@ -128,6 +147,9 @@ function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
   const isLegacyBugDefault = workflowId === bugFixWorkflow.id && ["星图 V5 P0 修复", "bug 修复组"].includes(value.title);
   const title = isLegacyBugDefault ? "bug 修复" : value.title;
   const groupName = typeof value.groupName === "string" && value.groupName === "bug 修复组" ? "bug 修复" : value.groupName;
+  const normalizedStationLinks = normalizeStationLinks(value.stationLinks);
+  const stationLinks = workflowId === defaultPipeline.id && normalizedStationLinks.length === 0
+    ? stationLinksFromFlow(flow) : normalizedStationLinks;
   return {
     ...structuredClone(editableDefaults),
     id: value.id,
@@ -148,7 +170,8 @@ function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
     customNodes: Array.isArray(value.customNodes) ? value.customNodes.filter(isRecord) as unknown as PipelineNode[] : [],
     customStations: Array.isArray(value.customStations) ? value.customStations.filter(isRecord) as unknown as PipelineStation[] : [],
     customTransitions: normalizeTransitions(value.customTransitions),
-    stationLinks: normalizeStationLinks(value.stationLinks),
+    stationLinks,
+    stationAnchors: normalizeStationAnchors(value.stationAnchors),
     deletedNodeIds: Array.isArray(value.deletedNodeIds) ? value.deletedNodeIds.filter((item): item is string => typeof item === "string") : [],
     deletedStationIds: Array.isArray(value.deletedStationIds) ? value.deletedStationIds.filter((item): item is string => typeof item === "string") : [],
     deletedTransitionIds: Array.isArray(value.deletedTransitionIds) ? value.deletedTransitionIds.filter((item): item is string => typeof item === "string") : [],
@@ -157,9 +180,31 @@ function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
   };
 }
 
+function pruneStationAnchors(demand: Demand): Demand {
+  if (!demand.stationAnchors || !Object.keys(demand.stationAnchors).length) return demand;
+  const flow = getPipelineFlow(demand.workflowId);
+  const stationIds = new Set(demandStations(flow, demand).map((station) => station.id));
+  const membersByStation = new Map<string, Set<string>>();
+  demandNodes(flow, demand).forEach((node) => {
+    if (!node.stationId) return;
+    const members = membersByStation.get(node.stationId) || new Set<string>();
+    members.add(node.id);
+    membersByStation.set(node.stationId, members);
+  });
+  const stationAnchors: NonNullable<Demand["stationAnchors"]> = {};
+  Object.entries(demand.stationAnchors).forEach(([stationId, anchor]) => {
+    if (!stationIds.has(stationId)) return;
+    const members = membersByStation.get(stationId) || new Set<string>();
+    const start = anchor.start && members.has(anchor.start) ? anchor.start : undefined;
+    const end = anchor.end && members.has(anchor.end) ? anchor.end : undefined;
+    if (start || end) stationAnchors[stationId] = { ...(start ? { start } : {}), ...(end ? { end } : {}) };
+  });
+  return { ...demand, stationAnchors };
+}
+
 /** 写入前再次归一化，防止运行期旧对象/外部注入的 null 项重新污染 localStorage。 */
 export function sanitizePipelineState(state: PipelineLocalState): PipelineLocalState {
-  const demands = state.demands.map((demand, index) => normalizeDemand(demand, index)).filter((item): item is Demand => Boolean(item));
+  const demands = state.demands.map((demand, index) => normalizeDemand(demand, index)).filter((item): item is Demand => Boolean(item)).map(pruneStationAnchors);
   const fallback = demands[0] || structuredClone(defaultDemand);
   return {
     ...state, schemaVersion: 4,
@@ -195,11 +240,12 @@ export function loadPipelineState(): PipelineLocalState {
   return createInitialPipelineState();
 }
 
-export function createDemand(title: string, ownerGroup = "产品交付组"): Demand {
+export function createDemand(title: string, ownerGroup = "产品交付组", flow: PipelineFlow = blankPipeline): Demand {
   return {
     ...structuredClone(editableDefaults), id: `star-track-${crypto.randomUUID()}`, title: title.trim() || "新建星轨",
-    summary: "待补充", status: "demand.drafting", flowRevision: blankPipeline.version,
-    owner_group: ownerGroup || "产品交付组", workflowId: blankPipeline.id, groupName: DEFAULT_DEMAND_GROUP,
+    summary: "待补充", status: "demand.drafting", flowRevision: flow.version,
+    owner_group: ownerGroup || "产品交付组", workflowId: flow.id, groupName: flow.groupName || DEFAULT_DEMAND_GROUP,
+    stationLinks: stationLinksFromFlow(flow),
     sortOrder: 0,
     nodeStates: {}, nodeOverrides: {}, deliverables: [],
   };

@@ -16,7 +16,7 @@
 - **站与站直连**：站间为紫色实线，锚定在站容器左右边缘的专用 handle，不再借道站内首尾节点
 - **站与成员锚定**：虚线表示站与成员节点的从属（默认站左侧连站内第一个节点、右侧连最后一个节点）
 - **三态健康指示**：紫框 = 站内链完好；橙框 = 链中节点缺失/断链；普通 = 无站间链
-- **拖拽语义**：站内拖动不改变成员顺序（锚定端点稳定）；跨站拖动按落点重新归属；拖拽碰撞时按相对位置自动避让布局（进行中）
+- **拖拽语义**：站内拖动不改变成员顺序（锚定端点稳定）；跨站拖动按落点重新归属；拖拽碰撞时按相对位置自动避让布局（已实现，自动化验收进行中）
 
 ### 数据与模板
 - **多工作流模板**：`beings-development`（默认）、`ai-product-workflow`、`bug-fix`，模板定义站/节点/门结构与转移边
@@ -61,5 +61,5 @@ aec96b7 feat(pipeline): P11 explicit-broken station chains + P12 MR10 template s
 118e6e5 feat(pipeline): P14 station anchor dashed edges
 a1d5814 fix(pipeline): P15 in-station drag preserves nodeIds order
 4a6b81f docs(pipeline): P16 station-chain + P17 collision autolayout requirements
-（P16/P17 实现提交后追加）
+feat(pipeline): P16 station-to-station links + P17 collision autolayout（本提交）
 ```

@@ -47,19 +47,22 @@ export const beingsDevelopmentNodes: PipelineNode[] = [
 
 export const beingsDevelopmentTransitions: PipelineTransition[] = [
   { id: "E01", fromNode: "N01", event: "完成", toNode: "H1" },
-  { id: "E02", fromNode: "H1", event: "通过", toNode: "N02" },
   { id: "E03", fromNode: "N02", event: "完成", toNode: "H2" },
-  { id: "E04", fromNode: "H2", event: "通过", toNode: "N03" },
-  { id: "E05", fromNode: "N03", event: "完成", toNode: "N04" },
   { id: "E06", fromNode: "N04", event: "完成", toNode: "N05" },
   { id: "E07", fromNode: "N05", event: "完成", toNode: "H3" },
-  { id: "E08", fromNode: "H3", event: "通过", toNode: "N06" },
   { id: "E09", fromNode: "N06", event: "失败", toNode: "N07", toStatus: "failed" },
   { id: "E10", fromNode: "N06", event: "通过", toNode: "N07" },
   { id: "E11", fromNode: "N07", event: "完成", toNode: "H4" },
-  { id: "E12", fromNode: "H4", event: "通过", toNode: "N08" },
   { id: "E13", fromNode: "N08", event: "完成", toNode: "N09" },
   { id: "E14", fromNode: "N09", event: "完成", toNode: "N10" },
+];
+
+const beingsDevelopmentStationLinks = [
+  { fromStationId: "S01", toStationId: "S02" },
+  { fromStationId: "S02", toStationId: "S03" },
+  { fromStationId: "S03", toStationId: "S04" },
+  { fromStationId: "S04", toStationId: "S05" },
+  { fromStationId: "S05", toStationId: "S06" },
 ];
 
 const layout: PipelineFlow["layout"] = {
@@ -72,9 +75,10 @@ const layout: PipelineFlow["layout"] = {
 };
 
 export const beingsDevelopmentWorkflow: PipelineFlow = {
-  id: "beings-development", name: "beings 开发流程", version: "v4-agent-team",
+  id: "beings-development", name: "beings 开发流程", version: "v5-station-chain",
   source: "agent-team-spec-v0.2.md", groupName: "需求开发流程组",
   description: "需求开发流程组：保留 Agent Team 工作流，包含 H1-H4 人工审核点。对齐 d5-dcc-provider MR 10 流程更新（reviewer 独立评审 / 测试交付完整清单 / 按用例推进 / 真实运行评测）。",
   stations: beingsDevelopmentStations, nodes: beingsDevelopmentNodes, transitions: beingsDevelopmentTransitions,
+  stationLinks: beingsDevelopmentStationLinks,
   layout, itemOrder: ["S01", "S02", "S03", "S04", "S05", "S06"],
 };

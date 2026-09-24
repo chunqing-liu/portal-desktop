@@ -149,6 +149,11 @@ export interface PipelineStationLink {
   toStationId: string;
 }
 
+export interface PipelineStationSeedLink {
+  fromStationId: string;
+  toStationId: string;
+}
+
 export interface PipelineFlow {
   id: string;
   name: string;
@@ -160,6 +165,8 @@ export interface PipelineFlow {
   stations: PipelineStation[];
   nodes: PipelineNode[];
   transitions: PipelineTransition[];
+  /** 默认流程的站间连接种子；实例落地后由 Demand.stationLinks 保存带 id 的副本。 */
+  stationLinks?: PipelineStationSeedLink[];
   /** 默认只决定初始呈现；实例中的坐标可自由覆盖。 */
   layout: Record<string, PipelinePoint>;
   itemOrder: string[];
@@ -197,6 +204,8 @@ export interface Demand {
   customStations: PipelineStation[];
   customTransitions: PipelineTransition[];
   stationLinks: PipelineStationLink[];
+  /** stationId → 首/尾锚定节点 override；缺省时沿用站内顺序首尾。 */
+  stationAnchors?: Record<string, { start?: string; end?: string }>;
   deletedNodeIds: string[];
   deletedStationIds: string[];
   deletedTransitionIds: string[];
