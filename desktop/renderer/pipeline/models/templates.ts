@@ -8,7 +8,14 @@ import { BUG_STATUSES, DEMAND_STATUSES, NODE_STATUSES } from "./schema";
 
 /** 两个默认星轨组；实例通过 workflowId 选择画布流程。 */
 export const defaultPipeline = beingsDevelopmentWorkflow;
-export const pipelineFlows: PipelineFlow[] = [beingsDevelopmentWorkflow, bugFixWorkflow];
+/** 新建星轨专用空白流程；它与默认 beings 开发流程分离，避免污染默认模板。 */
+export const blankPipeline: PipelineFlow = {
+  id: "blank-star-track", name: "空白星轨", version: "v9-blank",
+  source: "pipeline/v9-requirements.md", groupName: "默认组",
+  description: "新建星轨从干净画布开始。",
+  stations: [], nodes: [], transitions: [], layout: {}, itemOrder: [],
+};
+export const pipelineFlows: PipelineFlow[] = [beingsDevelopmentWorkflow, bugFixWorkflow, blankPipeline];
 export const getPipelineFlow = (workflowId?: string): PipelineFlow =>
   pipelineFlows.find((flow) => flow.id === workflowId) || defaultPipeline;
 
@@ -190,9 +197,9 @@ export function loadPipelineState(): PipelineLocalState {
 
 export function createDemand(title: string, ownerGroup = "产品交付组"): Demand {
   return {
-    ...structuredClone(editableDefaults), id: `star-track-${crypto.randomUUID()}`, title: title.trim() || "新建任务",
-    summary: "待补充", status: "demand.drafting", flowRevision: defaultPipeline.version,
-    owner_group: ownerGroup || "产品交付组", workflowId: defaultPipeline.id, groupName: DEFAULT_DEMAND_GROUP,
+    ...structuredClone(editableDefaults), id: `star-track-${crypto.randomUUID()}`, title: title.trim() || "新建星轨",
+    summary: "待补充", status: "demand.drafting", flowRevision: blankPipeline.version,
+    owner_group: ownerGroup || "产品交付组", workflowId: blankPipeline.id, groupName: DEFAULT_DEMAND_GROUP,
     sortOrder: 0,
     nodeStates: {}, nodeOverrides: {}, deliverables: [],
   };

@@ -32,6 +32,7 @@ import {
   type CSSProperties,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type WheelEvent,
 } from "react";
 import type { AppModel } from "../app/models/app";
@@ -76,6 +77,9 @@ const STATION_HEADER_HEIGHT = 112;
 const STATION_PADDING = 24;
 const STATION_NODE_GAP = 108;
 const FREE_NODE_GAP = 44;
+const SIDEBAR_WIDTHS_STORAGE_KEY = "beings:star-map:sidebar-widths:v1";
+const DEFAULT_SIDEBAR_WIDTHS = { left: 180, right: 230 };
+const SIDEBAR_WIDTH_LIMITS = { left: { min: 180, max: 420 }, right: { min: 220, max: 520 } };
 
 const statusLabels: Record<NodeStatus, string> = {
   pending: "待开始", ready: "可开始", running: "运行中", waiting_human: "等待审核",
@@ -115,6 +119,22 @@ function splitNodeDescription(value: string) {
     description: value.slice(0, separator).trim(),
     evidence: value.slice(separator + NODE_EVIDENCE_SEPARATOR.length).trim(),
   };
+}
+
+function loadSidebarWidths() {
+  try {
+    const value = JSON.parse(localStorage.getItem(SIDEBAR_WIDTHS_STORAGE_KEY) || "null") as unknown;
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const left = typeof record.left === "number" && Number.isFinite(record.left) ? record.left : DEFAULT_SIDEBAR_WIDTHS.left;
+      const right = typeof record.right === "number" && Number.isFinite(record.right) ? record.right : DEFAULT_SIDEBAR_WIDTHS.right;
+      return {
+        left: Math.min(SIDEBAR_WIDTH_LIMITS.left.max, Math.max(SIDEBAR_WIDTH_LIMITS.left.min, left)),
+        right: Math.min(SIDEBAR_WIDTH_LIMITS.right.max, Math.max(SIDEBAR_WIDTH_LIMITS.right.min, right)),
+      };
+    }
+  } catch { /* 损坏的视图偏好回落默认宽度。 */ }
+  return DEFAULT_SIDEBAR_WIDTHS;
 }
 
 type StationSize = { width: number; height: number };
@@ -170,11 +190,15 @@ function serialOrder(ids: string[], transitions: ReturnType<typeof demandTransit
 
 type Attention = "action" | "update" | null;
 type StationData = { item: PipelineStation; compact: boolean; summary: string; count: number };
-type ItemData = { item: PipelineNode; detailed: boolean; attention: Attention };
+type ItemData = { item: PipelineNode; detailed: boolean; attention: Attention; statusLabel?: string };
 type FlowNode = Node<StationData | ItemData>;
 
 function isStationNode(node: FlowNode): node is Node<StationData> {
   return node.type === "station";
+}
+
+function RailToggleIcon({ direction, testId }: { direction: "left" | "right"; testId?: string }) {
+  return <span className={`pipeline-square-icon is-${direction}`} data-testid={testId} aria-hidden="true" />;
 }
 
 function StationNode({ data }: NodeProps<Node<StationData>>) {
@@ -193,7 +217,7 @@ function ItemNode({ data }: NodeProps<Node<ItemData>>) {
     <Handle id="input" type="target" position={Position.Left} className="star-map-port is-input" title="连接输入" aria-label={`${item.title} 连接输入`} data-testid={`connect-target-${item.id}`}><span>●</span></Handle>
     <Handle id="output" type="source" position={Position.Right} className="star-map-port is-output" title="拖动以连接" aria-label={`从 ${item.title} 开始连接`} data-testid={`connect-source-${item.id}`}><span>＋</span></Handle>
     {data.attention && <span className={`star-map-attention-dot is-${data.attention}`} title={data.attention === "action" ? "需要你操作" : "有更新"} aria-label={data.attention === "action" ? "需要你操作" : "有更新"} />}
-    <div className="star-map-item-topline"><code>{item.reviewCode || item.id}</code><i /><b>{item.kind === "gate" ? "闸口" : statusLabels[item.status]}</b></div>
+    <div className="star-map-item-topline"><code>{item.reviewCode || item.id}</code><i /><b>{item.kind === "gate" ? "闸口" : data.statusLabel || statusLabels[item.status]}</b></div>
     <strong>{item.title}</strong>
     <small title={data.detailed ? `${item.owner || "待补充"} · ${item.description || "待补充"}` : item.owner || "待补充"}>{data.detailed ? `${item.owner || "待补充"} · ${item.description || "待补充"}` : item.owner || "待补充"}</small>
   </div>;
@@ -301,7 +325,10 @@ function PipelineCanvas({
       const hiddenInCompactStation = compact && Boolean(item.stationId);
       result.push({
         id: item.id, type: "item", position: visibleNodePosition(item, positions, stationPositionById), selected: selectedItemIds.includes(item.id),
-        data: { item, detailed, attention: attentionFor(item) }, selectable: !hiddenInCompactStation,
+        data: {
+          item, detailed, attention: attentionFor(item),
+          statusLabel: demand?.workflowId === "bug-fix" && item.id === "B04" && item.status === "done" ? "已关闭" : undefined,
+        }, selectable: !hiddenInCompactStation,
         style: { width: NODE_WIDTH, height: NODE_HEIGHT, opacity: hiddenInCompactStation ? 0 : 1, pointerEvents: hiddenInCompactStation ? "none" : "auto", transition: "opacity 160ms ease" },
         zIndex: 2,
       } satisfies FlowNode);
@@ -327,7 +354,8 @@ function PipelineCanvas({
       edges.push({
         id: transition.id || `E${index}`, source, target, type: "default", selectable: true, deletable: true,
         markerEnd: { type: MarkerType.ArrowClosed }, label: detailed ? transition.event : undefined,
-        labelStyle: { fontSize: 10 }, className: `pipeline-edge-node${transition.event === "失败" ? " is-return" : ""}`,
+        labelStyle: { fontSize: 10 }, zIndex: 1,
+        className: `pipeline-edge-node${sameStation ? " is-internal" : ""}${["失败", "不通过", "重新打开"].some((keyword) => transition.event.includes(keyword)) ? " is-return" : ""}`,
       });
     });
     demand.stationLinks.forEach((link) => {
@@ -341,6 +369,7 @@ function PipelineCanvas({
       edgeKeys.add(key);
       edges.push({ id: link.id, source, target, type: "default", selectable: true, deletable: true,
         markerEnd: { type: MarkerType.ArrowClosed }, label: detailed ? "站间串联" : undefined,
+        zIndex: 1,
         className: `pipeline-edge-station${!sourceNodes.length || !targetNodes.length ? " is-pending-station-link" : ""}` });
     });
     return edges;
@@ -519,9 +548,16 @@ function PipelineCanvas({
     >
       <Background gap={28} size={1} color="var(--line)" />
       <Controls showInteractive={false} position="bottom-right" />
-      <Panel position="top-left" className={`star-map-canvas-hint${connectingFromId ? " is-connecting" : ""}`}><span aria-live="polite">{connectingFromId ? `正在从 ${connectingFromId} 连线：拖到目标左侧 ●` : lastConnection ? `已连接 ${lastConnection}` : "左键框选 · 中键平移 · 从右侧 ＋ 拖出连线"}</span><small>滚轮缩放 · Alt 拖拽复制 · Delete 删除</small></Panel>
-      <Panel position="top-right" className="star-map-toolbar"><button type="button" onClick={() => zoomOut()} aria-label="缩小">−</button><output>{Math.round(zoom * 100)}%</output><button type="button" onClick={() => zoomIn()} aria-label="放大">+</button><button type="button" className="star-map-fit" onClick={() => fitView({ padding: 0.12 })}>适配</button></Panel>
-      <Panel position="bottom-center" className="star-map-create-toolbar"><button type="button" onClick={() => createAtViewportCenter("node")}>+ 新建节点</button><button type="button" onClick={() => createAtViewportCenter("gate")}>+ 新建闸口</button><button type="button" onClick={() => createAtViewportCenter("station")}>+ 新建站</button></Panel>
+      <Panel position="top-left" className={`star-map-canvas-hint${connectingFromId ? " is-connecting" : ""}`}><span aria-live="polite">{connectingFromId ? `正在从 ${connectingFromId} 连线：拖到目标左侧 ●` : lastConnection ? `已连接 ${lastConnection}` : "左键框选 · 中键平移 · 从右侧 ＋ 拖出连线"}</span><small>滚轮缩放 · Alt 拖拽复制 · Delete 删除 · Ctrl+Z 撤销</small></Panel>
+      <Panel position="top-right" className="star-map-toolbar">
+        <button type="button" onClick={() => zoomOut()} aria-label="缩小">−</button><output>{Math.round(zoom * 100)}%</output><button type="button" onClick={() => zoomIn()} aria-label="放大">+</button>
+        <button type="button" className="star-map-fit" onClick={() => fitView({ padding: 0.12 })}>适配</button>
+        <span className="star-map-create-group" aria-label="新建画布内容">
+          <button type="button" className="star-map-create-button" onClick={() => createAtViewportCenter("node")}>+ 节点</button>
+          <button type="button" className="star-map-create-button" onClick={() => createAtViewportCenter("gate")}>+ 闸口</button>
+          <button type="button" className="star-map-create-button" onClick={() => createAtViewportCenter("station")}>+ 站</button>
+        </span>
+      </Panel>
     </ReactFlow>
     {contextMenu && <div className="star-map-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {contextMenu.kind === "pane" && <><button type="button" onClick={() => { createAtViewportCenter("node"); setContextMenu(null); }}>新建节点</button><button type="button" onClick={() => { createAtViewportCenter("gate"); setContextMenu(null); }}>新建闸口</button><button type="button" onClick={() => { createAtViewportCenter("station"); setContextMenu(null); }}>新建站</button></>}
@@ -538,6 +574,9 @@ function PipelineContent({ model }: { model: AppModel }) {
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(true);
+  const [sidebarWidths, setSidebarWidths] = useState(loadSidebarWidths);
+  const sidebarResizeRef = useRef<{ side: "left" | "right"; startX: number; startWidth: number } | null>(null);
+  const historyRef = useRef<{ past: PipelineLocalState[]; future: PipelineLocalState[]; restoring: boolean }>({ past: [], future: [], restoring: false });
   const [focusMode, setFocusMode] = useState(false);
   const focusSidebarState = useRef({ left: false, right: true });
   const [demandQuery, setDemandQuery] = useState("");
@@ -578,6 +617,23 @@ function PipelineContent({ model }: { model: AppModel }) {
 
   useEffect(() => { try { localStorage.setItem(PIPELINE_STORAGE_KEY, JSON.stringify(sanitizePipelineState(state))); } catch { /* 本地缓存失败不阻塞星图。 */ } }, [state]);
   useEffect(() => {
+    try { localStorage.setItem(SIDEBAR_WIDTHS_STORAGE_KEY, JSON.stringify(sidebarWidths)); } catch { /* 宽度偏好失败不阻塞星图。 */ }
+  }, [sidebarWidths]);
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const resize = sidebarResizeRef.current;
+      if (!resize) return;
+      const limits = SIDEBAR_WIDTH_LIMITS[resize.side];
+      const delta = resize.side === "left" ? event.clientX - resize.startX : resize.startX - event.clientX;
+      const width = Math.min(limits.max, Math.max(limits.min, resize.startWidth + delta));
+      setSidebarWidths((current) => current[resize.side] === width ? current : { ...current, [resize.side]: width });
+    };
+    const onPointerUp = () => { sidebarResizeRef.current = null; document.body.style.removeProperty("user-select"); };
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    return () => { document.removeEventListener("pointermove", onPointerMove); document.removeEventListener("pointerup", onPointerUp); };
+  }, []);
+  useEffect(() => {
     const demandId = demand?.id || "";
     setCommentState((current) => current.demandId === demandId
       ? current
@@ -589,10 +645,49 @@ function PipelineContent({ model }: { model: AppModel }) {
     return () => document.removeEventListener("pointerdown", dismiss);
   }, []);
 
-  const changeState = (change: (current: PipelineLocalState) => PipelineLocalState) => setState((current) => {
+  const changeState = (change: (current: PipelineLocalState) => PipelineLocalState, options: { history?: boolean } = {}) => setState((current) => {
     const next = change(current);
+    if (next === current) return current;
+    if (options.history !== false && !historyRef.current.restoring) {
+      historyRef.current.past = [...historyRef.current.past, structuredClone(current)].slice(-30);
+      historyRef.current.future = [];
+    }
     return sanitizePipelineState({ ...next, board: { ...next.board, revision: next.board.revision + 1 } });
   });
+  const restoreHistory = (direction: "undo" | "redo") => {
+    const history = historyRef.current;
+    const source = direction === "undo" ? history.past : history.future;
+    if (!source.length) return;
+    const target = source[source.length - 1];
+    const current = state;
+    if (direction === "undo") {
+      history.past = source.slice(0, -1);
+      history.future = [structuredClone(current), ...history.future].slice(0, 30);
+    } else {
+      history.future = source.slice(1);
+      history.past = [...history.past, structuredClone(current)].slice(-30);
+    }
+    history.restoring = true;
+    setState(sanitizePipelineState(structuredClone(target)));
+    history.restoring = false;
+    setSelectedItemIds([]);
+    setSelectedDemandIds([target.selectedDemandId]);
+    setRightCollapsed(false);
+  };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || (event.target instanceof HTMLInputElement) || (event.target instanceof HTMLTextAreaElement) || (event.target instanceof HTMLSelectElement) || (event.target instanceof HTMLElement && event.target.isContentEditable)) return;
+      if (event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        restoreHistory(event.shiftKey ? "redo" : "undo");
+      } else if (event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        restoreHistory("redo");
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [state]);
   const updateDemand = (patch: Partial<Demand>) => { if (demand) changeState((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? { ...item, ...patch } : item) })); };
 
   const handleCanvasSelectionChange = useCallback((ids: string[]) => {
@@ -673,7 +768,17 @@ function PipelineContent({ model }: { model: AppModel }) {
     return true;
   };
   const updateNodeStatus = (status: NodeStatus) => {
-    if (demand && selectedNode && validateNodeStatus(selectedNode, status)) updateDemand({ nodeStates: { ...demand.nodeStates, [selectedNode.id]: status } });
+    if (demand && selectedNode && validateNodeStatus(selectedNode, status)) {
+      const patch: Partial<Demand> = { nodeStates: { ...demand.nodeStates, [selectedNode.id]: status } };
+      if (demand.workflowId === "bug-fix" && selectedNode.id === "B04" && demand.bug) {
+        const bugStatus: BugStatus = status === "done" ? "已关闭" : (status === "failed" || demand.bug.status === "已关闭") ? "重新打开" : demand.bug.status;
+        if (bugStatus !== demand.bug.status) patch.bug = {
+          ...demand.bug, status: bugStatus,
+          history: [...demand.bug.history, { status: bugStatus, at: new Date().toISOString(), content: status === "done" ? "测试验证通过，问题已关闭。" : "测试验证未通过，退回开发。" }],
+        };
+      }
+      updateDemand(patch);
+    }
   };
   const updateBulkNodes = (patch: { status?: NodeStatus; owner?: string; description?: string }) => {
     if (!demand || selectedNodes.length < 2) return;
@@ -710,10 +815,10 @@ function PipelineContent({ model }: { model: AppModel }) {
   const selectDemand = (id: string, event?: ReactMouseEvent<HTMLButtonElement>) => {
     const additive = Boolean(event?.metaKey || event?.ctrlKey);
     setSelectedDemandIds((current) => additive ? (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]) : [id]);
-    changeState((current) => ({ ...current, selectedDemandId: id })); setSelectedItemIds([]); setRightCollapsed(false); setDemandContextMenu(null);
+    changeState((current) => ({ ...current, selectedDemandId: id }), { history: false }); setSelectedItemIds([]); setRightCollapsed(false); setDemandContextMenu(null);
   };
   const addDemand = () => {
-    const next = { ...createDemand("新建任务", state.board.ownerGroup), sortOrder: Math.max(-1, ...state.demands.map((item) => item.sortOrder)) + 1 };
+    const next = { ...createDemand("新建星轨", state.board.ownerGroup), sortOrder: Math.max(-1, ...state.demands.map((item) => item.sortOrder)) + 1 };
     changeState((current) => ({ ...current, selectedDemandId: next.id, demands: [...current.demands, next] }));
     setSelectedItemIds([]); setSelectedDemandIds([next.id]); setRightCollapsed(false);
   };
@@ -881,6 +986,12 @@ function PipelineContent({ model }: { model: AppModel }) {
     setDraggedDemandId("");
   };
   const demandDragOver = (event: ReactDragEvent) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; };
+  const startSidebarResize = (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sidebarResizeRef.current = { side, startX: event.clientX, startWidth: sidebarWidths[side] };
+    document.body.style.userSelect = "none";
+  };
 
   const bulkOwner = selectedNodes.length && selectedNodes.every((node) => node.owner === selectedNodes[0].owner) ? selectedNodes[0].owner : "";
   const bulkDescription = selectedNodes.length && selectedNodes.every((node) => node.description === selectedNodes[0].description) ? selectedNodes[0].description : "";
@@ -895,7 +1006,15 @@ function PipelineContent({ model }: { model: AppModel }) {
   const targetComments = selectedTarget && commentState.demandId === demand?.id
     ? commentState.items.filter((comment) => comment.targetType === selectedTarget.type && comment.targetId === selectedTarget.id)
     : [];
-  const nextNodeAction = selectedNode ? nextNodeActions[selectedNode.status] : null;
+  const nextNodeAction = selectedNode
+    ? demand?.workflowId === "bug-fix" && selectedNode.id === "B04"
+      ? selectedNode.status === "running"
+        ? { label: "测试通过并关闭", status: "done" as NodeStatus }
+        : selectedNode.status === "failed"
+          ? { label: "退回开发", status: "ready" as NodeStatus }
+          : nextNodeActions[selectedNode.status]
+      : nextNodeActions[selectedNode.status]
+    : null;
 
   return <section id="pipeline-view" className={`view${focusMode ? " pipeline-focus-mode" : ""}`} hidden={app.view !== "pipeline"} aria-label="星图" onContextMenuCapture={(event) => event.preventDefault()}>
     <header className="pipeline-page-toolbar" aria-label="星图常驻功能栏">
@@ -908,15 +1027,15 @@ function PipelineContent({ model }: { model: AppModel }) {
         <button type="button" className="pipeline-toolbar-button pipeline-focus-button" onClick={focusMode ? exitFocus : enterFocus} aria-pressed={focusMode}>{focusMode ? "退出专注" : "专注"}</button>
       </div>
     </header>
-    <div className={`pipeline-shell star-map-shell${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}${focusMode ? " is-focus-mode" : ""}`}>
+    <div className={`pipeline-shell star-map-shell${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}${focusMode ? " is-focus-mode" : ""}`} style={{ "--pipeline-left": `${leftCollapsed ? 52 : sidebarWidths.left}px`, "--pipeline-right": `${rightCollapsed ? 52 : sidebarWidths.right}px` } as CSSProperties}>
       <aside className={`pipeline-demands${leftCollapsed ? " is-collapsed" : ""}`} aria-label="星轨">
         <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-left" onClick={() => setLeftCollapsed((value) => !value)} aria-label={leftCollapsed ? "展开左侧星轨栏" : "收起左侧星轨栏"} aria-expanded={!leftCollapsed} title={leftCollapsed ? "展开星轨" : "收起星轨"}>
-          {leftCollapsed && <span className="pipeline-rail-icon" data-testid="pipeline-left-rail-icon" aria-hidden="true">✦</span>}
-          <span className="pipeline-rail-arrow" aria-hidden="true">{leftCollapsed ? "›" : "‹"}</span>
+          <RailToggleIcon direction={leftCollapsed ? "right" : "left"} testId="pipeline-left-rail-icon" />
         </button>
+        {!leftCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-left" role="separator" aria-orientation="vertical" aria-label="调整左侧星轨栏宽度" onPointerDown={(event) => startSidebarResize("left", event)} />}
         {!leftCollapsed && <>
           <div className="pipeline-sidebar-heading"><div><span className="pipeline-kicker">STAR TRACKS</span><h2>星轨</h2></div><span className="pipeline-count">{state.demands.length}</span></div>
-          <button type="button" className="pipeline-demand-create-button" onClick={addDemand}>+ 新建</button>
+          <button type="button" className="pipeline-demand-create-button" onClick={addDemand}>+ 新建星轨</button>
           <div className="pipeline-demand-list">{groupedDemands.map(([group, items]) => <div className="pipeline-demand-group" key={group} onDragOver={demandDragOver} onDrop={() => demandGroupBy === "group" && moveDemand(undefined, group)}><span className="pipeline-demand-group-title">{group} <small>{items.length}</small></span>{items.map((item) => <button type="button" draggable key={item.id} className={`pipeline-demand-item${item.id === demand?.id ? " selected" : ""}${selectedDemandIds.includes(item.id) ? " multi-selected" : ""}${item.pinned ? " is-pinned" : ""}`} aria-pressed={selectedDemandIds.includes(item.id)} onDragStart={(event) => { setDraggedDemandId(item.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); }} onDragEnd={() => setDraggedDemandId("")} onDragOver={demandDragOver} onDrop={(event) => { event.stopPropagation(); moveDemand(item.id, item.groupName || group); }} onClick={(event) => selectDemand(item.id, event)} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); const ids = selectedDemandIds.includes(item.id) ? selectedDemandIds : [item.id]; setSelectedDemandIds(ids); setDemandContextMenu({ x: event.clientX, y: event.clientY, ids }); }}><span className="pipeline-demand-dot" data-status={item.status} />{item.unread && <span className="pipeline-demand-unread" title="未读" />}<span className="pipeline-demand-copy"><strong>{item.pinned && <span aria-label="已置顶">⌃ </span>}{demandDisplayTitle(item)}</strong><small>{item.groupName || "未分组"} · {item.owner_group}</small></span></button>)}</div>)}</div>
           {demandContextMenu && <div className="pipeline-demand-context-menu" role="menu" style={{ left: demandContextMenu.x, top: demandContextMenu.y }} onPointerDown={(event) => event.stopPropagation()}><button type="button" onClick={() => renameDemand(demandContextMenu.ids[0])}>重命名</button><button type="button" onClick={() => duplicateDemand(demandContextMenu.ids[0])}>复制项目</button><button type="button" onClick={() => togglePinnedDemand(demandContextMenu.ids[0])}>{contextDemand?.pinned ? "取消置顶" : "置顶"}</button><button type="button" onClick={() => markDemandUnread(demandContextMenu.ids[0])}>标记为未读</button><div role="separator" /><button type="button" onClick={groupSelectedDemands} disabled={demandContextMenu.ids.length < 2}>成组</button><button type="button" className="is-danger" onClick={deleteSelectedDemands} disabled={demandContextMenu.ids.length >= state.demands.length}>删除星轨</button></div>}
         </>}
@@ -926,9 +1045,9 @@ function PipelineContent({ model }: { model: AppModel }) {
       </section>
       <aside className={`pipeline-inspector${rightCollapsed ? " is-collapsed" : ""}`} aria-label="节点详情">
         <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-right" onClick={() => setRightCollapsed((value) => !value)} aria-label={rightCollapsed ? "展开右侧详情栏" : "收起右侧详情栏"} aria-expanded={!rightCollapsed} title={rightCollapsed ? "展开详情" : "收起详情"}>
-          {rightCollapsed && <span className="pipeline-rail-icon" data-testid="pipeline-right-rail-icon" aria-hidden="true">{selectedNode ? (selectedNode.kind === "gate" ? "◇" : "•") : selectedStation ? "▦" : "•"}</span>}
-          <span className="pipeline-rail-arrow" aria-hidden="true">{rightCollapsed ? "‹" : "›"}</span>
+          <RailToggleIcon direction={rightCollapsed ? "left" : "right"} testId="pipeline-right-rail-icon" />
         </button>
+        {!rightCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-right" role="separator" aria-orientation="vertical" aria-label="调整右侧详情栏宽度" onPointerDown={(event) => startSidebarResize("right", event)} />}
         {!rightCollapsed && <>
           <div className="pipeline-inspector-heading"><div><span className="pipeline-kicker">DETAILS</span><h2>详情</h2></div>{selectedItemIds.length > 0 && <code>{selectedItemIds.length > 1 ? `${selectedItemIds.length} 项` : selectedItemIds[0]}</code>}</div>
           <div className="pipeline-inspector-body">

@@ -346,7 +346,7 @@
 }
 
 /* V8：侧栏折叠为始终可操作的窄栏，入口不再依赖顶栏或画布定位。 */
-#pipeline-view .pipeline-shell { --pipeline-left: 224px; --pipeline-right: 300px; }
+#pipeline-view .pipeline-shell { --pipeline-left: 180px; --pipeline-right: 230px; }
 #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 52px; }
 #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 52px; }
 #pipeline-view .pipeline-demands.is-collapsed,
@@ -370,12 +370,13 @@
   border-radius: 7px;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   color: var(--muted);
-  font-size: 21px;
   line-height: 1;
 }
 .pipeline-rail-toggle:hover { border-color: color-mix(in srgb, #6d7cff 45%, var(--line)); background: var(--control); color: var(--text); }
-.pipeline-rail-toggle-left { top: 12px; left: 8px; }
-.pipeline-rail-toggle-right { top: 12px; right: 8px; }
+.pipeline-rail-toggle-left { top: 10px; right: 10px; }
+.pipeline-rail-toggle-right { top: 10px; left: 10px; }
+.pipeline-demands:not(.is-collapsed),
+.pipeline-inspector:not(.is-collapsed) { position: relative; padding-top: 52px; }
 .pipeline-demands.is-collapsed .pipeline-rail-toggle,
 .pipeline-inspector.is-collapsed .pipeline-rail-toggle {
   position: relative;
@@ -390,8 +391,28 @@
   gap: 3px;
   margin-top: 12px;
 }
-.pipeline-rail-icon { color: var(--secondary); font-size: 15px; line-height: 1; }
-.pipeline-rail-arrow { font-size: 21px; line-height: 1; }
+.pipeline-square-icon {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  color: var(--secondary);
+}
+.pipeline-square-icon::after {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-50%) rotate(45deg);
+}
+.pipeline-square-icon.is-left::after { left: 2px; transform: translateY(-50%) rotate(-135deg); }
+.pipeline-square-icon.is-right::after { right: 2px; }
+.pipeline-rail-toggle:hover .pipeline-square-icon { color: var(--text); }
 .pipeline-rail-content { min-width: 0; min-height: 0; width: 100%; }
 .pipeline-demands:not(.is-collapsed) .pipeline-rail-content { display: flex; flex-direction: column; height: 100%; }
 .pipeline-inspector:not(.is-collapsed) .pipeline-inspector-body { min-height: 0; }
@@ -417,6 +438,18 @@
   text-align: left;
 }
 .pipeline-demand-create-button:hover { background: color-mix(in srgb, #6d7cff 14%, var(--control)); color: var(--text); }
+.pipeline-sidebar-resize-handle {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+}
+.pipeline-sidebar-resize-handle-left { right: -4px; }
+.pipeline-sidebar-resize-handle-right { left: -4px; }
+.pipeline-sidebar-resize-handle:hover,
+.pipeline-sidebar-resize-handle:active { background: color-mix(in srgb, #6d7cff 28%, transparent); }
 .pipeline-demand-item { position: relative; cursor: grab; }
 .pipeline-demand-item:active { cursor: grabbing; }
 .pipeline-demand-item.is-pinned { border-color: color-mix(in srgb, #6d7cff 30%, var(--line)); }
@@ -457,6 +490,16 @@
   stroke: #3d86a8;
   stroke-width: 2.2px;
 }
+.star-map-canvas .react-flow__edge.pipeline-edge-node.is-internal {
+  z-index: 1 !important;
+  pointer-events: none;
+}
+.star-map-canvas .react-flow__edge.pipeline-edge-node.is-internal .react-flow__edge-path {
+  stroke: #4c9bb0;
+  stroke-width: 2.4px;
+  stroke-dasharray: 4 2;
+  pointer-events: stroke;
+}
 .star-map-canvas .react-flow__edge.pipeline-edge-station .react-flow__edge-path {
   stroke: #8b6bd1;
   stroke-width: 2.2px;
@@ -487,6 +530,25 @@
   #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 52px; }
   #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 52px; }
 }
+
+.star-map-toolbar .star-map-create-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+  padding-left: 3px;
+  border-left: 1px solid var(--line);
+}
+.star-map-toolbar .star-map-create-button {
+  width: auto;
+  min-width: 0;
+  height: 25px;
+  padding: 0 6px;
+  color: var(--secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.star-map-toolbar .star-map-create-button:hover { background: var(--selected); color: var(--text); }
 
 @container stage (max-width: 700px) {
   #pipeline-view .pipeline-page-toolbar { flex-wrap: wrap; gap: 8px; padding: 9px 16px; }
