@@ -482,6 +482,11 @@
 
 /* 展开站的标题区保持独立，节点统一从 112px 以下开始。 */
 .star-map-station:not(.is-compact) .star-map-station-heading { min-height: 28px; }
+.star-map-station.is-station-linked {
+  border-color: #8b5cf6;
+  border-top-color: #8b5cf6;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #8b5cf6 28%, transparent), 0 12px 26px color-mix(in srgb, #8b5cf6 16%, transparent);
+}
 .star-map-canvas .react-flow__node-station { z-index: 0 !important; transition: width .16s ease, height .16s ease; }
 .star-map-canvas .react-flow__node-item { z-index: 2 !important; }
 .star-map-canvas .react-flow__node-item.selected { z-index: 4 !important; }
@@ -501,8 +506,8 @@
   pointer-events: stroke;
 }
 .star-map-canvas .react-flow__edge.pipeline-edge-station .react-flow__edge-path {
-  stroke: #8b6bd1;
-  stroke-width: 2.2px;
+  stroke: #8b5cf6;
+  stroke-width: 2.6px;
 }
 .star-map-canvas .react-flow__edge.pipeline-edge-node.is-return .react-flow__edge-path {
   stroke: #c06f4b;

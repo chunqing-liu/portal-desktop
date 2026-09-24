@@ -189,7 +189,7 @@ function serialOrder(ids: string[], transitions: ReturnType<typeof demandTransit
 }
 
 type Attention = "action" | "update" | null;
-type StationData = { item: PipelineStation; compact: boolean; summary: string; count: number };
+type StationData = { item: PipelineStation; compact: boolean; summary: string; count: number; stationLinked: boolean };
 type ItemData = { item: PipelineNode; detailed: boolean; attention: Attention; statusLabel?: string };
 type FlowNode = Node<StationData | ItemData>;
 
@@ -202,7 +202,7 @@ function RailToggleIcon({ direction, testId }: { direction: "left" | "right"; te
 }
 
 function StationNode({ data }: NodeProps<Node<StationData>>) {
-  return <div className={`star-map-station${data.compact ? " is-compact" : ""}`}>
+  return <div className={`star-map-station${data.compact ? " is-compact" : ""}${data.stationLinked ? " is-station-linked" : ""}`}>
     <Handle id="input" type="target" position={Position.Left} className="star-map-port is-input" title="连接输入" aria-label={`${data.item.title} 连接输入`} data-testid={`connect-target-${data.item.id}`}><span>●</span></Handle>
     <Handle id="output" type="source" position={Position.Right} className="star-map-port is-output" title="拖动以连接" aria-label={`从 ${data.item.title} 开始连接`} data-testid={`connect-source-${data.item.id}`}><span>＋</span></Handle>
     <div className="star-map-station-heading"><span>{data.item.id}</span><strong>{data.item.title}</strong></div>
@@ -311,13 +311,15 @@ function PipelineCanvas({
   };
 
   const buildNodes = () => {
+    const linkedStationIds = new Set<string>();
+    demand?.stationLinks.forEach((link) => { linkedStationIds.add(link.fromStationId); linkedStationIds.add(link.toStationId); });
     const result: FlowNode[] = stations.map((station) => {
       const stationNodes = nodes.filter((node) => node.stationId === station.id);
       const done = stationNodes.filter((node) => node.status === "done").length;
       const size = stationSizeFor(station.id, stationNodes, positions, compact);
       return {
         id: station.id, type: "station", position: stationPositionById.get(station.id)!, selected: selectedItemIds.includes(station.id),
-        data: { item: station, compact, count: stationNodes.length, summary: `${done}/${stationNodes.length} 已完成` },
+        data: { item: station, compact, count: stationNodes.length, summary: `${done}/${stationNodes.length} 已完成`, stationLinked: linkedStationIds.has(station.id) },
         style: { width: size.width, height: size.height }, zIndex: 0,
       } satisfies FlowNode;
     });
@@ -361,8 +363,9 @@ function PipelineCanvas({
     demand.stationLinks.forEach((link) => {
       const sourceNodes = orderedStationNodes(link.fromStationId);
       const targetNodes = orderedStationNodes(link.toStationId);
-      const source = compact || !sourceNodes.length ? link.fromStationId : sourceNodes.at(-1)!.id;
-      const target = compact || !targetNodes.length ? link.toStationId : targetNodes[0].id;
+      // 站间连接始终落在站容器的 handles 上，避免展开态被误读为“站内首尾节点相连”。
+      const source = link.fromStationId;
+      const target = link.toStationId;
       if (!stationById.has(link.fromStationId) || !stationById.has(link.toStationId)) return;
       const key = `${source}->${target}`;
       if (edgeKeys.has(key)) return;
