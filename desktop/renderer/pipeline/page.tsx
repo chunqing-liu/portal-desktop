@@ -320,11 +320,20 @@ function PipelineCanvas({
   const buildNodes = () => {
     const linkedStationIds = new Set<string>();
     demand?.stationLinks.forEach((link) => { linkedStationIds.add(link.fromStationId); linkedStationIds.add(link.toStationId); });
-    const transitionKeys = new Set(
-      (demand ? demandTransitions(flow, demand) : [])
-        .filter((transition) => Boolean(transition.toNode))
-        .map((transition) => `${transition.fromNode}->${transition.toNode}`),
-    );
+    const transitionKeys = new Set<string>();
+    const outgoingTargets = new Map<string, Set<string>>();
+    const incomingSources = new Map<string, Set<string>>();
+    (demand ? demandTransitions(flow, demand) : []).forEach((transition) => {
+      const targets = [...new Set([
+        transition.toNode,
+        ...(transition.toNodes || []),
+      ].filter((target): target is string => Boolean(target)))];
+      targets.forEach((target) => {
+        transitionKeys.add(`${transition.fromNode}->${target}`);
+        outgoingTargets.set(transition.fromNode, new Set([...(outgoingTargets.get(transition.fromNode) || []), target]));
+        incomingSources.set(target, new Set([...(incomingSources.get(target) || []), transition.fromNode]));
+      });
+    });
     const result: FlowNode[] = stations.map((station) => {
       const stationNodes = nodes.filter((node) => node.stationId === station.id);
       const done = stationNodes.filter((node) => node.status === "done").length;
@@ -333,7 +342,10 @@ function PipelineCanvas({
       const orderedNodes = orderedStationNodes(station.id);
       const stationChainBroken = stationLinked && orderedNodes.some((node, index) => {
         const next = orderedNodes[index + 1];
-        return Boolean(next) && !transitionKeys.has(`${node.id}->${next.id}`);
+        if (!next || transitionKeys.has(`${node.id}->${next.id}`)) return false;
+        const hasDetourOut = [...(outgoingTargets.get(node.id) || [])].some((target) => target !== next.id);
+        const hasDetourIn = [...(incomingSources.get(next.id) || [])].some((source) => source !== node.id);
+        return hasDetourOut || hasDetourIn;
       });
       return {
         id: station.id, type: "station", position: stationPositionById.get(station.id)!, selected: selectedItemIds.includes(station.id),
