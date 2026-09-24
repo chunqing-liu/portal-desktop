@@ -95,6 +95,14 @@
   font: 700 calc(11px / var(--star-map-zoom, 1))/1 ui-sans-serif, system-ui, sans-serif;
 }
 
+.star-map-canvas .react-flow__handle.star-map-anchor-port {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .star-map-canvas .react-flow__handle.star-map-port.is-input { left: calc(-10px / var(--star-map-zoom, 1)); }
 .star-map-canvas .react-flow__handle.star-map-port.is-output { right: calc(-10px / var(--star-map-zoom, 1)); }
 
@@ -512,6 +520,15 @@
 .star-map-canvas .react-flow__edge.pipeline-edge-station .react-flow__edge-path {
   stroke: #8b5cf6;
   stroke-width: 2.6px;
+}
+.star-map-canvas .react-flow__edge.pipeline-edge-station-anchor {
+  pointer-events: none;
+}
+.star-map-canvas .react-flow__edge.pipeline-edge-station-anchor .react-flow__edge-path {
+  stroke: color-mix(in srgb, #8b5cf6 45%, transparent);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
 }
 .star-map-canvas .react-flow__edge.pipeline-edge-node.is-return .react-flow__edge-path {
   stroke: #c06f4b;

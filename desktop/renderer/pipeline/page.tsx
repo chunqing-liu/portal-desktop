@@ -80,6 +80,7 @@ const FREE_NODE_GAP = 44;
 const SIDEBAR_WIDTHS_STORAGE_KEY = "beings:star-map:sidebar-widths:v1";
 const DEFAULT_SIDEBAR_WIDTHS = { left: 180, right: 230 };
 const SIDEBAR_WIDTH_LIMITS = { left: { min: 180, max: 420 }, right: { min: 220, max: 520 } };
+const STATION_ANCHOR_EDGE_PREFIX = "station-anchor-";
 
 const statusLabels: Record<NodeStatus, string> = {
   pending: "待开始", ready: "可开始", running: "运行中", waiting_human: "等待审核",
@@ -212,6 +213,8 @@ function StationNode({ data }: NodeProps<Node<StationData>>) {
   return <div className={`star-map-station${data.compact ? " is-compact" : ""}${data.stationLinked ? " is-station-linked" : ""}${data.stationChainBroken ? " is-station-chain-broken" : ""}`}>
     <Handle id="input" type="target" position={Position.Left} className="star-map-port is-input" title="连接输入" aria-label={`${data.item.title} 连接输入`} data-testid={`connect-target-${data.item.id}`}><span>●</span></Handle>
     <Handle id="output" type="source" position={Position.Right} className="star-map-port is-output" title="拖动以连接" aria-label={`从 ${data.item.title} 开始连接`} data-testid={`connect-source-${data.item.id}`}><span>＋</span></Handle>
+    <Handle id="anchor-input" type="target" position={Position.Right} className="star-map-anchor-port is-anchor-input" style={{ top: "66%" }} isConnectable={false} aria-hidden="true" />
+    <Handle id="anchor-output" type="source" position={Position.Left} className="star-map-anchor-port is-anchor-output" style={{ top: "34%" }} isConnectable={false} aria-hidden="true" />
     <div className="star-map-station-heading"><span>{data.item.id}</span><strong>{data.item.title}</strong></div>
     <p>{data.compact ? data.summary : data.item.subtitle}</p>
     {!data.compact && <span className="star-map-station-caption">站 · {data.count} 个节点</span>}
@@ -223,6 +226,8 @@ function ItemNode({ data }: NodeProps<Node<ItemData>>) {
   return <div className={`star-map-item status-${item.status}${item.kind === "gate" ? " is-review" : ""}${data.detailed ? " is-detailed" : ""}`}>
     <Handle id="input" type="target" position={Position.Left} className="star-map-port is-input" title="连接输入" aria-label={`${item.title} 连接输入`} data-testid={`connect-target-${item.id}`}><span>●</span></Handle>
     <Handle id="output" type="source" position={Position.Right} className="star-map-port is-output" title="拖动以连接" aria-label={`从 ${item.title} 开始连接`} data-testid={`connect-source-${item.id}`}><span>＋</span></Handle>
+    <Handle id="anchor-input" type="target" position={Position.Left} className="star-map-anchor-port is-anchor-input" style={{ top: "35%" }} isConnectable={false} aria-hidden="true" />
+    <Handle id="anchor-output" type="source" position={Position.Right} className="star-map-anchor-port is-anchor-output" style={{ top: "65%" }} isConnectable={false} aria-hidden="true" />
     {data.attention && <span className={`star-map-attention-dot is-${data.attention}`} title={data.attention === "action" ? "需要你操作" : "有更新"} aria-label={data.attention === "action" ? "需要你操作" : "有更新"} />}
     <div className="star-map-item-topline"><code>{item.reviewCode || item.id}</code><i /><b>{item.kind === "gate" ? "闸口" : data.statusLabel || statusLabels[item.status]}</b></div>
     <strong>{item.title}</strong>
@@ -388,6 +393,26 @@ function PipelineCanvas({
         zIndex: 1,
         className: `pipeline-edge-station${!sourceNodes.length || !targetNodes.length ? " is-pending-station-link" : ""}` });
     });
+    if (!compact) {
+      stations.forEach((station) => {
+        const orderedNodes = orderedStationNodes(station.id);
+        const firstNode = orderedNodes[0];
+        const lastNode = orderedNodes.at(-1);
+        if (!firstNode || !lastNode) return;
+        edges.push({
+          id: `${STATION_ANCHOR_EDGE_PREFIX}${station.id}-start`, source: station.id, sourceHandle: "anchor-output",
+          target: firstNode.id, targetHandle: "anchor-input", type: "default", selectable: false, deletable: false,
+          focusable: false, zIndex: 1, className: "pipeline-edge-station-anchor",
+        });
+        if (lastNode.id !== firstNode.id) {
+          edges.push({
+            id: `${STATION_ANCHOR_EDGE_PREFIX}${station.id}-end`, source: lastNode.id, sourceHandle: "anchor-output",
+            target: station.id, targetHandle: "anchor-input", type: "default", selectable: false, deletable: false,
+            focusable: false, zIndex: 1, className: "pipeline-edge-station-anchor",
+          });
+        }
+      });
+    }
     demandTransitions(flow, demand).forEach((transition, index) => {
       if (!transition.toNode || !nodeById.has(transition.fromNode) || !nodeById.has(transition.toNode)) return;
       const sourceNode = nodeById.get(transition.fromNode)!;
@@ -468,11 +493,12 @@ function PipelineCanvas({
   };
 
   const removeEdges = (ids: string[]) => {
-    if (!demand || !ids.length) return;
+    const persistedIds = ids.filter((id) => !id.startsWith(STATION_ANCHOR_EDGE_PREFIX));
+    if (!demand || !persistedIds.length) return;
     onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
       ...item,
-      stationLinks: item.stationLinks.filter((link) => !ids.includes(link.id)),
-      deletedTransitionIds: [...new Set([...item.deletedTransitionIds, ...ids])],
+      stationLinks: item.stationLinks.filter((link) => !persistedIds.includes(link.id)),
+      deletedTransitionIds: [...new Set([...item.deletedTransitionIds, ...persistedIds])],
     } : item) }));
   };
 
