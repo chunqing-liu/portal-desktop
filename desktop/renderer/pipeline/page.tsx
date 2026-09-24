@@ -1052,6 +1052,9 @@ function PipelineContent({ model }: { model: AppModel }) {
 
   return <section id="pipeline-view" className={`view${focusMode ? " pipeline-focus-mode" : ""}`} hidden={app.view !== "pipeline"} aria-label="星图" onContextMenuCapture={(event) => event.preventDefault()}>
     <header className="pipeline-page-toolbar" aria-label="星图常驻功能栏">
+      <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-left" onClick={() => setLeftCollapsed((value) => !value)} aria-label={leftCollapsed ? "展开左侧星轨栏" : "收起左侧星轨栏"} aria-expanded={!leftCollapsed} title={leftCollapsed ? "展开星轨" : "收起星轨"}>
+        <RailToggleIcon direction={leftCollapsed ? "right" : "left"} testId="pipeline-left-rail-icon" />
+      </button>
       <input className="pipeline-toolbar-search" type="search" value={demandQuery} onChange={(event) => setDemandQuery(event.target.value)} placeholder="搜索星轨…" aria-label="搜索星轨" />
       <div className="pipeline-toolbar-filters" aria-label="筛选星轨">
         <select value={demandFilter} onChange={(event) => setDemandFilter(event.target.value as typeof demandFilter)} aria-label="按状态筛选"><option value="all">全部状态</option>{Object.entries(demandStatusLabels).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select>
@@ -1060,12 +1063,12 @@ function PipelineContent({ model }: { model: AppModel }) {
       <div className="pipeline-toolbar-actions">
         <button type="button" className="pipeline-toolbar-button pipeline-focus-button" onClick={focusMode ? exitFocus : enterFocus} aria-pressed={focusMode}>{focusMode ? "退出专注" : "专注"}</button>
       </div>
+      <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-right" onClick={() => setRightCollapsed((value) => !value)} aria-label={rightCollapsed ? "展开右侧详情栏" : "收起右侧详情栏"} aria-expanded={!rightCollapsed} title={rightCollapsed ? "展开详情" : "收起详情"}>
+        <RailToggleIcon direction={rightCollapsed ? "left" : "right"} testId="pipeline-right-rail-icon" />
+      </button>
     </header>
-    <div className={`pipeline-shell star-map-shell${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}${focusMode ? " is-focus-mode" : ""}`} style={{ "--pipeline-left": `${leftCollapsed ? 52 : sidebarWidths.left}px`, "--pipeline-right": `${rightCollapsed ? 52 : sidebarWidths.right}px` } as CSSProperties}>
+    <div className={`pipeline-shell star-map-shell${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}${focusMode ? " is-focus-mode" : ""}`} style={{ "--pipeline-left": `${leftCollapsed ? 0 : sidebarWidths.left}px`, "--pipeline-right": `${rightCollapsed ? 0 : sidebarWidths.right}px` } as CSSProperties}>
       <aside className={`pipeline-demands${leftCollapsed ? " is-collapsed" : ""}`} aria-label="星轨">
-        <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-left" onClick={() => setLeftCollapsed((value) => !value)} aria-label={leftCollapsed ? "展开左侧星轨栏" : "收起左侧星轨栏"} aria-expanded={!leftCollapsed} title={leftCollapsed ? "展开星轨" : "收起星轨"}>
-          <RailToggleIcon direction={leftCollapsed ? "right" : "left"} testId="pipeline-left-rail-icon" />
-        </button>
         {!leftCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-left" role="separator" aria-orientation="vertical" aria-label="调整左侧星轨栏宽度" onPointerDown={(event) => startSidebarResize("left", event)} />}
         {!leftCollapsed && <>
           <div className="pipeline-sidebar-heading"><div><span className="pipeline-kicker">STAR TRACKS</span><h2>星轨</h2></div><span className="pipeline-count">{state.demands.length}</span></div>
@@ -1078,9 +1081,6 @@ function PipelineContent({ model }: { model: AppModel }) {
         <ReactFlowProvider><PipelineCanvas demand={demand} flow={flow} stations={stations} nodes={nodes} positions={positions} currentUserId={state.board.currentUserId} selectedItemIds={selectedItemIds} onDemandChange={changeState} onSelectionChange={handleCanvasSelectionChange} onCreateItem={addItem} onDeleteItems={deleteItems} onDuplicateItems={duplicateItems} onConvertNode={convertNode} onMarkNodeUpdated={markNodesUpdated} onRenameStation={renameStation} onAutoArrange={autoArrange} onCreateStationFromSelection={createStationFromSelection} /></ReactFlowProvider>
       </section>
       <aside className={`pipeline-inspector${rightCollapsed ? " is-collapsed" : ""}`} aria-label="节点详情">
-        <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-right" onClick={() => setRightCollapsed((value) => !value)} aria-label={rightCollapsed ? "展开右侧详情栏" : "收起右侧详情栏"} aria-expanded={!rightCollapsed} title={rightCollapsed ? "展开详情" : "收起详情"}>
-          <RailToggleIcon direction={rightCollapsed ? "left" : "right"} testId="pipeline-right-rail-icon" />
-        </button>
         {!rightCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-right" role="separator" aria-orientation="vertical" aria-label="调整右侧详情栏宽度" onPointerDown={(event) => startSidebarResize("right", event)} />}
         {!rightCollapsed && <>
           <div className="pipeline-inspector-heading"><div><span className="pipeline-kicker">DETAILS</span><h2>详情</h2></div>{selectedItemIds.length > 0 && <code>{selectedItemIds.length > 1 ? `${selectedItemIds.length} 项` : selectedItemIds[0]}</code>}</div>

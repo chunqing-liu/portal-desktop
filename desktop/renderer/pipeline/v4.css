@@ -6,13 +6,14 @@
 }
 
 #pipeline-view .pipeline-page-toolbar {
+  position: relative;
   z-index: 30;
   display: flex;
   align-items: center;
   flex: 0 0 auto;
   gap: 12px;
   min-height: 56px;
-  padding: 10px 28px;
+  padding: 10px 52px;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
@@ -345,52 +346,50 @@
   .star-map-canvas-hint small { display: none; }
 }
 
-/* V8：侧栏折叠为始终可操作的窄栏，入口不再依赖顶栏或画布定位。 */
-#pipeline-view .pipeline-shell { --pipeline-left: 180px; --pipeline-right: 230px; }
-#pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 52px; }
-#pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 52px; }
+/* P13：入口固定在顶栏两侧，折叠后的侧栏释放全部画布空间。 */
+#pipeline-view .pipeline-shell {
+  --pipeline-left: 180px;
+  --pipeline-right: 230px;
+  display: grid;
+  grid-template-columns: var(--pipeline-left) minmax(0, 1fr) var(--pipeline-right);
+}
+#pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
+#pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }
 #pipeline-view .pipeline-demands.is-collapsed,
 #pipeline-view .pipeline-inspector.is-collapsed {
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
+  display: block;
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
   padding: 0;
+  border: 0;
   overflow: hidden;
+  pointer-events: none;
 }
 
-.pipeline-rail-toggle {
+/* P13fix: 提升特异度，压过 app/styles.css 里 V2 遗留的 .pipeline-rail-toggle{width:100%;padding:8px 0;writing-mode:vertical-rl}（同特异度但加载在后，曾把 24px 按钮撑成整条工具栏宽）。 */
+#pipeline-view .pipeline-rail-toggle {
   position: absolute;
   z-index: 3;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--muted);
   line-height: 1;
+  transition: color .15s ease, opacity .15s ease;
 }
-.pipeline-rail-toggle:hover { border-color: color-mix(in srgb, #6d7cff 45%, var(--line)); background: var(--control); color: var(--text); }
-.pipeline-rail-toggle-left { top: 10px; right: 10px; }
-.pipeline-rail-toggle-right { top: 10px; left: 10px; }
+#pipeline-view .pipeline-rail-toggle:hover:not(:disabled),
+#pipeline-view .pipeline-rail-toggle:active:not(:disabled) { background: transparent; color: var(--text); }
+.pipeline-rail-toggle:focus-visible { outline: 2px solid color-mix(in srgb, #6d7cff 62%, transparent); outline-offset: 3px; }
+.pipeline-page-toolbar .pipeline-rail-toggle-left { top: 50%; right: auto; left: 14px; transform: translateY(-50%); }
+.pipeline-page-toolbar .pipeline-rail-toggle-right { top: 50%; right: 14px; left: auto; transform: translateY(-50%); }
 .pipeline-demands:not(.is-collapsed),
-.pipeline-inspector:not(.is-collapsed) { position: relative; padding-top: 52px; }
-.pipeline-demands.is-collapsed .pipeline-rail-toggle,
-.pipeline-inspector.is-collapsed .pipeline-rail-toggle {
-  position: relative;
-  top: auto;
-  right: auto;
-  left: auto;
-  align-self: flex-start;
-  display: flex;
-  width: 100%;
-  height: 34px;
-  flex: 0 0 34px;
-  gap: 3px;
-  margin-top: 12px;
-}
+.pipeline-inspector:not(.is-collapsed) { position: relative; }
 .pipeline-square-icon {
   position: relative;
   display: block;
@@ -537,8 +536,8 @@
 .pipeline-demand-context-menu button.is-danger { color: #b34b47; }
 
 @media (max-width: 760px) {
-  #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 52px; }
-  #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 52px; }
+  #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
+  #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }
 }
 
 .star-map-toolbar .star-map-create-group {
@@ -561,7 +560,7 @@
 .star-map-toolbar .star-map-create-button:hover { background: var(--selected); color: var(--text); }
 
 @container stage (max-width: 700px) {
-  #pipeline-view .pipeline-page-toolbar { flex-wrap: wrap; gap: 8px; padding: 9px 16px; }
+  #pipeline-view .pipeline-page-toolbar { flex-wrap: wrap; gap: 8px; padding: 9px 44px; }
   .pipeline-toolbar-search { flex: 1 1 180px; max-width: none; }
   .pipeline-toolbar-actions { margin-left: 0; }
 }
