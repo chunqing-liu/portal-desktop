@@ -578,6 +578,31 @@
 .star-map-context-menu button.is-danger,
 .pipeline-demand-context-menu button.is-danger { color: #b34b47; }
 
+.star-map-dragout-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  width: 120px;
+  max-width: calc(100vw - 16px);
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px #0003;
+}
+.star-map-dragout-menu button {
+  min-height: 32px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  color: var(--secondary);
+  font-size: 11px;
+  text-align: left;
+}
+.star-map-dragout-menu button:hover,
+.star-map-dragout-menu button:focus-visible { background: var(--control); color: var(--text); }
+.star-map-dragout-menu button:focus-visible { outline: 2px solid color-mix(in srgb, #6d7cff 62%, transparent); outline-offset: -1px; }
+
 @media (max-width: 760px) {
   #pipeline-view .pipeline-shell.left-collapsed { --pipeline-left: 0px; }
   #pipeline-view .pipeline-shell.right-collapsed { --pipeline-right: 0px; }

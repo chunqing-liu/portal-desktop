@@ -83,6 +83,9 @@ const SIDEBAR_WIDTH_LIMITS = { left: { min: 180, max: 420 }, right: { min: 220, 
 const STATION_ANCHOR_EDGE_PREFIX = "station-anchor-";
 const COLLISION_TOLERANCE = 8;
 const COLLISION_VERTICAL_GAP = 24;
+const DRAGOUT_MENU_WIDTH = 120;
+const DRAGOUT_MENU_HEIGHT = 108;
+const DRAGOUT_MENU_MARGIN = 8;
 
 const statusLabels: Record<NodeStatus, string> = {
   pending: "待开始", ready: "可开始", running: "运行中", waiting_human: "等待审核",
@@ -143,6 +146,27 @@ function loadSidebarWidths() {
 type StationSize = { width: number; height: number };
 type StationAnchorSide = "start" | "end";
 type CollisionRect = PipelinePoint & { width: number; height: number };
+type DragOutStart = { nodeId: string; handleId: string; handleType: "source" | "target" };
+type DragOutCreateMenu = DragOutStart & { x: number; y: number; position: PipelinePoint };
+
+function connectionEndPoint(event: MouseEvent | TouchEvent): PipelinePoint | null {
+  if ("changedTouches" in event) {
+    const touch = event.changedTouches[0];
+    return touch ? { x: touch.clientX, y: touch.clientY } : null;
+  }
+  return { x: event.clientX, y: event.clientY };
+}
+
+function isEmptyCanvasPane(event: MouseEvent | TouchEvent, point: PipelinePoint) {
+  const target = "changedTouches" in event ? document.elementFromPoint(point.x, point.y) : event.target;
+  return target instanceof Element && target.classList.contains("react-flow__pane");
+}
+
+function clampDragOutMenuPosition(point: PipelinePoint): PipelinePoint {
+  const maxX = Math.max(DRAGOUT_MENU_MARGIN, window.innerWidth - DRAGOUT_MENU_WIDTH - DRAGOUT_MENU_MARGIN);
+  const maxY = Math.max(DRAGOUT_MENU_MARGIN, window.innerHeight - DRAGOUT_MENU_HEIGHT - DRAGOUT_MENU_MARGIN);
+  return { x: Math.min(Math.max(point.x, DRAGOUT_MENU_MARGIN), maxX), y: Math.min(Math.max(point.y, DRAGOUT_MENU_MARGIN), maxY) };
+}
 
 function parseStationAnchorEdgeId(id: string): { stationId: string; side: StationAnchorSide } | null {
   const match = id.match(/^station-anchor-(.+)-(start|end)$/);
@@ -317,7 +341,7 @@ function PipelineCanvas({
   onDemandChange(change: (current: PipelineLocalState) => PipelineLocalState): void;
   onSelectionChange(ids: string[]): void;
   onToast(message: string): void;
-  onCreateItem(kind: "station" | "node" | "gate", position: PipelinePoint): void;
+  onCreateItem(kind: "station" | "node" | "gate", position: PipelinePoint): string | undefined;
   onDeleteItems(ids: string[]): void;
   onDuplicateItems(ids: string[], options?: { offset?: number; select?: boolean }): void;
   onConvertNode(id: string): void;
@@ -328,8 +352,11 @@ function PipelineCanvas({
 }) {
   const wrapper = useRef<HTMLDivElement>(null);
   const altDragIds = useRef<string[]>([]);
+  const connectionStartRef = useRef<DragOutStart | null>(null);
+  const connectionPersistedRef = useRef(false);
   const [zoom, setZoom] = useState(0.72);
   const [contextMenu, setContextMenu] = useState<CanvasMenu | null>(null);
+  const [dragOutCreateMenu, setDragOutCreateMenu] = useState<DragOutCreateMenu | null>(null);
   const [connectingFromId, setConnectingFromId] = useState("");
   const [lastConnection, setLastConnection] = useState("");
   const [flowNodes, setFlowNodes] = useNodesState<FlowNode>([]);
@@ -487,10 +514,20 @@ function PipelineCanvas({
   const renderedEdges = useMemo(() => buildEdges(), [demand, flow, stations, nodes, positions, compact, detailed]);
   useEffect(() => { setFlowNodes(renderedNodes); setFlowEdges(renderedEdges); }, [renderedNodes, renderedEdges]);
   useEffect(() => {
-    const dismiss = () => setContextMenu(null);
+    const dismiss = () => { setContextMenu(null); setDragOutCreateMenu(null); };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
   }, []);
+  useEffect(() => {
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && dragOutCreateMenu) {
+        event.preventDefault();
+        setDragOutCreateMenu(null);
+      }
+    };
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => document.removeEventListener("keydown", dismissOnEscape);
+  }, [dragOutCreateMenu]);
 
   const updateStationAndChildren = (stationId: string, nextPosition: PipelinePoint) => {
     if (!demand) return;
@@ -624,6 +661,7 @@ function PipelineCanvas({
     }
     if (stationById.has(connection.source) && stationById.has(connection.target)) {
       const id = `station-link-${crypto.randomUUID()}`;
+      connectionPersistedRef.current = true;
       onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
         ...item, stationLinks: [...item.stationLinks, { id, fromStationId: connection.source!, toStationId: connection.target! }],
       } : item) }));
@@ -633,6 +671,7 @@ function PipelineCanvas({
     const target = stationById.has(connection.target) ? orderedStationNodes(connection.target)[0]?.id : connection.target;
     if (!source || !target || !nodeById.has(source) || !nodeById.has(target)) { setLastConnection("空站会先保留站间连接，节点加入后自动串联"); return; }
     const id = `custom-edge-${crypto.randomUUID()}`;
+    connectionPersistedRef.current = true;
     onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
       ...item, customTransitions: [...item.customTransitions, { id, fromNode: source, toNode: target, event: "手动连接" }],
     } : item) }));
@@ -646,6 +685,44 @@ function PipelineCanvas({
     const width = kind === "station" ? STATION_MIN_WIDTH : NODE_WIDTH;
     const height = kind === "station" ? STATION_EMPTY_HEIGHT : NODE_HEIGHT;
     onCreateItem(kind, { x: center.x - width / 2, y: center.y - height / 2 });
+  };
+
+  const createFromDragOut = (kind: "station" | "node" | "gate") => {
+    const pending = dragOutCreateMenu;
+    setDragOutCreateMenu(null);
+    if (!pending || !demand) return;
+    const width = kind === "station" ? STATION_MIN_WIDTH : NODE_WIDTH;
+    const height = kind === "station" ? STATION_EMPTY_HEIGHT : NODE_HEIGHT;
+    const createdId = onCreateItem(kind, { x: pending.position.x - width / 2, y: pending.position.y - height / 2 });
+    if (!createdId) return;
+
+    const source = pending.handleType === "source" ? pending.nodeId : createdId;
+    const target = pending.handleType === "source" ? createdId : pending.nodeId;
+    const sourceIsStation = source === createdId ? kind === "station" : stationById.has(source);
+    const targetIsStation = target === createdId ? kind === "station" : stationById.has(target);
+    if (sourceIsStation && targetIsStation) {
+      const id = `station-link-${crypto.randomUUID()}`;
+      onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
+        ...item, stationLinks: [...item.stationLinks, { id, fromStationId: source, toStationId: target }],
+      } : item) }));
+      setLastConnection(`${source} → ${target}`);
+      return;
+    }
+
+    const sourceNodeId = sourceIsStation ? (source === createdId ? undefined : orderedStationNodes(source).at(-1)?.id) : source;
+    const targetNodeId = targetIsStation ? (target === createdId ? undefined : orderedStationNodes(target)[0]?.id) : target;
+    const sourceIsNode = sourceNodeId === createdId ? kind !== "station" : Boolean(sourceNodeId && nodeById.has(sourceNodeId));
+    const targetIsNode = targetNodeId === createdId ? kind !== "station" : Boolean(targetNodeId && nodeById.has(targetNodeId));
+    if (!sourceNodeId || !targetNodeId || !sourceIsNode || !targetIsNode) {
+      onToast("空站暂无节点可连");
+      setLastConnection("空站暂无节点可连");
+      return;
+    }
+    const id = `custom-edge-${crypto.randomUUID()}`;
+    onDemandChange((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? {
+      ...item, customTransitions: [...item.customTransitions, { id, fromNode: sourceNodeId, toNode: targetNodeId, event: "拖出创建" }],
+    } : item) }));
+    setLastConnection(`${sourceNodeId} → ${targetNodeId}`);
   };
 
   const selectedCanvasIds = () => getNodes().filter((node) => node.selected).map((node) => node.id);
@@ -712,8 +789,21 @@ function PipelineCanvas({
     <ReactFlow
       nodes={flowNodes} edges={flowEdges} nodeTypes={nodeTypes}
       onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
-      onConnectStart={(_event, params) => { setConnectingFromId(params.nodeId || "当前节点"); setLastConnection(""); }}
-      onConnectEnd={() => setConnectingFromId("")}
+      onConnectStart={(_event, params) => {
+        connectionPersistedRef.current = false;
+        connectionStartRef.current = params.nodeId && params.handleType ? { nodeId: params.nodeId, handleId: params.handleId || "", handleType: params.handleType } : null;
+        setDragOutCreateMenu(null); setConnectingFromId(params.nodeId || "当前节点"); setLastConnection("");
+      }}
+      onConnectEnd={(event) => {
+        const start = connectionStartRef.current;
+        const persisted = connectionPersistedRef.current;
+        connectionStartRef.current = null; connectionPersistedRef.current = false;
+        setConnectingFromId("");
+        const point = connectionEndPoint(event);
+        if (!start || persisted || start.handleId.startsWith("anchor-") || !point || !isEmptyCanvasPane(event, point)) return;
+        const menuPosition = clampDragOutMenuPosition(point);
+        setDragOutCreateMenu({ ...start, ...menuPosition, position: screenToFlowPosition(point) });
+      }}
       onNodeClick={(_event, node) => { onSelectionChange([node.id]); setContextMenu(null); }}
       onNodeContextMenu={openNodeMenu}
       onEdgeContextMenu={openEdgeMenu}
@@ -729,7 +819,7 @@ function PipelineCanvas({
         persistDraggedNodes(node);
       }}
       onSelectionChange={handleSelectionChange}
-      onPaneClick={() => { onSelectionChange([]); setContextMenu(null); }}
+      onPaneClick={() => { onSelectionChange([]); setContextMenu(null); setDragOutCreateMenu(null); }}
       onPaneContextMenu={(event) => {
         event.preventDefault();
         const ids = selectedCanvasIds();
@@ -763,6 +853,11 @@ function PipelineCanvas({
       {contextMenu.kind === "edge" && menuEdgeAnchor && <button type="button" onClick={() => restoreStationAnchor(menuEdgeId)}>恢复默认锚定</button>}
       {contextMenu.kind === "edge" && menuEdgeIsStationLink && <button type="button" className="is-danger" onClick={() => { removeEdges([menuEdgeId]); setContextMenu(null); }}>删除站间连线</button>}
       {contextMenu.kind === "selection" && <><button type="button" disabled={!menuNodeIds.length} onClick={() => { onDuplicateItems(menuNodeIds); setContextMenu(null); }}>复制选中节点</button><button type="button" disabled={!menuNodeIds.length} onClick={() => { onAutoArrange(menuNodeIds); setContextMenu(null); }}>自动排序</button><button type="button" disabled={!menuNodeIds.length} onClick={() => { onCreateStationFromSelection(menuNodeIds); setContextMenu(null); }}>创建站</button><button type="button" disabled={!menuNodeIds.length} onClick={() => { onMarkNodeUpdated(menuNodeIds); setContextMenu(null); }}>标记有更新</button><div role="separator" /><button type="button" className="is-danger" onClick={() => { onDeleteItems(contextMenu.ids); setContextMenu(null); }}>删除选中项</button></>}
+    </div>}
+    {dragOutCreateMenu && <div className="star-map-dragout-menu" role="menu" aria-label="拖出连线后新建" style={{ left: dragOutCreateMenu.x, top: dragOutCreateMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
+      <button type="button" autoFocus onClick={() => createFromDragOut("station")}>站</button>
+      <button type="button" onClick={() => createFromDragOut("node")}>节点</button>
+      <button type="button" onClick={() => createFromDragOut("gate")}>闸口</button>
     </div>}
   </div>;
 }
@@ -1028,7 +1123,7 @@ function PipelineContent({ model }: { model: AppModel }) {
       const id = `station-${crypto.randomUUID()}`;
       const station: PipelineStation = { id, kind: "station", title: "新建站", subtitle: "待补充", description: "待补充", nodeIds: [] };
       updateDemand({ customStations: [...demand.customStations, station], positions: { ...demand.positions, [id]: position } });
-      setSelectedItemIds([id]); setRightCollapsed(false); return;
+      setSelectedItemIds([id]); setRightCollapsed(false); return id;
     }
     const id = `node-${crypto.randomUUID()}`;
     const isGate = kind === "gate";
@@ -1042,6 +1137,7 @@ function PipelineContent({ model }: { model: AppModel }) {
     };
     updateDemand({ customNodes: [...demand.customNodes, node], positions: { ...demand.positions, [id]: position } });
     setSelectedItemIds([id]); setRightCollapsed(false);
+    return id;
   };
 
   const deleteItems = (ids: string[]) => {
