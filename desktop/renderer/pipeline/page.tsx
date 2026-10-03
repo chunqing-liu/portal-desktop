@@ -72,7 +72,8 @@ const NODE_WIDTH = 214;
 const NODE_HEIGHT = 86;
 const STATION_MIN_WIDTH = 286;
 const STATION_EMPTY_HEIGHT = 152;
-const STATION_COMPACT_HEIGHT = 170;
+const STATION_COMPACT_HEIGHT = 84;
+const COMPACT_SCALE_CAP = 1.3;
 const STATION_HEADER_HEIGHT = 112;
 const STATION_PADDING = 24;
 const STATION_NODE_GAP = 108;
@@ -108,6 +109,23 @@ const nextNodeActions: Record<NodeStatus, { label: string; status: NodeStatus }>
 };
 const isDefined = (value?: string) => Boolean(value?.trim() && value.trim() !== "待补充");
 const demandStatusLabel = (demand: Demand) => demand.bug?.status || demandStatusLabels[demand.status];
+// 星轨状态按站推进聚合：找到第一个未全部完成的站，映射到状态阶梯；闸口等待人工时优先显示待评审。
+const DEMAND_STATUS_LADDER: Demand["status"][] = ["demand.drafting", "demand.reviewed", "demand.scheduled", "demand.developing", "demand.validating"];
+const deriveDemandStatus = (flow: PipelineFlow, demand: Demand): Demand["status"] => {
+  if (demand.status === "demand.paused" || demand.status === "demand.cancelled") return demand.status;
+  const allNodes = demandNodes(flow, demand);
+  if (!allNodes.length) return demand.status;
+  if (allNodes.some((node) => node.kind === "gate" && node.status === "waiting_human")) return "demand.pending_review";
+  if (allNodes.every((node) => node.status === "done" || node.status === "skipped")) return "demand.released";
+  const stationList = demandStations(flow, demand);
+  const nodeStatusOf = (id: string) => allNodes.find((candidate) => candidate.id === id)?.status;
+  const firstIncomplete = stationList.findIndex((station) => !(station.nodeIds || []).every((id) => {
+    const status = nodeStatusOf(id);
+    return status === "done" || status === "skipped";
+  }));
+  if (firstIncomplete === -1) return "demand.released";
+  return DEMAND_STATUS_LADDER[Math.min(firstIncomplete, DEMAND_STATUS_LADDER.length - 1)];
+};
 const demandDisplayTitle = (demand: Demand) => demand.title;
 const NODE_EVIDENCE_SEPARATOR = "\n\n完成证据：";
 
@@ -209,8 +227,13 @@ function visibleNodePosition(node: PipelineNode, positions: Record<string, Pipel
   };
 }
 
-function stationSizeFor(stationId: string, stationNodes: PipelineNode[], positions: Record<string, PipelinePoint>, compact: boolean): StationSize {
-  if (compact) return { width: STATION_MIN_WIDTH, height: STATION_COMPACT_HEIGHT };
+function compactScaleFor(zoom: number) {
+  // 缩得越深，紧凑卡片按反比放大（封顶），保证屏幕上的字不随缩小而看不清。
+  return Math.min(COMPACT_SCALE_CAP, COMPACT_ZOOM / Math.max(zoom, 0.05));
+}
+
+function stationSizeFor(stationId: string, stationNodes: PipelineNode[], positions: Record<string, PipelinePoint>, compact: boolean, zoom = 1): StationSize {
+  if (compact) return { width: STATION_MIN_WIDTH, height: Math.round(STATION_COMPACT_HEIGHT * compactScaleFor(zoom)) };
   const stationPosition = positions[stationId] || { x: 80, y: 120 };
   const stationPositions = new Map([[stationId, stationPosition]]);
   let width = STATION_MIN_WIDTH;
@@ -404,7 +427,7 @@ function PipelineCanvas({
     const result: FlowNode[] = stations.map((station) => {
       const stationNodes = nodes.filter((node) => node.stationId === station.id);
       const done = stationNodes.filter((node) => node.status === "done").length;
-      const size = stationSizeFor(station.id, stationNodes, positions, compact);
+      const size = stationSizeFor(station.id, stationNodes, positions, compact, zoom);
       const stationLinked = linkedStationIds.has(station.id);
       const orderedNodes = orderedStationNodes(station.id);
       const stationChainBroken = stationLinked && orderedNodes.some((node, index) => {
@@ -417,7 +440,7 @@ function PipelineCanvas({
       return {
         id: station.id, type: "station", position: stationPositionById.get(station.id)!, selected: selectedItemIds.includes(station.id),
         data: { item: station, compact, count: stationNodes.length, summary: `${done}/${stationNodes.length} 已完成`, stationLinked, stationChainBroken },
-        style: { width: size.width, height: size.height }, zIndex: 0,
+        style: { width: size.width, height: size.height }, zIndex: 2, width: size.width, height: size.height,
       } satisfies FlowNode;
     });
     nodes.forEach((item) => {
@@ -429,7 +452,7 @@ function PipelineCanvas({
           statusLabel: demand?.workflowId === "bug-fix" && item.id === "B04" && item.status === "done" ? "已关闭" : undefined,
         }, selectable: !hiddenInCompactStation,
         style: { width: NODE_WIDTH, height: NODE_HEIGHT, opacity: hiddenInCompactStation ? 0 : 1, pointerEvents: hiddenInCompactStation ? "none" : "auto", transition: "opacity 160ms ease" },
-        zIndex: 2,
+        zIndex: 2, width: NODE_WIDTH, height: NODE_HEIGHT,
       } satisfies FlowNode);
     });
     return result;
@@ -982,7 +1005,12 @@ function PipelineContent({ model }: { model: AppModel }) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [state]);
-  const updateDemand = (patch: Partial<Demand>) => { if (demand) changeState((current) => ({ ...current, demands: current.demands.map((item) => item.id === demand.id ? { ...item, ...patch } : item) })); };
+  const updateDemand = (patch: Partial<Demand>) => { if (demand) changeState((current) => ({ ...current, demands: current.demands.map((item) => {
+    if (item.id !== demand.id) return item;
+    // 节点状态变化时同步聚合星轨状态
+    if (patch.nodeStates || patch.nodeOverrides) return { ...item, ...patch, status: deriveDemandStatus(flow, { ...item, ...patch }) };
+    return { ...item, ...patch };
+  }) })); };
 
   const handleCanvasSelectionChange = useCallback((ids: string[]) => {
     setSelectedItemIds((current) => current.length === ids.length && current.every((id, index) => id === ids[index]) ? current : ids);
@@ -1003,6 +1031,16 @@ function PipelineContent({ model }: { model: AppModel }) {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") exitFocus(); };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, [focusMode]);
+  // Esc 取消选中；专注模式退出与右键/拖出菜单打开时让位
+  useEffect(() => {
+    const deselectOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || focusMode) return;
+      if (document.querySelector(".star-map-context-menu,.star-map-dragout-menu")) return;
+      setSelectedItemIds([]);
+    };
+    document.addEventListener("keydown", deselectOnEscape);
+    return () => document.removeEventListener("keydown", deselectOnEscape);
   }, [focusMode]);
   useEffect(() => {
     if (!focusMode) return;
@@ -1063,7 +1101,24 @@ function PipelineContent({ model }: { model: AppModel }) {
   };
   const updateNodeStatus = (status: NodeStatus) => {
     if (demand && selectedNode && validateNodeStatus(selectedNode, status)) {
-      const patch: Partial<Demand> = { nodeStates: { ...demand.nodeStates, [selectedNode.id]: status } };
+      const nodeStates = { ...demand.nodeStates, [selectedNode.id]: status };
+      // 闸口通过后，下游待开始的节点自动解锁为「可开始」
+      if (status === "done" && selectedNode.kind === "gate") {
+        const targetIds = new Set<string>();
+        demandTransitions(flow, demand).filter((transition) => transition.fromNode === selectedNode.id).forEach((transition) => {
+          if (transition.toNode) targetIds.add(transition.toNode);
+          (transition.toNodes || []).forEach((id) => targetIds.add(id));
+        });
+        (demand.stationLinks || []).filter((link) => link.fromStationId === selectedNode.stationId).forEach((link) => {
+          const firstId = stations.find((station) => station.id === link.toStationId)?.nodeIds?.[0];
+          if (firstId) targetIds.add(firstId);
+        });
+        targetIds.forEach((id) => {
+          const resolved = nodes.find((candidate) => candidate.id === id);
+          if (id !== selectedNode.id && resolved && resolved.status === "pending") nodeStates[id] = "ready";
+        });
+      }
+      const patch: Partial<Demand> = { nodeStates };
       if (demand.workflowId === "bug-fix" && selectedNode.id === "B04" && demand.bug) {
         const bugStatus: BugStatus = status === "done" ? "已关闭" : (status === "failed" || demand.bug.status === "已关闭") ? "重新打开" : demand.bug.status;
         if (bugStatus !== demand.bug.status) patch.bug = {
