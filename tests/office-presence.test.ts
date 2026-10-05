@@ -35,6 +35,7 @@ describe('main presence registry', () => {
     registry.accept({ ...order('alpha', 5), type: 'handoff', handoffId: 'business', toBeingId: 'beta', mode: 'business' });
     expect(registry.accept({ ...order('alpha', 6), type: 'handoff-confirm', handoffId: 'business' }).code).toBe('INVALID_CONFIRMATION');
     expect(registry.accept({ ...order('beta', 2), type: 'handoff-confirm', handoffId: 'business' }).accepted).toBe(true);
+    expect(registry.accept({ ...order('beta', 3), type: 'cancel', targetEventId: 'alpha-1-5' }).code).toBe('NOT_OWNER');
   });
   it('keeps run tombstones after unregister and snapshots contain no activity replay', () => {
     const registry = new OfficePresenceRegistry(() => 1000);
@@ -45,4 +46,3 @@ describe('main presence registry', () => {
     expect(Object.keys(registry.snapshot())).toEqual(['sequence', 'entries', 'reports']);
   });
 });
-

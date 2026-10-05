@@ -25,6 +25,17 @@ describe('vendored office runtime in host world', () => {
     expect(runtime.snapshot().resources.every(resource => !resource.holders.length)).toBe(true);
     runtime.dispose();
   });
+  it('cancels a queued command separately from a continuous activity', () => {
+    const runtime = createStarmapRuntime(DEMO_IDENTITIES);
+    runtime.submit({ protocolVersion: '2.0', sceneId: runtime.sceneId, commandId: 'continuous', type: 'activity.start', capability: 'office.focus', participants: [{ entityId: 'demo-product', role: 'worker' }], params: { title: '长期占用测试' } });
+    expect(runtime.submit({ ...visit('queued'), busyPolicy: 'queue' }).status).toBe('queued');
+    runtime.submit({ protocolVersion: '2.0', sceneId: runtime.sceneId, commandId: 'cancel-queued', type: 'command.cancel', targetCommandId: 'queued' });
+    expect(runtime.snapshot().records.find(record => record.command.commandId === 'queued')?.status).toBe('cancelled');
+    runtime.submit({ protocolVersion: '2.0', sceneId: runtime.sceneId, commandId: 'stop-active', type: 'activity.stop', activityId: 'continuous' });
+    for (let elapsed = 0; elapsed < 30000; elapsed += 50) runtime.tick(50);
+    expect(runtime.snapshot().resources.every(resource => !resource.holders.length)).toBe(true);
+    runtime.dispose();
+  });
   it('does not replay duplicate commands and releases claims after cancellation', () => {
     const runtime = createStarmapRuntime(DEMO_IDENTITIES);
     runtime.submit(visit('same'));
@@ -37,4 +48,3 @@ describe('vendored office runtime in host world', () => {
     runtime.dispose();
   });
 });
-
