@@ -85,8 +85,11 @@ export class OfficeRuntime {
 
   private defineResources() {
     this.resources = new ResourceManager()
-    for (const actor of this.world.actors) for (const channel of ['body', 'speech']) this.resources.define(`actor:${actor.id}:${channel}`)
-    for (const prop of this.world.props) {
+    this.defineEntityResources(this.world.actors, this.world.props)
+  }
+  private defineEntityResources(actors: Actor[], props: World['props']) {
+    for (const actor of actors) for (const channel of ['body', 'speech']) this.resources.define(`actor:${actor.id}:${channel}`)
+    for (const prop of props) {
       const template = this.plugins.template(prop.templateId)
       for (const [key, capacity] of Object.entries(template.resources)) this.resources.define(`prop:${prop.id}:${key}`, capacity)
       for (const [id, interaction] of Object.entries(template.interactions ?? {})) {
@@ -98,6 +101,17 @@ export class OfficeRuntime {
   }
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
+  get listenerCount() { return this.listeners.size }
+  appendOfficeRoster(actors: Actor[], props: World['props'], height: number) {
+    if (this.disposed || this.editing || actors.some(actor => this.world.actors.some(existing => existing.id === actor.id)) || props.some(prop => this.world.props.some(existing => existing.id === prop.id))) throw new Error('INVALID_ROSTER_APPEND')
+    const candidate = worldSchema.parse({ ...this.world, actors: [...this.world.actors, ...actors], props: [...this.world.props, ...props], height, bounds: { ...this.world.bounds, bottom: height }, layoutRevision: this.world.layoutRevision + 1 })
+    candidate.actors = [...this.world.actors, ...candidate.actors.slice(this.world.actors.length)]
+    this.navigation.validate(candidate)
+    this.defineEntityResources(actors, props)
+    this.world = candidate
+    this.emit('office.roster.appended', { actors: actors.map(actor => actor.id) })
+    this.persist()
+  }
   getRevision = () => this.revision
   get sceneId() { return this.world.sceneId }
   get isEditing() { return this.editing }

@@ -1,5 +1,6 @@
 import { OfficeBridge, type ActorPresentation } from './bridge';
 import { createStarmapRuntime } from './world';
+import { appendOfficeIdentities } from './roster';
 import { StarmapScene } from './scene';
 import { HandoffController } from './handoff';
 import { MeetingController, type MeetingView } from './meeting';
@@ -32,6 +33,15 @@ export class OfficeHost {
   project(actors: ActorPresentation[]) { this.latest = actors; this.bridge.project(actors.filter(actor => this.identities.some(identity => identity.id === actor.id))); }
   roster(identities: OfficeIdentity[]) {
     if (JSON.stringify(identities) === JSON.stringify(this.pending || this.identities)) return;
+    const retained = this.identities.every(identity => identities.some(next => JSON.stringify(next) === JSON.stringify(identity)));
+    if (retained && this.handoffs.settled) {
+      try {
+        appendOfficeIdentities(this.runtime, identities);
+        this.identities = identities; this.pending = undefined;
+        this.scene.refreshRoster(); this.project(this.latest); this.onRoster(identities);
+        return;
+      } catch { }
+    }
     this.pending = identities;
     this.handoffs.stopForRoster();
     this.maybeRebuild();

@@ -104,6 +104,28 @@ export class GridNavigation implements NavigationAdapter {
     return route
   }
 
+  private interactionReachable(world: World, from: Point, to: Point, query: NavigationQuery) {
+    const allowed = (query.within ?? []).filter(point => this.walkable(world, point, query))
+    if (!allowed.some(point => sameCell(point, from)) || !allowed.some(point => sameCell(point, to))) return false
+    const reached = new Set([cellKey(from)]), queue = [from]
+    for (let index = 0; index < queue.length; index++) for (const point of allowed) {
+      if (!reached.has(cellKey(point)) && Math.abs(point.x - queue[index].x) + Math.abs(point.y - queue[index].y) === 1) { reached.add(cellKey(point)); queue.push(point) }
+    }
+    return reached.has(cellKey(to))
+  }
+  private reachable(world: World, from: Point) {
+    const blocked = new Set<string>()
+    for (const prop of world.props) for (const offset of furnitureCells(this.templates.template(prop.templateId))) blocked.add(cellKey(addCell(prop.position, offset)))
+    for (const area of world.blockedAreas ?? []) for (let row = area.bounds.top; row < area.bounds.bottom; row++) for (let column = area.bounds.left; column < area.bounds.right; column++) blocked.add(cellKey({ x: column, y: row }))
+    const reached = new Set<string>()
+    if (!this.onFloor(world, from) || blocked.has(cellKey(from))) return reached
+    const queue = [from]; reached.add(cellKey(from))
+    for (let index = 0; index < queue.length; index++) for (const offset of [{ x: -1, y: 0 }, { x: 1, y: 0 }, { x: 0, y: -1 }, { x: 0, y: 1 }]) {
+      const point = addCell(queue[index], offset), key = cellKey(point)
+      if (!reached.has(key) && !blocked.has(key) && this.onFloor(world, point)) { reached.add(key); queue.push(point) }
+    }
+    return reached
+  }
   validate(world: World, options: { connectivity?: boolean } = {}) {
     if (world.unit !== 'cell' || world.gridSize !== 1 || !Number.isInteger(world.width) || !Number.isInteger(world.height)) throw new SceneFault('INVALID_CELL', '地图只接受整数格单位')
     if (world.walkableArea) convexAreaContains(world.walkableArea)
@@ -127,7 +149,7 @@ export class GridNavigation implements NavigationAdapter {
         const entrances = interaction.approaches.map(key => this.anchor(world, prop.id, key)).filter(p => {
           if (!this.walkable(world, p)) return false
           const within = [p, target, ...interaction.cells.map(c => addCell(prop.position, c))]
-          try { this.path(world, p, target, { contact: { propId: prop.id, interactionId: id }, within }); return true } catch { return false }
+          return this.interactionReachable(world, p, target, { contact: { propId: prop.id, interactionId: id }, within })
         })
         if (!entrances.length) throw new SceneFault('SEAT_BLOCKED', `「${prop.name}」的${interaction.name}没有可达入口`)
         destinations.push(entrances)
@@ -137,9 +159,10 @@ export class GridNavigation implements NavigationAdapter {
         destinations.push([this.anchor(world, prop.id, key)])
       }
     }
-    if (destinations.length && !destinations[0].some(from => destinations.every(group => group.some(to => {
-      try { this.path(world, from, to); return true } catch { return false }
-    })))) throw new SceneFault('NO_ROUTE', '家具入口与必需互动格之间没有连通的通道')
+    if (destinations.length && !destinations[0].some(from => {
+      const reachable = this.reachable(world, from)
+      return destinations.every(group => group.some(to => reachable.has(cellKey(to))))
+    })) throw new SceneFault('NO_ROUTE', '家具入口与必需互动格之间没有连通的通道')
     const occupied = new Set<string>(), homes = new Set<string>()
     for (const actor of world.actors) {
       if (!isCell(actor.position)) throw new SceneFault('INVALID_CELL', '人物位置必须是整数格')

@@ -36,8 +36,10 @@ export function OfficeDock({ state, selectedIds, focusMode, active, onNavigate, 
   const projection = useMemo(() => projectOffice(state, identities, presence.entries), [state, identities, presence.entries]);
   const presentations = JSON.stringify(projection.people.map(({ id, status, title }) => ({ id, status, title })));
   const highlights = JSON.stringify(projection.people.filter(person => person.tasks.some(task => task.demandId === state.selectedDemandId && selectedIds.includes(task.nodeId))).map(person => person.id));
+  const largeRoster = identities.length > 8;
+  const detached = standalone || largeRoster;
   const expanded = open && !focusMode;
-  const sceneVisible = expanded && active && documentVisible && (standalone || available >= 360 + 220);
+  const sceneVisible = expanded && active && documentVisible && (detached || available >= 360 + 220);
   const dockHeight = Math.min(height, Math.max(220, available - 360));
   const person = projection.people.find(person => person.id === actorId);
 
@@ -74,7 +76,7 @@ export function OfficeDock({ state, selectedIds, focusMode, active, onNavigate, 
   useEffect(() => { host.current?.scene.setReduced(reduced); localStorage.setItem('starmap-office-reduced', String(reduced)); }, [reduced]);
   useEffect(() => { localStorage.setItem('starmap-office-open', String(open)); }, [open]);
   useEffect(() => { if (!expanded || !active) setStandalone(false); }, [expanded, active]);
-  useEffect(() => { if (standalone) canvas.current?.parentElement?.focus(); }, [standalone]);
+  useEffect(() => { if (detached && expanded && active) canvas.current?.parentElement?.focus(); }, [detached, expanded, active]);
 
   const beginResize = (event: PointerEvent<HTMLDivElement>) => {
     event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
@@ -82,11 +84,11 @@ export function OfficeDock({ state, selectedIds, focusMode, active, onNavigate, 
   };
   const taskButton = (task: OfficeTask) => <button type="button" key={task.key} data-office-task={task.key} onClick={() => onNavigate(task.demandId, task.nodeId)}><span>{task.demandTitle} · {task.title}</span><small>{STATUS_MARKERS[task.status]}{task.reason && ' · ' + task.reason}{task.source && ' · 由 ' + task.source + ' 上报'}</small></button>;
 
-  return <section ref={root} className="office-dock" aria-label="协作舱" tabIndex={-1} data-expanded={expanded} data-detached={standalone} onKeyDown={event => {
+  return <section ref={root} className="office-dock" aria-label="协作舱" tabIndex={-1} data-expanded={expanded} data-detached={expanded && active && detached} data-large-roster={largeRoster} onKeyDown={event => {
     event.stopPropagation();
     if (event.key === 'Delete' || ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase()))) event.preventDefault();
-    if (standalone && event.key === 'Escape') { event.preventDefault(); setStandalone(false); root.current?.focus(); }
-    if (standalone && event.key === 'Tab') {
+    if (detached && event.key === 'Escape') { event.preventDefault(); setStandalone(false); if (largeRoster) setOpen(false); root.current?.focus(); }
+    if (detached && event.key === 'Tab') {
       const controls = Array.from(root.current!.querySelectorAll<HTMLElement>('.office-body button:not(:disabled), .office-body input, .office-body summary')).filter(element => element.getClientRects().length);
       const first = controls[0], last = controls[controls.length - 1];
       if (event.shiftKey && (document.activeElement === first || document.activeElement === canvas.current?.parentElement)) { event.preventDefault(); last?.focus(); }
@@ -95,8 +97,8 @@ export function OfficeDock({ state, selectedIds, focusMode, active, onNavigate, 
   }} onKeyUp={event => event.stopPropagation()} onWheel={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()} onPointerMove={event => event.stopPropagation()} style={{ height: expanded && available >= 580 ? dockHeight : undefined }}>
     {expanded && available >= 580 && <div className="office-resize" role="separator" aria-label="调整协作舱高度" aria-orientation="horizontal" aria-valuemin={220} aria-valuemax={360} aria-valuenow={dockHeight} tabIndex={0} onPointerDown={beginResize} onPointerMove={event => { if (resize.current) setHeight(Math.min(360, Math.max(220, resize.current.height + resize.current.start - event.clientY))); }} onPointerUp={() => { resize.current = null; }} onPointerCancel={() => { resize.current = null; }} onKeyDown={event => { event.stopPropagation(); if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); setHeight(value => Math.min(360, Math.max(220, value + (event.key === 'ArrowUp' ? 10 : -10)))); } }} />}
     <header className="office-heading"><button type="button" aria-expanded={expanded} onClick={() => setOpen(value => !value)} disabled={focusMode}>{expanded ? '▾' : '▸'} 协作舱</button><span>{identities.length} 位伙伴 · {identities.filter(identity => identity.demo).length} 位演示</span><button type="button" className="office-review" disabled={!projection.reviews.length} onClick={() => { const task = projection.reviews[0]; if (task) onNavigate(task.demandId, task.nodeId); }}><span aria-hidden="true">◉</span> 待你审核 {projection.reviews.length} 项</button></header>
-    <div className="office-body" hidden={!expanded || (available < 580 && !standalone)} role={standalone ? 'dialog' : undefined} aria-modal={standalone || undefined} aria-label={standalone ? '独立协作舱' : undefined} tabIndex={standalone ? -1 : undefined}>
-      {standalone && <button type="button" className="office-detached-close" onClick={() => { setStandalone(false); root.current?.focus(); }}>关闭独立协作舱</button>}
+    <div className="office-body" hidden={!expanded || (available < 580 && !detached)} role={detached ? 'dialog' : undefined} aria-modal={detached || undefined} aria-label={detached ? '独立协作舱' : undefined} tabIndex={detached ? -1 : undefined}>
+      {detached && <button type="button" className="office-detached-close" onClick={() => { setStandalone(false); if (largeRoster) setOpen(false); root.current?.focus(); }}>关闭独立协作舱</button>}
       <div className="office-scene" ref={canvas} />
       <aside className="office-people" aria-label="人员与关联任务"><div className="office-person-tabs">{projection.people.map(item => <button type="button" key={item.id} data-office-actor={item.id} data-status={item.status} data-stale={presence.entries.some(entry => entry.identity.id === item.id && (entry.expired || entry.disconnected || entry.status === 'offline'))} data-highlighted={JSON.parse(highlights).includes(item.id)} aria-pressed={item.id === actorId} onClick={() => setActorId(item.id)}>{item.identity.name}<small>{item.identity.demo ? '演示 · ' : ''}{item.marker}</small></button>)}</div>
         <div className="office-task-list"><strong>{person?.identity.name} · {person?.identity.demo ? '演示' : 'Being'} · {person?.tasks.length || 0} 项</strong>{person?.tasks.map(taskButton)}<details><summary>未绑定任务 {projection.unbound.length} 项</summary>{projection.unbound.map(taskButton)}</details><details><summary>人类伙伴 · 待你审核 {projection.reviews.length} 项</summary>{projection.reviews.map(taskButton)}</details></div>

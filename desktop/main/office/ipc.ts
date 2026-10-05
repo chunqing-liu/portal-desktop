@@ -8,7 +8,7 @@ export function registerOfficeIpc(handle: (channel: string, callback: (...args: 
   const orders = new OfficeOrders(orderFile);
   handle('beings:office-report', input => {
     try { return registry.accept(orders.assign(input)); }
-    catch (error) { return { accepted: false, sequence: registry.snapshot().sequence, code: error instanceof Error && ['STALE_RUN', 'EVENT_CONFLICT', 'ORDER_EXHAUSTED'].includes(error.message) ? error.message : 'ORDER_PERSISTENCE_OR_INPUT_ERROR' }; }
+    catch (error) { return { accepted: false, sequence: registry.snapshot().sequence, code: error instanceof Error && ['STALE_RUN', 'EVENT_CONFLICT', 'ORDER_EXHAUSTED', 'ORDER_CAPACITY'].includes(error.message) ? error.message : 'ORDER_PERSISTENCE_OR_INPUT_ERROR' }; }
   });
   handle('beings:office-test-inject', input => {
     if (!allowTestInjection) throw new Error('Office test injection is disabled');

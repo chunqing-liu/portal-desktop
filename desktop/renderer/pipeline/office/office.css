@@ -31,6 +31,6 @@
 .office-compact { display: flex; gap: 8px; align-items: center; padding: 5px 12px; }
 .office-compact > button { width: auto; white-space: nowrap; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; }
 .office-dock[data-detached=true]::before { content: ''; position: fixed; inset: 0; background: #0005; z-index: 899; }
-.office-dock[data-detached=true] .office-body { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, 92vw); height: min(360px, 75vh); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; z-index: 900; padding-top: 32px; box-shadow: 0 16px 64px #0004; }
+.office-dock[data-detached=true] .office-body { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, 92vw); height: min(760px, 85vh); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; z-index: 900; padding-top: 32px; box-shadow: 0 16px 64px #0004; }
 .office-detached-close { position: absolute; top: 4px; right: 8px; background: var(--control); color: var(--text); border: 1px solid var(--line); padding: 4px 8px; font-size: 11px; cursor: pointer; }
 @media (max-width: 900px) { .office-heading > span { display: none; } .office-people { width: 270px; } }
