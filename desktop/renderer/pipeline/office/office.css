@@ -1,0 +1,27 @@
+.pipeline-main:has(.office-dock) > .star-map-canvas { flex: 1; min-height: 360px; }
+.office-dock { position: relative; flex: 0 0 auto; min-width: 0; border-top: 1px solid var(--line); color: var(--text); background: var(--bg); font-size: 11px; }
+.office-heading { height: 35px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.office-heading button { background: none; border: none; color: var(--text); cursor: pointer; font-size: 11px; white-space: nowrap; }
+.office-heading > span { color: var(--muted); font-size: 10px; }
+.office-heading .office-review { margin-left: auto; color: var(--secondary); }
+.office-heading button:disabled { opacity: .5; cursor: default; }
+.office-body { display: flex; height: calc(100% - 36px); min-height: 0; }
+.office-body[hidden] { display: none; }
+.office-scene { flex: 1; min-width: 0; overflow: hidden; background: #ece8dd; }
+.office-scene canvas { display: block; }
+.office-people { display: flex; flex-direction: column; width: 330px; min-width: 250px; border-left: 1px solid var(--line); padding: 8px; gap: 7px; }
+.office-person-tabs { display: flex; gap: 4px; }
+.office-person-tabs button { flex: 1; min-width: 0; text-align: left; background: var(--control); color: var(--text); border: 1px solid var(--line); padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; }
+.office-person-tabs button[aria-pressed=true], .office-person-tabs button[data-highlighted=true] { border-color: var(--secondary); }
+.office-person-tabs small { display: block; color: var(--muted); font-size: 9px; margin-top: 3px; }
+.office-task-list { flex: 1; overflow: auto; min-height: 0; }
+.office-task-list > strong { display: block; font-weight: 500; padding: 3px; }
+.office-task-list button, .office-compact button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; text-align: left; color: var(--text); background: none; border: 0; border-bottom: 1px solid var(--line); padding: 5px 3px; font-size: 10px; cursor: pointer; }
+.office-task-list small, .office-compact small { color: var(--muted); margin-top: 2px; }
+.office-task-list summary { cursor: pointer; padding: 5px 3px; color: var(--muted); }
+.office-reduced { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.office-resize { position: absolute; top: -4px; height: 8px; width: 100%; cursor: ns-resize; touch-action: none; z-index: 5; }
+.office-resize:focus-visible, .office-dock button:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
+.office-compact { max-height: 140px; overflow: auto; padding: 8px; color: var(--muted); }
+@media (max-width: 900px) { .office-heading > span { display: none; } .office-people { width: 270px; } }
+

@@ -1,5 +1,6 @@
 import "@xyflow/react/dist/style.css";
 import "./v4.css";
+import { OfficeDock } from "./office/OfficeDock";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -1395,6 +1396,7 @@ function PipelineContent({ model }: { model: AppModel }) {
       </aside>
       <section className="pipeline-main" aria-label="星图画布">
         <ReactFlowProvider><PipelineCanvas demand={demand} flow={flow} stations={stations} nodes={nodes} positions={positions} currentUserId={state.board.currentUserId} selectedItemIds={selectedItemIds} onDemandChange={changeState} onSelectionChange={handleCanvasSelectionChange} onCreateItem={addItem} onDeleteItems={deleteItems} onDuplicateItems={duplicateItems} onToast={app.toast} onConvertNode={convertNode} onMarkNodeUpdated={markNodesUpdated} onRenameStation={renameStation} onAutoArrange={autoArrange} onCreateStationFromSelection={createStationFromSelection} /></ReactFlowProvider>
+        <OfficeDock state={state} selectedIds={selectedItemIds} focusMode={focusMode} active={app.view === "pipeline"} onNavigate={(demandId, nodeId) => { changeState(current => ({ ...current, selectedDemandId: demandId })); setSelectedDemandIds([demandId]); setSelectedItemIds([nodeId]); setRightCollapsed(false); }} />
       </section>
       <aside className={`pipeline-inspector${rightCollapsed ? " is-collapsed" : ""}`} aria-label="节点详情">
         {!rightCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-right" role="separator" aria-orientation="vertical" aria-label="调整右侧详情栏宽度" onPointerDown={(event) => startSidebarResize("right", event)} />}
