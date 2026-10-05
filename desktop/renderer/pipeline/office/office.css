@@ -10,9 +10,11 @@
 .office-scene { flex: 1; min-width: 0; overflow: hidden; background: #ece8dd; }
 .office-scene canvas { display: block; }
 .office-people { display: flex; flex-direction: column; width: 330px; min-width: 250px; border-left: 1px solid var(--line); padding: 8px; gap: 7px; }
-.office-person-tabs { display: flex; gap: 4px; }
+.office-person-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .office-person-tabs button { flex: 1; min-width: 0; text-align: left; background: var(--control); color: var(--text); border: 1px solid var(--line); padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; }
 .office-person-tabs button[aria-pressed=true], .office-person-tabs button[data-highlighted=true] { border-color: var(--secondary); }
+.office-person-tabs button[data-stale=true] { opacity: .55; filter: grayscale(1); }
+.office-activity-feedback { color: var(--muted); max-height: 32px; overflow: auto; font-size: 9px; }
 .office-person-tabs small { display: block; color: var(--muted); font-size: 9px; margin-top: 3px; }
 .office-task-list { flex: 1; overflow: auto; min-height: 0; }
 .office-task-list > strong { display: block; font-weight: 500; padding: 3px; }

@@ -1,6 +1,8 @@
 import "@xyflow/react/dist/style.css";
 import "./v4.css";
 import { OfficeDock } from "./office/OfficeDock";
+import { deriveDemandStatus } from "./models/status";
+import { applyBeingNodeReport } from "./office/reports";
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -111,22 +113,7 @@ const nextNodeActions: Record<NodeStatus, { label: string; status: NodeStatus }>
 const isDefined = (value?: string) => Boolean(value?.trim() && value.trim() !== "待补充");
 const demandStatusLabel = (demand: Demand) => demand.bug?.status || demandStatusLabels[demand.status];
 // 星轨状态按站推进聚合：找到第一个未全部完成的站，映射到状态阶梯；闸口等待人工时优先显示待评审。
-const DEMAND_STATUS_LADDER: Demand["status"][] = ["demand.drafting", "demand.reviewed", "demand.scheduled", "demand.developing", "demand.validating"];
-const deriveDemandStatus = (flow: PipelineFlow, demand: Demand): Demand["status"] => {
-  if (demand.status === "demand.paused" || demand.status === "demand.cancelled") return demand.status;
-  const allNodes = demandNodes(flow, demand);
-  if (!allNodes.length) return demand.status;
-  if (allNodes.some((node) => node.kind === "gate" && node.status === "waiting_human")) return "demand.pending_review";
-  if (allNodes.every((node) => node.status === "done" || node.status === "skipped")) return "demand.released";
-  const stationList = demandStations(flow, demand);
-  const nodeStatusOf = (id: string) => allNodes.find((candidate) => candidate.id === id)?.status;
-  const firstIncomplete = stationList.findIndex((station) => !(station.nodeIds || []).every((id) => {
-    const status = nodeStatusOf(id);
-    return status === "done" || status === "skipped";
-  }));
-  if (firstIncomplete === -1) return "demand.released";
-  return DEMAND_STATUS_LADDER[Math.min(firstIncomplete, DEMAND_STATUS_LADDER.length - 1)];
-};
+
 const demandDisplayTitle = (demand: Demand) => demand.title;
 const NODE_EVIDENCE_SEPARATOR = "\n\n完成证据：";
 
@@ -1119,7 +1106,7 @@ function PipelineContent({ model }: { model: AppModel }) {
           if (id !== selectedNode.id && resolved && resolved.status === "pending") nodeStates[id] = "ready";
         });
       }
-      const patch: Partial<Demand> = { nodeStates };
+      const patch: Partial<Demand> = { nodeStates, nodeOverrides: { ...demand.nodeOverrides, [selectedNode.id]: { ...demand.nodeOverrides[selectedNode.id], stateReason: undefined, stateSource: "local" } } };
       if (demand.workflowId === "bug-fix" && selectedNode.id === "B04" && demand.bug) {
         const bugStatus: BugStatus = status === "done" ? "已关闭" : (status === "failed" || demand.bug.status === "已关闭") ? "重新打开" : demand.bug.status;
         if (bugStatus !== demand.bug.status) patch.bug = {
@@ -1134,7 +1121,7 @@ function PipelineContent({ model }: { model: AppModel }) {
     if (!demand || selectedNodes.length < 2) return;
     if (patch.status && selectedNodes.some((node) => !validateNodeStatus(node, patch.status!))) return;
     const nodeOverrides = { ...demand.nodeOverrides };
-    selectedNodes.forEach((node) => { nodeOverrides[node.id] = { ...nodeOverrides[node.id], ...(patch.owner !== undefined ? { owner: patch.owner } : {}), ...(patch.description !== undefined ? { description: patch.description } : {}) }; });
+    selectedNodes.forEach((node) => { nodeOverrides[node.id] = { ...nodeOverrides[node.id], ...(patch.status ? { stateSource: "local" as const, stateReason: undefined } : {}), ...(patch.owner !== undefined ? { owner: patch.owner } : {}), ...(patch.description !== undefined ? { description: patch.description } : {}) }; });
     updateDemand({ nodeOverrides, nodeStates: patch.status ? { ...demand.nodeStates, ...Object.fromEntries(selectedNodes.map((node) => [node.id, patch.status])) } : demand.nodeStates });
   };
 
@@ -1396,7 +1383,7 @@ function PipelineContent({ model }: { model: AppModel }) {
       </aside>
       <section className="pipeline-main" aria-label="星图画布">
         <ReactFlowProvider><PipelineCanvas demand={demand} flow={flow} stations={stations} nodes={nodes} positions={positions} currentUserId={state.board.currentUserId} selectedItemIds={selectedItemIds} onDemandChange={changeState} onSelectionChange={handleCanvasSelectionChange} onCreateItem={addItem} onDeleteItems={deleteItems} onDuplicateItems={duplicateItems} onToast={app.toast} onConvertNode={convertNode} onMarkNodeUpdated={markNodesUpdated} onRenameStation={renameStation} onAutoArrange={autoArrange} onCreateStationFromSelection={createStationFromSelection} /></ReactFlowProvider>
-        <OfficeDock state={state} selectedIds={selectedItemIds} focusMode={focusMode} active={app.view === "pipeline"} onNavigate={(demandId, nodeId) => { changeState(current => ({ ...current, selectedDemandId: demandId })); setSelectedDemandIds([demandId]); setSelectedItemIds([nodeId]); setRightCollapsed(false); }} />
+        <OfficeDock onReports={(reports, identities) => changeState(current => reports.reduce((next, report) => applyBeingNodeReport(next, report, identities).state, current))} state={state} selectedIds={selectedItemIds} focusMode={focusMode} active={app.view === "pipeline"} onNavigate={(demandId, nodeId) => { changeState(current => ({ ...current, selectedDemandId: demandId })); setSelectedDemandIds([demandId]); setSelectedItemIds([nodeId]); setRightCollapsed(false); }} />
       </section>
       <aside className={`pipeline-inspector${rightCollapsed ? " is-collapsed" : ""}`} aria-label="节点详情">
         {!rightCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-right" role="separator" aria-orientation="vertical" aria-label="调整右侧详情栏宽度" onPointerDown={(event) => startSidebarResize("right", event)} />}

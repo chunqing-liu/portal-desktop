@@ -1,16 +1,7 @@
-export interface OfficeIdentity {
-  id: string;
-  name: string;
-  owners: string[];
-  color: number;
-  demo: boolean;
-}
+import { OFFICE_SEEDS, type OfficeIdentity as SharedIdentity } from '../../../shared/office';
 
-export const DEMO_IDENTITIES: OfficeIdentity[] = [
-  { id: 'demo-product', name: '产品伙伴', owners: ['产品 Agent'], color: 0xe3a35d, demo: true },
-  { id: 'demo-development', name: '开发伙伴', owners: ['开发 Agent'], color: 0x6baec0, demo: true },
-  { id: 'demo-test', name: '测试伙伴', owners: ['测试 Agent'], color: 0x94b879, demo: true },
-];
+export type OfficeIdentity = Omit<SharedIdentity, 'assignedUsers'> & { assignedUsers?: string[] };
+export const DEMO_IDENTITIES: OfficeIdentity[] = OFFICE_SEEDS;
 
 export class IdentityRegistry {
   private identities = new Map<string, OfficeIdentity>();

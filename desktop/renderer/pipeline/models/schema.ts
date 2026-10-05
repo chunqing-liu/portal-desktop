@@ -89,6 +89,9 @@ export interface PipelineNode {
   parentNodeId?: string;
   title: string;
   status: NodeStatus;
+  stateReason?: string;
+  stateSource?: "local" | "being";
+  stateReport?: import("../../../shared/office").OfficeNodeReport;
   owner: string;
   owner_group: string;
   description: string;
@@ -176,7 +179,7 @@ export type NodeOverride = Partial<Pick<
   PipelineNode,
   "title" | "owner" | "description" | "kind" | "stationId" | "parentNodeId" |
   "trigger" | "execution" | "evidence" | "approver" | "gateRole" |
-  "requires_human_review" | "assigned_user" | "update_seq" | "last_seen_seq"
+  "requires_human_review" | "assigned_user" | "update_seq" | "last_seen_seq" | "stateReason" | "stateReport" | "stateSource"
 >>;
 export type StationOverride = Partial<Pick<PipelineStation, "title" | "subtitle" | "description" | "nodeIds">>;
 

@@ -39,7 +39,7 @@ export class OfficePresenceRegistry {
     this.runs.set(input.beingId, { runId: input.runId, runOrder: input.runOrder, eventOrder: input.eventOrder });
     this.seen.set(input.eventId, canonical);
     if (this.seen.size > 2048) this.seen.delete(this.seen.keys().next().value!);
-    if (input.type === 'register') this.entries.set(input.beingId, { identity: input.identity, status: 'idle', lastSeen: this.now(), expired: false, disconnected: false, summary: '' });
+    if (input.type === 'register') this.entries.set(input.beingId, { identity: input.identity, status: 'idle', lastSeen: this.now(), expired: true, disconnected: false, summary: '等待实况上报' });
     if (input.type === 'unregister') this.entries.delete(input.beingId);
     if (input.type === 'disconnect') Object.assign(entry!, { disconnected: true, expired: true });
     if (input.type === 'presence') Object.assign(entry!, { status: input.status, lastSeen: input.lastSeen, summary: input.summary, expired: this.now() - input.lastSeen >= this.expiresAfterMs, disconnected: input.status === 'offline' });
