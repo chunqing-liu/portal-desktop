@@ -26,17 +26,16 @@ const priority: NodeStatus[] = ['failed', 'blocked', 'waiting_human', 'running',
 export function projectOffice(state: PipelineLocalState, identities: OfficeIdentity[]): OfficeProjection {
   const tasks = state.demands.flatMap(demand => demandNodes(getPipelineFlow(demand.workflowId), demand).map(node => {
     const matches = node.owner.trim() && node.execution !== '人' ? identities.filter(identity => identity.owners.includes(node.owner.trim())) : [];
-    return { key: demand.id + ':' + node.id, demandId: demand.id, nodeId: node.id, demandTitle: demand.title, title: node.title, owner: node.owner, status: node.status, reason: node.status === 'blocked' ? node.precondition || '阻塞原因未填写' : node.status === 'skipped' ? node.failureRoute || '跳过原因未填写' : '', actorId: matches.length === 1 ? matches[0].id : undefined, needsMe: node.status === 'waiting_human' && Boolean(node.kind === 'gate' || node.requires_human_review) && node.assigned_user === state.board.currentUserId } satisfies OfficeTask;
+    return { key: demand.id + ':' + node.id, demandId: demand.id, nodeId: node.id, demandTitle: demand.title, title: node.title, owner: node.owner, status: node.status, reason: node.status === 'blocked' ? '阻塞原因未上报' : node.status === 'skipped' ? '跳过原因未上报' : '', actorId: matches.length === 1 ? matches[0].id : undefined, needsMe: node.status === 'waiting_human' && Boolean(node.kind === 'gate' || node.requires_human_review) && node.assigned_user === state.board.currentUserId } satisfies OfficeTask;
   }));
   return {
     people: identities.map(identity => {
       const assigned = tasks.filter(task => task.actorId === identity.id);
       const primary = priority.map(status => assigned.find(task => task.status === status)).find(Boolean);
       const marker = primary ? STATUS_MARKERS[primary.status] : '待命';
-      return { id: identity.id, identity, tasks: assigned, status: primary?.status === 'running' ? 'working' : 'idle', marker, title: marker + (primary?.reason ? ' · ' + primary.reason : '') };
+      return { id: identity.id, identity, tasks: assigned, status: primary?.status === 'running' ? 'working' : 'idle', marker, title: marker + ' · ' + assigned.length + '项' + (primary?.reason ? ' · ' + primary.reason : '') };
     }),
     unbound: tasks.filter(task => !task.actorId),
     reviews: tasks.filter(task => task.needsMe),
   };
 }
-

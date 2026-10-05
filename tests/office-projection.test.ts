@@ -5,6 +5,7 @@ import { createStarmapRuntime, createStarmapWorld } from '../desktop/renderer/pi
 import { OfficeBridge } from '../desktop/renderer/pipeline/office/bridge';
 import { createDemand, loadPipelineState, getPipelineFlow, demandNodes } from '../desktop/renderer/pipeline/models/templates';
 import { NODE_STATUSES } from '../desktop/renderer/pipeline/models/schema';
+import { PIXEL_FRAME_COUNTS } from '../desktop/renderer/pipeline/office/pixel-art';
 
 function fixture() {
   const state = loadPipelineState();
@@ -13,6 +14,9 @@ function fixture() {
 }
 
 describe('office projection', () => {
+  it('generates seated, walking, typing and thinking frame families offline', () => {
+    expect(PIXEL_FRAME_COUNTS).toEqual({ idle: 1, seated: 1, walking: 4, working: 4, thinking: 4 });
+  });
   it('maps every status without pretending ready or blocked are activity', () => {
     for (const status of NODE_STATUSES) {
       const state = fixture();

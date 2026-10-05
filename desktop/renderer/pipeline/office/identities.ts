@@ -28,6 +28,6 @@ export interface BeingNodeReport {
   demandId: string;
   nodeId: string;
   status: import('../models/schema').NodeStatus;
+  reason?: string;
   source: Extract<NodeStateSource, { kind: 'being' }>;
 }
-

@@ -7,6 +7,7 @@
   "license": "MIT",
   "main": ".vite/build/main.js",
   "scripts": {
+    "build": "node scripts/build-renderer.mjs",
     "build:web:static": "node scripts/build-web-static.mjs",
     "package:web:static": "node scripts/package-web-static.mjs",
     "dev:web": "vite --config vite.web.config.mjs",

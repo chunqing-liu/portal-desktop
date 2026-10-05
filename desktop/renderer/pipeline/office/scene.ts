@@ -1,4 +1,5 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, Text } from 'pixi.js';
+import 'pixi.js/unsafe-eval';
 import type { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
 import { AgentEntity } from './vendor/scene/entities/AgentEntity';
 import { createOfficePropViews, type PropView } from './vendor/scene/views/propViews';
@@ -12,6 +13,7 @@ export class StarmapScene {
   private layer = new Container();
   private highlight = new Graphics();
   private entities = new Map<string, AgentEntity>();
+  private labels = new Map<string, Text>();
   private props: PropView[] = [];
   private observer?: ResizeObserver;
   private unsubscribe?: () => void;
@@ -50,6 +52,11 @@ export class StarmapScene {
       entity.on('pointertap', event => { event.stopPropagation(); this.onActor(agent.id); });
       this.entities.set(agent.id, entity);
       this.layer.addChild(entity);
+      const label = new Text({ text: agent.currentTask || '待命', style: { fontFamily: 'system-ui, sans-serif', fontSize: 13, fill: 0x394b47 } });
+      label.anchor.set(0.5, 0);
+      label.zIndex = 10000;
+      this.labels.set(agent.id, label);
+      this.layer.addChild(label);
     }
     const resize = () => {
       if (this.disposed || element.clientWidth < 1 || element.clientHeight < 1) return;
@@ -72,6 +79,8 @@ export class StarmapScene {
       const entity = this.entities.get(agent.id);
       entity?.apply(agent);
       if (entity) entity.zIndex = computeAgentDepthZ(agent);
+      const label = this.labels.get(agent.id);
+      if (label) { label.text = agent.currentTask || '待命'; label.position.set(agent.x, agent.y + 28); }
     }
     this.drawSelection();
   }
