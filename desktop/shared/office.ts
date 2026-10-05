@@ -13,9 +13,14 @@ export const officeInputSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...order, type: z.literal('node'), demandId: id, nodeId: id, status: z.enum(nodeStatuses), reason: z.string().max(500).optional() }),
   z.strictObject({ ...order, type: z.literal('handoff'), toBeingId: id, handoffId: id, mode: z.enum(['visual', 'business']), summary: z.string().max(160).default('交接请求'), durationMs: z.number().int().min(300).max(30000).default(1000) }),
   z.strictObject({ ...order, type: z.literal('handoff-confirm'), handoffId: id }),
+  z.strictObject({ ...order, type: z.literal('meeting-start'), sessionId: id, participantIds: z.array(id).min(2).max(4).refine(ids => new Set(ids).size === ids.length), summary: z.string().max(160).default('白板讨论') }),
+  z.strictObject({ ...order, type: z.literal('meeting-join'), sessionId: id }),
+  z.strictObject({ ...order, type: z.literal('meeting-leave'), sessionId: id }),
+  z.strictObject({ ...order, type: z.literal('meeting-end'), sessionId: id }),
   z.strictObject({ ...order, type: z.literal('cancel'), targetEventId: id }),
 ]);
 export type OfficeInput = z.infer<typeof officeInputSchema>;
+export type OfficeReport = OfficeInput extends infer Input ? Input extends OfficeInput ? Omit<Input, 'runOrder' | 'eventOrder'> : never : never;
 export type OfficeNodeReport = Extract<OfficeInput, { type: 'node' }> & { reportedAt: number };
 export interface OfficePresence { identity: OfficeIdentity; status: 'working' | 'thinking' | 'idle' | 'offline'; lastSeen: number; expired: boolean; disconnected: boolean; summary: string }
 export interface OfficeSnapshot { sequence: number; entries: OfficePresence[]; reports: OfficeNodeReport[] }
