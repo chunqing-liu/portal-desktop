@@ -34,3 +34,12 @@
 .office-dock[data-detached=true] .office-body { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(980px, 92vw); height: min(760px, 85vh); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; z-index: 900; padding-top: 32px; box-shadow: 0 16px 64px #0004; }
 .office-detached-close { position: absolute; top: 4px; right: 8px; background: var(--control); color: var(--text); border: 1px solid var(--line); padding: 4px 8px; font-size: 11px; cursor: pointer; }
 @media (max-width: 900px) { .office-heading > span { display: none; } .office-people { width: 270px; } }
+.pipeline-view-modes { display: flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.pipeline-view-modes button { border: 0; background: transparent; color: var(--muted); padding: 5px 8px; font-size: 11px; cursor: pointer; }
+.pipeline-view-modes button[aria-pressed=true] { background: var(--control); color: var(--text); }
+#pipeline-view .star-map-shell[data-office-view=true] { grid-template-columns: minmax(0, 1fr); }
+#pipeline-view .star-map-shell[data-office-view=true] > aside, #pipeline-view .star-map-shell[data-office-view=true] .star-map-canvas { display: none; }
+.office-dock[data-full-view=true] { flex: 1; height: 100%; min-height: 0; }
+.office-scene { position: relative; }
+.office-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.office-actor-label { position: absolute; white-space: nowrap; font: 11px system-ui, sans-serif; color: #394b47; padding: 2px 4px; background: #faf9f2ed; border-radius: 3px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; }

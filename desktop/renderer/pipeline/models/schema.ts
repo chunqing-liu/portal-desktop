@@ -185,6 +185,7 @@ export type StationOverride = Partial<Pick<PipelineStation, "title" | "subtitle"
 
 export interface Demand {
   id: string;
+  demo?: boolean;
   title: string;
   summary: string;
   status: DemandStatus;

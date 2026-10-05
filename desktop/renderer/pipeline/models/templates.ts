@@ -40,6 +40,7 @@ const defaultBugHistory: BugHistoryEntry = {
 export const defaultDemand: Demand = {
   ...structuredClone(editableDefaults),
   id: "star-track-default",
+  demo: true,
   title: "需求开发任务",
   summary: "需求开发流程组：Agent Team 工作流。",
   status: "demand.developing",
@@ -57,6 +58,7 @@ export const defaultDemand: Demand = {
 export const defaultBugDemand: Demand = {
   ...structuredClone(editableDefaults),
   id: "star-track-bug-default",
+  demo: true,
   title: "bug 修复",
   summary: "按 Jira 口述建模的 Bug 修复流程。",
   status: "demand.developing",
@@ -153,6 +155,7 @@ function normalizeDemand(value: unknown, fallbackOrder = 0): Demand | null {
   return {
     ...structuredClone(editableDefaults),
     id: value.id,
+    demo: value.demo === true || (value.demo === undefined && [defaultDemand.id, defaultBugDemand.id].includes(value.id)),
     title,
     summary: typeof value.summary === "string" ? value.summary : "待补充",
     status,

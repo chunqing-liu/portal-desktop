@@ -883,6 +883,7 @@ function PipelineContent({ model }: { model: AppModel }) {
   const sidebarResizeRef = useRef<{ side: "left" | "right"; startX: number; startWidth: number } | null>(null);
   const historyRef = useRef<{ past: PipelineLocalState[]; future: PipelineLocalState[]; restoring: boolean }>({ past: [], future: [], restoring: false });
   const [focusMode, setFocusMode] = useState(false);
+  const [officeView, setOfficeView] = useState(false);
   const focusSidebarState = useRef({ left: false, right: true });
   const [demandQuery, setDemandQuery] = useState("");
   const [demandFilter, setDemandFilter] = useState<"all" | Demand["status"]>("all");
@@ -1365,13 +1366,14 @@ function PipelineContent({ model }: { model: AppModel }) {
         <select value={demandGroupBy} onChange={(event) => setDemandGroupBy(event.target.value as typeof demandGroupBy)} aria-label="星轨分组方式"><option value="group">按分组</option><option value="status">按状态</option></select>
       </div>
       <div className="pipeline-toolbar-actions">
-        <button type="button" className="pipeline-toolbar-button pipeline-focus-button" onClick={focusMode ? exitFocus : enterFocus} aria-pressed={focusMode}>{focusMode ? "退出专注" : "专注"}</button>
+        <div className="pipeline-view-modes" role="group" aria-label="星图视图模式"><button type="button" aria-pressed={!officeView} onClick={() => setOfficeView(false)}>画布</button><button type="button" aria-pressed={officeView} onClick={() => { if (focusMode) exitFocus(); setOfficeView(true); }}>办公室 · 实验</button></div>
+        <button type="button" className="pipeline-toolbar-button pipeline-focus-button" disabled={officeView} onClick={focusMode ? exitFocus : enterFocus} aria-pressed={focusMode}>{focusMode ? "退出专注" : "专注"}</button>
       </div>
       <button type="button" className="pipeline-rail-toggle pipeline-rail-toggle-right" onClick={() => setRightCollapsed((value) => !value)} aria-label={rightCollapsed ? "展开右侧详情栏" : "收起右侧详情栏"} aria-expanded={!rightCollapsed} title={rightCollapsed ? "展开详情" : "收起详情"}>
         <RailToggleIcon direction={rightCollapsed ? "left" : "right"} testId="pipeline-right-rail-icon" />
       </button>
     </header>
-    <div className={`pipeline-shell star-map-shell${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}${focusMode ? " is-focus-mode" : ""}`} style={{ "--pipeline-left": `${leftCollapsed ? 0 : sidebarWidths.left}px`, "--pipeline-right": `${rightCollapsed ? 0 : sidebarWidths.right}px` } as CSSProperties}>
+    <div className={`pipeline-shell star-map-shell${leftCollapsed ? " left-collapsed" : ""}${rightCollapsed ? " right-collapsed" : ""}${focusMode ? " is-focus-mode" : ""}`} data-office-view={officeView} style={{ "--pipeline-left": `${leftCollapsed ? 0 : sidebarWidths.left}px`, "--pipeline-right": `${rightCollapsed ? 0 : sidebarWidths.right}px` } as CSSProperties}>
       <aside className={`pipeline-demands${leftCollapsed ? " is-collapsed" : ""}`} aria-label="星轨">
         {!leftCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-left" role="separator" aria-orientation="vertical" aria-label="调整左侧星轨栏宽度" onPointerDown={(event) => startSidebarResize("left", event)} />}
         {!leftCollapsed && <>
@@ -1383,7 +1385,7 @@ function PipelineContent({ model }: { model: AppModel }) {
       </aside>
       <section className="pipeline-main" aria-label="星图画布">
         <ReactFlowProvider><PipelineCanvas demand={demand} flow={flow} stations={stations} nodes={nodes} positions={positions} currentUserId={state.board.currentUserId} selectedItemIds={selectedItemIds} onDemandChange={changeState} onSelectionChange={handleCanvasSelectionChange} onCreateItem={addItem} onDeleteItems={deleteItems} onDuplicateItems={duplicateItems} onToast={app.toast} onConvertNode={convertNode} onMarkNodeUpdated={markNodesUpdated} onRenameStation={renameStation} onAutoArrange={autoArrange} onCreateStationFromSelection={createStationFromSelection} /></ReactFlowProvider>
-        <OfficeDock onReports={(reports, identities) => changeState(current => reports.reduce((next, report) => applyBeingNodeReport(next, report, identities).state, current))} state={state} selectedIds={selectedItemIds} focusMode={focusMode} active={app.view === "pipeline"} onNavigate={(demandId, nodeId) => { changeState(current => ({ ...current, selectedDemandId: demandId })); setSelectedDemandIds([demandId]); setSelectedItemIds([nodeId]); setRightCollapsed(false); }} />
+        <OfficeDock fullView={officeView} onExitView={() => setOfficeView(false)} onReports={(reports, identities) => changeState(current => reports.reduce((next, report) => applyBeingNodeReport(next, report, identities).state, current))} state={state} selectedIds={selectedItemIds} focusMode={focusMode} active={app.view === "pipeline"} onNavigate={(demandId, nodeId) => { setOfficeView(false); changeState(current => ({ ...current, selectedDemandId: demandId })); setSelectedDemandIds([demandId]); setSelectedItemIds([nodeId]); setRightCollapsed(false); }} />
       </section>
       <aside className={`pipeline-inspector${rightCollapsed ? " is-collapsed" : ""}`} aria-label="节点详情">
         {!rightCollapsed && <div className="pipeline-sidebar-resize-handle pipeline-sidebar-resize-handle-right" role="separator" aria-orientation="vertical" aria-label="调整右侧详情栏宽度" onPointerDown={(event) => startSidebarResize("right", event)} />}
