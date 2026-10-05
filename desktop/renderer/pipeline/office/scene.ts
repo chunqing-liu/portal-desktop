@@ -22,9 +22,13 @@ export class StarmapScene {
   private disposed = false;
   private active = false;
   private reduced = false;
+  private maintenance?: ReturnType<typeof setTimeout>;
+  private maintenanceTime = 0;
+  private maintaining = false;
   private selected: string[] = [];
   private presence = new Map<string, OfficePresence>();
-  constructor(private runtime: OfficeRuntime, private onActor: (id: string) => void) {}
+  private presenceSignature = '';
+  constructor(private runtime: OfficeRuntime, private onActor: (id: string) => void, private onAdvance = () => {}) {}
 
   async mount(element: HTMLElement) {
     const app = new Application();
@@ -49,7 +53,7 @@ export class StarmapScene {
     this.resize = resize;
     this.observer = new ResizeObserver(resize);
     this.observer.observe(element);
-    this.unsubscribe = this.runtime.subscribe(() => this.sync());
+    this.unsubscribe = this.runtime.subscribe(() => this.changed());
     this.sync(); resize();
     app.ticker.add(this.onTick);
     this.setActive(this.active);
@@ -86,17 +90,22 @@ export class StarmapScene {
       this.labels.set(agent.id, label);
       this.layer.addChild(label);
     }
+    this.drawSelection();
   }
   replaceRuntime(runtime: OfficeRuntime) {
     this.unsubscribe?.();
     this.runtime = runtime;
     if (this.app) {
       this.populate();
-      this.unsubscribe = runtime.subscribe(() => this.sync());
+      this.unsubscribe = runtime.subscribe(() => this.changed());
       this.sync(); this.resize?.();
     }
   }
-  setPresence(entries: OfficePresence[]) { this.presence = new Map(entries.map(entry => [entry.identity.id, entry])); this.sync(); }
+  setPresence(entries: OfficePresence[]) {
+    this.presence = new Map(entries.map(entry => [entry.identity.id, entry]));
+    const signature = JSON.stringify(entries.map(entry => [entry.identity.id, entry.expired, entry.disconnected, entry.status === 'offline', entry.expired || entry.disconnected || entry.status === 'offline' ? entry.lastSeen : 0]));
+    if (signature !== this.presenceSignature) { this.presenceSignature = signature; this.changed(); }
+  }
   private sync() {
     for (const agent of projectAgents(this.runtime, false)) {
       const entity = this.entities.get(agent.id);
@@ -108,20 +117,49 @@ export class StarmapScene {
       const label = this.labels.get(agent.id);
       if (label) { label.text = (agent.currentTask || '待命') + (stale ? ' · 过期 · ' + new Date(presence!.lastSeen).toLocaleTimeString() : ''); label.position.set(agent.x, agent.y + 28); }
     }
-    this.drawSelection();
   }
+  private changed() {
+    if (this.disposed) return;
+    this.sync();
+    const data = this.runtime.readWorld();
+    const agents = projectAgents(this.runtime, false);
+    this.props.forEach((view, index) => view.update(data.props[index], this.runtime.template(data.props[index].templateId), agents));
+    this.updateTicker();
+    if (this.active && !this.app?.ticker.started) this.app?.render();
+  }
+  private updateTicker() {
+    if (this.disposed) return;
+    const animated = !this.reduced && this.runtime.readActors().some(actor => actor.presentation.status !== 'idle');
+    if (this.active && (this.runtime.hasMotionWork || animated)) this.app?.ticker.start(); else this.app?.ticker.stop();
+    if (!this.active && this.runtime.hasPendingSettlement && this.maintenance === undefined && !this.maintaining) {
+      this.maintenanceTime = performance.now();
+      this.maintenance = setTimeout(this.settleHidden, 33);
+    }
+  }
+  private settleHidden = () => {
+    const now = performance.now();
+    this.maintenance = undefined;
+    if (this.active || this.disposed || !this.runtime.hasPendingSettlement) return;
+    this.maintaining = true;
+    try { this.runtime.settleCancelled(now - this.maintenanceTime); this.maintenanceTime = now; this.onAdvance(); }
+    finally { this.maintaining = false; }
+    if (!this.active && !this.disposed && this.runtime.hasPendingSettlement) this.maintenance = setTimeout(this.settleHidden, 33);
+  };
   private onTick = () => {
     if (!this.active || !this.app) return;
     this.runtime.tick(this.app.ticker.deltaMS);
+    this.onAdvance();
     this.sync();
     this.entities.forEach(entity => entity.updateVisuals(entity.data.state, this.reduced ? 0 : this.app!.ticker.deltaMS / 1000));
+    this.updateTicker();
   };
   setActive(active: boolean) {
     this.active = active;
-    if (active) this.app?.ticker.start(); else this.app?.ticker.stop();
+    if (active && this.maintenance !== undefined) { clearTimeout(this.maintenance); this.maintenance = undefined; }
+    this.updateTicker();
   }
-  setReduced(reduced: boolean) { this.reduced = reduced; }
-  select(ids: string[]) { this.selected = ids; this.drawSelection(); }
+  setReduced(reduced: boolean) { this.reduced = reduced; this.changed(); }
+  select(ids: string[]) { this.selected = ids; this.drawSelection(); if (this.active) this.app?.render(); }
   private drawSelection() {
     this.highlight.clear();
     const data = this.runtime.readWorld();
@@ -132,6 +170,8 @@ export class StarmapScene {
   }
   dispose() {
     this.disposed = true;
+    if (this.maintenance !== undefined) clearTimeout(this.maintenance);
+    this.maintenance = undefined;
     this.observer?.disconnect(); this.unsubscribe?.();
     this.app?.ticker.stop(); this.app?.ticker.remove(this.onTick);
     this.app?.destroy(true, { children: true }); this.app = undefined;

@@ -101,6 +101,15 @@ export class OfficeRuntime {
   getRevision = () => this.revision
   get sceneId() { return this.world.sceneId }
   get isEditing() { return this.editing }
+  get hasPendingSettlement() { return this.settling.size > 0 }
+  get hasMotionWork() { return this.settling.size > 0 || [...this.activities.values()].some(activity => activity.status === 'active' && (!activity.plan.continuous || !this.phaseReady.has(activity.id) || activity.phaseIndex < activity.plan.phases.length - 1)) }
+  hasActivityResources(activityId?: string) { return Boolean(activityId && this.resources.snapshot().some(resource => resource.holders.includes(activityId))) }
+  releaseStationReservations(activityId: string) {
+    const activity = this.activities.get(activityId);
+    if (!activity || activity.status !== 'active' || !activity.plan.continuous || activity.phaseIndex !== activity.plan.phases.length - 1 || !this.phaseReady.has(activityId)) return;
+    const resources = activity.participants.map(id => this.actor(id)).filter(actor => actor.homeId && actor.using?.propId !== actor.homeId).map(actor => `prop:${actor.homeId}:seat`);
+    this.resources.releaseClaims(activityId, resources);
+  }
   template(id: string) { return this.plugins.template(id) }
   templates() { return this.plugins.templates() }
   exportMap() { return exportMap(this.world) }
@@ -160,6 +169,22 @@ export class OfficeRuntime {
     for (const actor of this.world.actors) {
       if (actor.speech) { actor.speech.remainingMs -= dt; if (actor.speech.remainingMs <= 0) actor.speech = undefined }
     }
+    this.settleCancelled(dt)
+    for (const activity of this.activities.values()) {
+      if (activity.status !== 'active') continue
+      try {
+        const record = this.records.get(activity.commandId)!
+        const max = activity.plan.continuous ? activity.plan.maxDurationMs ?? 3600000 : record.command.timeoutMs ?? 120000
+        if (this.now() - this.startedAt.get(activity.id)! >= max) throw new SceneFault('EXECUTION_TIMEOUT', '活动超过执行期限')
+        this.advance(activity, dt)
+      } catch (error) { this.endActivity(activity, 'failed', sceneError(error)) }
+    }
+    this.pump()
+  }
+
+  settleCancelled(dtMs: number) {
+    if (this.disposed) return;
+    const dt = Math.max(0, Math.min(Number.isFinite(dtMs) ? dtMs : 0, 100));
     for (const [activityId, ids] of this.settling) {
       for (const id of ids) {
         const actor = this.actor(id)
@@ -172,16 +197,6 @@ export class OfficeRuntime {
         this.emit('activity.settled', { activityId })
       }
     }
-    for (const activity of this.activities.values()) {
-      if (activity.status !== 'active') continue
-      try {
-        const record = this.records.get(activity.commandId)!
-        const max = activity.plan.continuous ? activity.plan.maxDurationMs ?? 3600000 : record.command.timeoutMs ?? 120000
-        if (this.now() - this.startedAt.get(activity.id)! >= max) throw new SceneFault('EXECUTION_TIMEOUT', '活动超过执行期限')
-        this.advance(activity, dt)
-      } catch (error) { this.endActivity(activity, 'failed', sceneError(error)) }
-    }
-    this.pump()
   }
 
   private buildPlan(command: StartCommand) {

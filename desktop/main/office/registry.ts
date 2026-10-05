@@ -56,7 +56,7 @@ export class OfficePresenceRegistry {
     if (input.type === 'handoff-confirm') this.handoffs.delete(input.handoffId);
     if (input.type === 'cancel') {
       const target = JSON.parse(this.seen.get(input.targetEventId)!) as OfficeInput;
-      if (target.type === 'meeting-start') this.meetings.get(target.sessionId)?.delete(input.beingId);
+      if (target.type === 'meeting-start' || target.type === 'meeting-join') this.meetings.get(target.sessionId)?.delete(input.beingId);
     }
     if (input.type === 'cancel') for (const [key, request] of this.handoffs) if (request.eventId === input.targetEventId) this.handoffs.delete(key);
     if (this.reports.size > 1000) this.reports.delete(this.reports.keys().next().value!);

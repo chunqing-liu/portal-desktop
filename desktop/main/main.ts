@@ -276,7 +276,7 @@ async function ready() {
       catch (error) { throw new Error(errorLog.report(channel, error)); }
     });
   };
-  const disposeOffice = registerOfficeIpc(handle, () => window || undefined, !app.isPackaged && process.env.PORTAL_OFFICE_TEST === '1', path.join(app.getPath('userData'), 'office-orders.json')); 
+  const disposeOffice = registerOfficeIpc(handle, () => window || undefined, !app.isPackaged && process.env.PORTAL_OFFICE_TEST === '1', path.join(app.getPath('userData'), 'office-orders.json'));
   app.once('will-quit', disposeOffice);
   handle('beings:client-startup', (enabled?: boolean) => clientStartup(app, process.platform, process.execPath, enabled));
   handle('beings:notifications', (patch?: unknown) => exclusive(async () => {

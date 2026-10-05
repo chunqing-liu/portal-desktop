@@ -30,5 +30,9 @@ export class ResourceManager {
     return true
   }
   release(owner: string) { this.owners.delete(owner) }
+  releaseClaims(owner: string, resources: string[]) {
+    const claims = this.owners.get(owner);
+    if (claims) this.owners.set(owner, claims.filter(claim => !resources.includes(claim.resource)));
+  }
   snapshot() { return [...this.capacities].map(([resource, capacity]) => ({ resource, capacity, holders: [...this.owners].filter(([, claims]) => claims.some(c => c.resource === resource)).map(([id]) => id) })) }
 }

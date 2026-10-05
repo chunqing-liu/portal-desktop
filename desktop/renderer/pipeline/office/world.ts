@@ -1,4 +1,5 @@
 import { starmapHandoff } from './handoff';
+import { starmapMeeting } from './meeting';
 import { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
 import { builtinPlugins } from './vendor/runtime/builtin/officePack';
 import { GridNavigation } from './vendor/runtime/navigation';
@@ -27,9 +28,12 @@ export function createStarmapWorld(identities: OfficeIdentity[], previous?: Worl
     const existing = previous?.actors.find(item => item.id === actor.id);
     if (existing) Object.assign(actor, { position: existing.position, posture: existing.posture, facing: existing.facing, using: existing.using, presentation: { ...existing.presentation, sourceRevision: 0 } });
   }
-  return { sceneId: 'starmap-office', unit: 'cell', width: 14, height: rows * 3 + 3, gridSize: 1, layoutRevision: 0, bounds: { left: 0, top: 0, right: 14, bottom: rows * 3 + 3 }, actors, props };
+  const boardPosition = previous?.props.find(prop => prop.id === 'collab-board')?.position || { x: 5, y: rows * 3 + 3 };
+  const boardY = Math.max(boardPosition.y, rows * 3 + 3);
+  const height = boardY + 4;
+  return { sceneId: 'starmap-office', unit: 'cell', width: 14, height, gridSize: 1, layoutRevision: 0, bounds: { left: 0, top: 0, right: 14, bottom: height }, actors, props: [...props, { id: 'collab-board', name: '协作白板', templateId: 'starmap.whiteboard', position: { x: 5, y: boardY }, state: { title: '白板协作', text: '等待议题' }, stateRevision: 0 }] };
 }
 
 export function createStarmapRuntime(identities: OfficeIdentity[], previous?: World) {
-  return new OfficeRuntime({ world: createStarmapWorld(identities, previous), plugins: [...builtinPlugins, starmapHandoff], createNavigation: templates => new GridNavigation(templates), seatStepDuration: seatStepDurationMs, supportsPose: supportsOfficePose });
+  return new OfficeRuntime({ world: createStarmapWorld(identities, previous), plugins: [...builtinPlugins, starmapHandoff, starmapMeeting], createNavigation: templates => new GridNavigation(templates), seatStepDuration: seatStepDurationMs, supportsPose: supportsOfficePose });
 }
