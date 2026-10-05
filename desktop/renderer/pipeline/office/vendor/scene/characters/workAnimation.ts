@@ -1,5 +1,5 @@
-import type { CharacterManifest } from './packSchema.ts'
-import { validWorkSurface, type WorkPoint, type WorkSurface } from './workSurface.ts'
+import type { CharacterManifest } from './packSchema'
+import { validWorkSurface, type WorkPoint, type WorkSurface } from './workSurface'
 
 export const WORK_CYCLE_MS = 12000
 export const QUIET_WORK_CYCLE_MS = 4000

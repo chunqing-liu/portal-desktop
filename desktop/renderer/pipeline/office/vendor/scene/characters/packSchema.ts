@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { sampleComputerWork, sampleQuietWork, QUIET_WORK_CYCLE_MS, WORK_CYCLE_MS } from './workAnimation.ts'
-import { validWorkSurface, type WorkSurface } from './workSurface.ts'
-import { OFFICE_SEATED_CLIPS } from '../../contracts/characterPose.ts'
+import { sampleComputerWork, sampleQuietWork, QUIET_WORK_CYCLE_MS, WORK_CYCLE_MS } from './workAnimation'
+import { validWorkSurface, type WorkSurface } from './workSurface'
+import { OFFICE_SEATED_CLIPS } from '../../contracts/characterPose'
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/)
 const clipName = z.string().regex(/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/)

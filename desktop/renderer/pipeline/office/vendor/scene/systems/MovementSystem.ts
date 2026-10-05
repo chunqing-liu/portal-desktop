@@ -1,10 +1,10 @@
-import type { Agent } from '@/types/agent'
-import type { AgentEntity } from '@/scene/entities/AgentEntity'
-import { DESKS } from '@/scene/layout/officeLayout'
+import type { Agent } from '../../types/agent'
+import type { AgentEntity } from '../entities/AgentEntity'
+import { DESKS } from '../layout/officeLayout'
 import {
   resolveWalkViewFacing,
   viewFacingToLR,
-} from '@/scene/systems/movementFacing'
+} from './movementFacing'
 
 const ARRIVE_THRESHOLD = 6
 const WALK_SPEED = 90

@@ -1,6 +1,6 @@
 import { Container, Graphics, Rectangle, Text } from 'pixi.js'
-import type { Prop, Template } from '@/runtime/model'
-import type { Agent } from '@/types/agent'
+import type { Prop, Template } from '../../runtime/model'
+import type { Agent } from '../../types/agent'
 import { DeskEntity } from '../entities/DeskEntity'
 import { CELL_PIXELS, propPixels } from '../gridProjection'
 import type { WorkSurface } from '../characters/workSurface'

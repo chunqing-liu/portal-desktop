@@ -1,12 +1,12 @@
 import { Container, Graphics, Sprite } from 'pixi.js'
-import type { AgentState } from '@/types/agent'
-import type { SeatTransition } from '@/runtime/model'
+import type { AgentState } from '../../types/agent'
+import type { SeatTransition } from '../../runtime/model'
 import type { CharacterFacing } from './characterFacing'
-import { getCharacterPack, type CharacterPack } from '@/scene/assets/loadApartmentAssets'
+import { getCharacterPack, type CharacterPack } from '../assets/loadApartmentAssets'
 import { apartmentPoseForState, type ApartmentPose } from './apartmentFrames'
 import { resolveCharacterClip, sampleCharacterLayers } from './packSchema'
 import { transformWorkSurface, type WorkSurface } from './workSurface'
-import { characterPoseClip } from '@/contracts/characterPose'
+import { characterPoseClip } from '../../contracts/characterPose'
 
 /** Scene adapter only: clip names are stable; atlas positions belong to the pack. */
 export class ApartmentCharacter extends Container {

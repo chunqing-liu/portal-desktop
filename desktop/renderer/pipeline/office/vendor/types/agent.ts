@@ -1,5 +1,5 @@
-import type { CharacterFacing } from '@/scene/characters/characterFacing'
-import type { SeatTransition } from '@/runtime/model'
+import type { CharacterFacing } from '../scene/characters/characterFacing'
+import type { SeatTransition } from '../runtime/model'
 
 export type AgentState =
   | 'idle'

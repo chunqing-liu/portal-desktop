@@ -1,4 +1,4 @@
-import type { CharacterFacing } from '@/scene/characters/characterFacing'
+import type { CharacterFacing } from '../characters/characterFacing'
 
 /**
  * 根据「朝目标移动」的位移判断四向（Pixi：x 右为正，y 下为正）

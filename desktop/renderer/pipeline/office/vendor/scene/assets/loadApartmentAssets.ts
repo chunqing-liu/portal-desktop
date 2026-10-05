@@ -1,9 +1,9 @@
-import { AGENT_ROSTER } from '@/scene/layout/officeLayout'
-import { CharacterManifestSchema, CharacterRegistrySchema, resolveCharacterClip, type CharacterRegistry } from '@/scene/characters/packSchema'
+import { AGENT_ROSTER } from '../layout/officeLayout'
+import { CharacterManifestSchema, CharacterRegistrySchema, resolveCharacterClip, type CharacterRegistry } from '../characters/packSchema'
 import { ResourceLeaseCache } from './ResourceLeaseCache'
 import { CharacterPackResources } from './CharacterPackResources'
-import { characterPoseClip, supportsOfficePose } from '@/contracts/characterPose'
-import type { PoseSupport } from '@/runtime/actionContract'
+import { characterPoseClip, supportsOfficePose } from '../../contracts/characterPose'
+import type { PoseSupport } from '../../runtime/actionContract'
 
 export type CharacterPack = CharacterPackResources
 let registryPromise: Promise<CharacterRegistry> | undefined

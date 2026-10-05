@@ -1,4 +1,4 @@
-import type { Agent, AgentState, Desk } from '@/types/agent'
+import type { Agent, AgentState, Desk } from '../../types/agent'
 import { WORKSTATION_SEAT_Y, workstationPosition } from './workstationArtwork'
 
 export const SCENE_WIDTH = 960

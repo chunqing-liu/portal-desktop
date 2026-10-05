@@ -1,14 +1,14 @@
 import { Container, FillGradient, Graphics, Rectangle, Sprite, Texture } from 'pixi.js'
-import type { Desk } from '@/types/agent'
-import { SEAT_OFFSET_Y } from '@/scene/layout/officeLayout'
-import { WORKSTATION_DESK_OFFSET_Y } from '@/scene/layout/workstationArtwork'
+import type { Desk } from '../../types/agent'
+import { SEAT_OFFSET_Y } from '../layout/officeLayout'
+import { WORKSTATION_DESK_OFFSET_Y } from '../layout/workstationArtwork'
 import {
   getOfficeChairTexture,
   getOfficeDeskTexture,
-} from '@/scene/assets/loadOfficeAssets'
-import { getWorkstationTrialTextures } from '@/scene/assets/loadWorkstationTrialAssets'
-import { CLASSIC_DESK, TRIAL_DESK, TRIAL_COMPUTER, classicDeskPlacement, workstationSurface } from '@/scene/layout/workstationSurface'
-import { transformWorkSurface } from '@/scene/characters/workSurface'
+} from '../assets/loadOfficeAssets'
+import { getWorkstationTrialTextures } from '../assets/loadWorkstationTrialAssets'
+import { CLASSIC_DESK, TRIAL_DESK, TRIAL_COMPUTER, classicDeskPlacement, workstationSurface } from '../layout/workstationSurface'
+import { transformWorkSurface } from '../characters/workSurface'
 
 export type WorkstationArtwork = 'classic' | 'trial'
 

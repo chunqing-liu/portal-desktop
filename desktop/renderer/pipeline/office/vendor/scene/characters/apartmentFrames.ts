@@ -1,7 +1,7 @@
-import type { Agent, AgentState } from '@/types/agent'
+import type { Agent, AgentState } from '../../types/agent'
 import type { CharacterFacing } from './characterFacing'
-import { isHomeDeskSeat } from '@/scene/systems/MovementSystem'
-import type { SeatTransition } from '@/runtime/model'
+import { isHomeDeskSeat } from '../systems/MovementSystem'
+import type { SeatTransition } from '../../runtime/model'
 
 export type SpriteFrame = { x: number; y: number; width: number; height: number }
 export type ApartmentPose = 'idle' | 'walking' | 'seated' | 'typing' | 'wave' | 'thinking' | 'surprised'

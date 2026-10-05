@@ -1,5 +1,5 @@
-import type { Agent, Desk } from '@/types/agent'
-import { SEAT_OFFSET_Y } from '@/scene/layout/officeLayout'
+import type { Agent, Desk } from '../../types/agent'
+import { SEAT_OFFSET_Y } from '../layout/officeLayout'
 
 /** 与 DeskEntity 桌沿锚点对齐：此线以上（y 更小）人在桌后 */
 export const DESK_DEPTH_SPLIT_OFFSET = SEAT_OFFSET_Y - 14

@@ -1,8 +1,8 @@
-import type { Agent, AgentState } from '@/types/agent'
+import type { Agent, AgentState } from '../../types/agent'
 import type { OfficeRuntime } from '../OfficeRuntime'
 import type { SceneCommand } from '../protocol'
 import type { World } from '../model'
-import { actorVisualPose, cellCenter, seatPixels } from '@/scene/gridProjection'
+import { actorVisualPose, cellCenter, seatPixels } from '../../scene/gridProjection'
 
 export function commandBase(runtime: OfficeRuntime) {
   return { protocolVersion: '2.0' as const, sceneId: runtime.sceneId, commandId: `cmd-${globalThis.crypto.randomUUID()}` }

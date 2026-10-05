@@ -1,7 +1,7 @@
-import type { Actor, Point, Prop, SeatTransition } from '@/runtime/model'
-import { facingToward } from '@/runtime/model'
-import { sameCell } from '@/runtime/map/furnitureGrid'
-import { CELL_STEP_MS } from '@/runtime/cellMovement'
+import type { Actor, Point, Prop, SeatTransition } from '../runtime/model'
+import { facingToward } from '../runtime/model'
+import { sameCell } from '../runtime/map/furnitureGrid'
+import { CELL_STEP_MS } from '../runtime/cellMovement'
 
 // Pixel scale belongs exclusively to rendering, never to map/command coordinates.
 export const CELL_PIXELS = 50

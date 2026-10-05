@@ -1,15 +1,15 @@
 import { Container, Graphics, Rectangle } from 'pixi.js'
-import type { Agent, AgentState } from '@/types/agent'
+import type { Agent, AgentState } from '../../types/agent'
 import {
   resolveWalkViewFacing,
   viewFacingToLR,
-} from '@/scene/systems/movementFacing'
-import { ApartmentCharacter } from '@/scene/characters/ApartmentCharacter'
-import { transformWorkSurface, type WorkSurface } from '@/scene/characters/workSurface'
-import { shouldSitAtDesk } from '@/scene/characters/apartmentFrames'
-import { isApartmentReady } from '@/scene/assets/loadApartmentAssets'
-import { Bubble } from '@/scene/ui/Bubble'
-import { StatusLabel } from '@/scene/ui/StatusLabel'
+} from '../systems/movementFacing'
+import { ApartmentCharacter } from '../characters/ApartmentCharacter'
+import { transformWorkSurface, type WorkSurface } from '../characters/workSurface'
+import { shouldSitAtDesk } from '../characters/apartmentFrames'
+import { isApartmentReady } from '../assets/loadApartmentAssets'
+import { Bubble } from '../ui/Bubble'
+import { StatusLabel } from '../ui/StatusLabel'
 
 export class AgentEntity extends Container {
   readonly agentId: string
