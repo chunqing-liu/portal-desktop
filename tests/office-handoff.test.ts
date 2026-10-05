@@ -49,6 +49,20 @@ describe('starmap handoff lifecycle', () => {
     expect(runtime.snapshot().resources.every(resource => !resource.holders.length)).toBe(true);
     controller.dispose(); runtime.dispose();
   });
+  it('tracks the activity ID when a nested submission first returns queued', () => {
+    const runtime = createStarmapRuntime(DEMO_IDENTITIES), controller = new HandoffController(runtime);
+    controller.setEnabled(true);
+    let nested = false;
+    const unsubscribe = runtime.subscribe(() => {
+      if (!nested && runtime.snapshot().records.some(record => record.command.commandId === 'projection-race')) { nested = true; controller.receive(handoff('nested')); }
+    });
+    runtime.submit({ protocolVersion: '2.0', sceneId: runtime.sceneId, commandId: 'projection-race', type: 'actor.presentation.set', actorId: 'demo-product', status: 'working', title: '真实工作', sourceRevision: 1 });
+    controller.receive({ type: 'cancel', eventId: 'cancel-nested', beingId: 'demo-product', runId: 'run-1', runOrder: 1, eventOrder: 2, targetEventId: 'nested' });
+    advance(runtime);
+    expect(runtime.snapshot().activities[0].status).toBe('cancelled');
+    expect(runtime.snapshot().resources.every(resource => !resource.holders.length)).toBe(true);
+    unsubscribe(); controller.dispose(); runtime.dispose();
+  });
   it('surfaces NO_ROUTE once without teleporting or retrying', () => {
     const world = createStarmapWorld(DEMO_IDENTITIES);
     let blocked = false;

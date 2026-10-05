@@ -72,7 +72,7 @@ export class HandoffController {
     if (!current) return;
     const record = this.runtime.snapshot().records.find(record => record.command.commandId === current.commandId);
     if (!record || ['completed', 'failed', 'cancelled', 'rejected', 'expired'].includes(record.status)) return;
-    this.runtime.submit({ protocolVersion: '2.0', sceneId: this.runtime.sceneId, commandId: 'stop-' + crypto.randomUUID(), ...(record.status === 'queued' ? { type: 'command.cancel', targetCommandId: current.commandId } : { type: 'activity.stop', activityId: current.activityId! }) });
+    this.runtime.submit({ protocolVersion: '2.0', sceneId: this.runtime.sceneId, commandId: 'stop-' + crypto.randomUUID(), ...(record.status === 'queued' ? { type: 'command.cancel', targetCommandId: current.commandId } : { type: 'activity.stop', activityId: record.activityId || current.activityId! }) });
   }
   private poll() {
     if (this.processing) return;
@@ -81,6 +81,7 @@ export class HandoffController {
       if (this.current) {
         const snapshot = this.runtime.snapshot();
         const record = snapshot.records.find(record => record.command.commandId === this.current!.commandId);
+        if (record?.activityId) this.current.activityId = record.activityId;
         if (record && ['completed', 'failed', 'cancelled', 'rejected', 'expired'].includes(record.status) && !snapshot.resources.some(resource => resource.holders.includes(this.current!.activityId || ''))) {
           this.record(this.current.input.eventId, record.status, record.error?.code);
           this.current = undefined;
