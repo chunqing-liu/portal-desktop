@@ -9,6 +9,7 @@ export default defineConfig({
       const output = path.resolve('.vite/renderer/main_window');
       await mkdir(output, { recursive: true });
       await copyFile('desktop/renderer/pipeline/office/vendor/LICENSE', path.join(output, 'PIXOFFICE-LICENSE.txt'));
+      await copyFile('THIRD_PARTY_NOTICES', path.join(output, 'THIRD_PARTY_NOTICES'));
     },
   }],
   root: 'desktop/renderer', publicDir: '../generated', base: './',

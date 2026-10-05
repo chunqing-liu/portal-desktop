@@ -7,9 +7,13 @@ import { createOfficePropViews, type PropView } from './vendor/scene/views/propV
 import { projectAgents } from './vendor/runtime/adapters/legacy';
 import { computeAgentDepthZ } from './vendor/scene/systems/deskDepthSort';
 import { CELL_PIXELS } from './vendor/scene/gridProjection';
+import { OfficeTextures } from './textures';
 
 export class StarmapScene {
+  private static applications = 0;
   private app?: Application;
+  private textures?: OfficeTextures;
+  private element?: HTMLElement;
   private world = new Container();
   private layer = new Container();
   private highlight = new Graphics();
@@ -35,6 +39,9 @@ export class StarmapScene {
     await app.init({ width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), backgroundColor: 0xece8dd, antialias: false, autoDensity: true, resolution: Math.min(devicePixelRatio || 1, 2), autoStart: false });
     if (this.disposed) { app.destroy(true, { children: true }); return; }
     this.app = app;
+    StarmapScene.applications++;
+    this.element = element;
+    this.textures = new OfficeTextures(app.renderer);
     element.appendChild(app.canvas);
     app.canvas.setAttribute('aria-label', '伙伴的像素办公室，等价信息见人员列表');
     app.ticker.maxFPS = 30;
@@ -61,6 +68,8 @@ export class StarmapScene {
 
   private populate() {
     this.world.removeChildren().forEach(child => child.destroy({ children: true }));
+    this.textures?.dispose();
+    if (this.app) this.textures = new OfficeTextures(this.app.renderer);
     this.layer = new Container();
     this.layer.sortableChildren = true;
     this.highlight = new Graphics();
@@ -71,16 +80,17 @@ export class StarmapScene {
     floor.rect(0, 0, data.width * CELL_PIXELS, 28).fill(0xb6c6b4);
     for (let column = 1; column < data.width; column += 3) floor.rect(column * CELL_PIXELS, 4, 65, 18).fill(0xd8e9eb).stroke({ color: 0x829b91, width: 3 });
     this.world.addChild(floor, this.highlight, this.layer);
+    floor.cacheAsTexture({ resolution: 1 });
     const registry = createOfficePropViews(() => false);
     const agents = projectAgents(this.runtime, false);
     this.props = data.props.map(prop => {
       const view = registry.create(prop, this.runtime.template(prop.templateId));
-      view.roots.forEach(item => this.layer.addChild(item));
+      view.roots.forEach(item => { this.layer.addChild(item); item.cacheAsTexture({ resolution: 1 }); });
       view.update(prop, this.runtime.template(prop.templateId), agents);
       return view;
     });
     for (const agent of agents) {
-      const entity = new AgentEntity(agent, false);
+      const entity = new AgentEntity(agent, false, (state, phase, color, seated) => this.textures!.actor(state, phase, color, seated));
       entity.on('pointertap', event => { event.stopPropagation(); this.onActor(agent.id); });
       this.entities.set(agent.id, entity);
       this.layer.addChild(entity);
@@ -91,6 +101,9 @@ export class StarmapScene {
       this.layer.addChild(label);
     }
     this.drawSelection();
+  }
+  refreshRoster() {
+    if (this.app) { this.populate(); this.sync(); this.resize?.(); this.changed(); }
   }
   replaceRuntime(runtime: OfficeRuntime) {
     this.unsubscribe?.();
@@ -110,6 +123,7 @@ export class StarmapScene {
     for (const agent of projectAgents(this.runtime, false)) {
       const entity = this.entities.get(agent.id);
       entity?.apply(agent);
+      entity?.setPosition(agent.x, agent.y);
       const presence = this.presence.get(agent.id);
       const stale = presence && (presence.expired || presence.disconnected || presence.status === 'offline');
       if (entity) { entity.tint = stale ? 0x929292 : 0xffffff; entity.alpha = stale ? 0.55 : 1; }
@@ -123,14 +137,18 @@ export class StarmapScene {
     this.sync();
     const data = this.runtime.readWorld();
     const agents = projectAgents(this.runtime, false);
-    this.props.forEach((view, index) => view.update(data.props[index], this.runtime.template(data.props[index].templateId), agents));
+    this.props.forEach((view, index) => { view.update(data.props[index], this.runtime.template(data.props[index].templateId), agents); view.roots.forEach(item => item.updateCacheTexture()); });
     this.updateTicker();
     if (this.active && !this.app?.ticker.started) this.app?.render();
+  }
+  private diagnostics() {
+    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || entity.x !== agent.x || entity.y !== agent.y; }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined });
   }
   private updateTicker() {
     if (this.disposed) return;
     const animated = !this.reduced && this.runtime.readActors().some(actor => actor.presentation.status !== 'idle');
     if (this.active && (this.runtime.hasMotionWork || animated)) this.app?.ticker.start(); else this.app?.ticker.stop();
+    this.diagnostics();
     if (!this.active && this.runtime.hasPendingSettlement && this.maintenance === undefined && !this.maintaining) {
       this.maintenanceTime = performance.now();
       this.maintenance = setTimeout(this.settleHidden, 33);
@@ -174,6 +192,9 @@ export class StarmapScene {
     this.maintenance = undefined;
     this.observer?.disconnect(); this.unsubscribe?.();
     this.app?.ticker.stop(); this.app?.ticker.remove(this.onTick);
+    if (this.app) StarmapScene.applications--;
     this.app?.destroy(true, { children: true }); this.app = undefined;
+    this.textures?.dispose(); this.textures = undefined;
+    this.unsubscribe = undefined; this.observer = undefined; this.diagnostics();
   }
 }

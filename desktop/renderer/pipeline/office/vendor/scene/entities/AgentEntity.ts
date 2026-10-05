@@ -1,4 +1,4 @@
-import { Container, Graphics, Rectangle } from 'pixi.js'
+import { Container, Graphics, Rectangle, Sprite, type Texture } from 'pixi.js'
 import type { Agent, AgentState } from '../../types/agent'
 import {
   resolveWalkViewFacing,
@@ -20,11 +20,12 @@ export class AgentEntity extends Container {
   private fallbackScarf: Graphics | null = null
   private statusLabel: StatusLabel
   private bubble: Bubble
+  private textureBody?: Sprite
   private walkPhase = 0
   private animationX: number
   private animationY: number
 
-  constructor(agent: Agent, frameResourcesOwned = true) {
+  constructor(agent: Agent, frameResourcesOwned = true, private frameTexture?: (state: AgentState, phase: number, color: number, seated: boolean) => Texture) {
     super()
     this.agentId = agent.id
     this.agent = { ...agent }
@@ -243,7 +244,12 @@ export class AgentEntity extends Container {
   private drawFallbackBody(state: AgentState, _bob: number) {
     if (!this.fallbackBody || !this.fallbackScarf) return
     this.fallbackScarf.clear()
-    drawPixelActor(this.fallbackBody, state, this.walkPhase, this.agent.color, this.agent.seated === true)
+    if (this.frameTexture) {
+      const texture = this.frameTexture(state, this.walkPhase, this.agent.color, this.agent.seated === true)
+      if (!this.textureBody) { this.textureBody = new Sprite(texture); this.textureBody.position.set(-28, -44); this.addChildAt(this.textureBody, 0) }
+      this.textureBody.texture = texture
+      this.fallbackBody.visible = false
+    } else drawPixelActor(this.fallbackBody, state, this.walkPhase, this.agent.color, this.agent.seated === true)
     this.scale.x = this.agent.facing
   }
 }

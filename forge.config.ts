@@ -41,7 +41,7 @@ const config: ForgeConfig = {
       // notarization is deliberately deferred, with no automatic submission.
     } : {}),
     icon: path.resolve('resources/branding/app'),
-    extraResource: [binary, path.resolve('resources/HEART-PORTAL-LICENSE'), path.resolve('resources/branding'), path.resolve('resources/runtime-bundle.json')],
+    extraResource: [binary, path.resolve('THIRD_PARTY_NOTICES'), path.resolve('desktop/renderer/pipeline/office/vendor/LICENSE'), path.resolve('resources/HEART-PORTAL-LICENSE'), path.resolve('resources/branding'), path.resolve('resources/runtime-bundle.json')],
   },
   hooks: {
     prePackage: async () => {
