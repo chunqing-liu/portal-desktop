@@ -37,6 +37,16 @@ describe('main presence registry', () => {
     expect(registry.accept({ ...order('beta', 2), type: 'handoff-confirm', handoffId: 'business' }).accepted).toBe(true);
     expect(registry.accept({ ...order('beta', 3), type: 'cancel', targetEventId: 'alpha-1-5' }).code).toBe('NOT_OWNER');
   });
+  it('validates meeting members, bounds slots and removes only a cancelled join', () => {
+    const registry = new OfficePresenceRegistry(() => 1000);
+    for (const name of ['alpha', 'beta', 'gamma', 'delta']) registry.accept(register(name));
+    expect(registry.accept({ ...order('alpha', 2), type: 'meeting-start', sessionId: 'session', participantIds: ['alpha', 'beta', 'gamma'] }).accepted).toBe(true);
+    expect(registry.accept({ ...order('delta', 2), type: 'meeting-join', sessionId: 'session' }).accepted).toBe(true);
+    expect(registry.accept({ ...order('delta', 3), type: 'meeting-join', sessionId: 'session' }).code).toBe('INVALID_MEETING');
+    expect(registry.accept({ ...order('delta', 4), type: 'cancel', targetEventId: 'delta-1-2' }).accepted).toBe(true);
+    expect(registry.accept({ ...order('delta', 5), type: 'meeting-end', sessionId: 'session' }).code).toBe('NOT_PARTICIPANT');
+    expect(registry.accept({ ...order('beta', 2), type: 'meeting-end', sessionId: 'session' }).accepted).toBe(true);
+  });
   it('keeps run tombstones after unregister and snapshots contain no activity replay', () => {
     const registry = new OfficePresenceRegistry(() => 1000);
     registry.accept(register('alpha'));

@@ -32,7 +32,7 @@ try {
     window.__officeP2 = { runtime: null, ticks: 0, submits: 0 };
     const tick = OfficeRuntime.prototype.tick, submit = OfficeRuntime.prototype.submit;
     OfficeRuntime.prototype.tick = function(delta) { if (this.sceneId === 'starmap-office') { window.__officeP2.runtime = this; window.__officeP2.ticks++; } return tick.call(this, delta); };
-    OfficeRuntime.prototype.submit = function(command) { if (this.sceneId === 'starmap-office') window.__officeP2.submits++; return submit.call(this, command); };
+    OfficeRuntime.prototype.submit = function(command) { if (this.sceneId === 'starmap-office') { window.__officeP2.submits++; window.__officeP2.runtime = this; } return submit.call(this, command); };
   });
   await send('alpha', { type: 'register', identity: identity('alpha') });
   await send('beta', { type: 'register', identity: identity('beta') });
