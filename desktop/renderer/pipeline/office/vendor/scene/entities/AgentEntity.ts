@@ -10,6 +10,7 @@ import { shouldSitAtDesk } from '../characters/apartmentFrames'
 import { isApartmentReady } from '../assets/loadApartmentAssets'
 import { Bubble } from '../ui/Bubble'
 import { StatusLabel } from '../ui/StatusLabel'
+import { drawPixelActor } from '../../../pixel-art'
 
 export class AgentEntity extends Container {
   readonly agentId: string
@@ -239,64 +240,10 @@ export class AgentEntity extends Container {
     this.addChild(this.fallbackBody, this.fallbackScarf, this.statusLabel, this.bubble)
   }
 
-  private drawFallbackBody(state: AgentState, bob: number) {
+  private drawFallbackBody(state: AgentState, _bob: number) {
     if (!this.fallbackBody || !this.fallbackScarf) return
-
-    const facing = this.agent.facing
-    const g = this.fallbackBody
-    const s = this.fallbackScarf
-    g.clear()
-    s.clear()
-
-    const bounce =
-      state === 'walking'
-        ? Math.sin(this.walkPhase) * 2
-        : state === 'working'
-          ? Math.sin(this.walkPhase * 2) * 1
-          : bob
-
-    // shadow
-    g.ellipse(0, 16 + bounce, 14, 4)
-    g.fill({ color: 0x000000, alpha: 0.1 })
-
-    // legs / pants
-    const legSwing = state === 'walking' ? Math.sin(this.walkPhase) * 3 : 0
-    g.roundRect(-9, 6 + bounce + legSwing, 7, 12, 2)
-    g.fill(0x3a3f4a)
-    g.roundRect(2, 6 + bounce - legSwing, 7, 12, 2)
-    g.fill(0x3a3f4a)
-
-    // shirt body
-    g.roundRect(-11, -8 + bounce, 22, 18, 4)
-    g.fill(0xf8f8f6)
-    g.roundRect(-7, -8 + bounce, 14, 4, 2)
-    g.fill(0xe8e8e6)
-
-    // head
-    g.circle(facing * 1, -20 + bounce, 10)
-    g.fill(0xffe0c4)
-    g.roundRect(facing * 1 - 10, -28 + bounce, 20, 8, 3)
-    g.fill(0x2a2a30)
-
-    // typing arm when working
-    if (state === 'working') {
-      const armY = -4 + bounce + Math.sin(this.walkPhase * 3) * 2
-      g.roundRect(facing * 12, armY, 8, 4, 2)
-      g.fill(0xf8f8f6)
-    }
-
-    // thinking dots
-    if (state === 'thinking') {
-      for (let i = 0; i < 3; i++) {
-        g.circle(14 + i * 6, -34 + bounce, 2)
-        g.fill({ color: 0x9b6dd7, alpha: i <= Math.floor(this.walkPhase) % 3 ? 1 : 0.3 })
-      }
-    }
-
-    // badge / 工牌
-    s.roundRect(facing * 4 - 5, -2 + bounce, 10, 8, 2)
-    s.fill(this.agent.color)
-
-    this.scale.x = facing
+    this.fallbackScarf.clear()
+    drawPixelActor(this.fallbackBody, state, this.walkPhase, this.agent.color, this.agent.seated === true)
+    this.scale.x = this.agent.facing
   }
 }
