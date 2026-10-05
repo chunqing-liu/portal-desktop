@@ -12,7 +12,14 @@ const openPipeline = async () => {
   await page.locator('#options-home button').filter({ hasText: '小镇' }).evaluate(button => button.click());
   await page.locator('.place-switcher button').filter({ hasText: '星图' }).click();
 };
+const viewport = async (width, height) => { const session = await page.context().newCDPSession(page); await session.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false }); };
+const openOffice = async () => {
+  if (await page.locator(".office-heading > button").first().getAttribute("aria-expanded") === "false") await page.locator(".office-heading > button").first().click();
+  const standalone = page.getByRole("button", { name: "打开独立协作舱" });
+  if (await standalone.isVisible()) await standalone.click();
+};
 const navigate = async nodeId => {
+  await openOffice();
   const state = await readState();
   const demand = state.demands.find(item => item.workflowId === 'beings-development') || state.demands[0];
   const selector = '[data-office-task="' + demand.id + ':' + nodeId + '"]';
@@ -30,7 +37,7 @@ const setStatus = async (nodeId, status) => {
   await page.locator('.pipeline-detail-meta select').selectOption(status);
 };
 try {
-  await page.setViewportSize({ width: 1600, height: 1100 });
+  await viewport(1600, 1100);
   await page.evaluate(() => { localStorage.removeItem('beings:star-map:v4'); localStorage.setItem('starmap-office-open', 'true'); });
   await page.reload(); await openPipeline();
   await page.waitForFunction(() => document.querySelector('.office-scene canvas'));
@@ -62,6 +69,7 @@ try {
   record('blocked never becomes thinking');
   assert.equal(await page.locator('[data-office-actor="demo-product"]').getAttribute('data-highlighted'), 'true');
   record('node selection highlights executor workstation');
+  await openOffice();
   const actorPoint = await page.evaluate(async () => {
     const { projectAgents } = await import('/pipeline/office/vendor/runtime/adapters/legacy.ts');
     const { CELL_PIXELS } = await import('/pipeline/office/vendor/scene/gridProjection.ts');
@@ -78,11 +86,13 @@ try {
   await page.locator('.office-task-list > button').first().click();
   assert(await page.locator('.react-flow__node.selected').count());
   record('person task navigates to track and selects node');
+  await openOffice();
   await page.locator('.office-person-tabs button').first().click();
   await setStatus('H1', 'waiting_human');
   await page.locator('.office-review').click();
   assert((await page.locator('.react-flow__node.selected').getAttribute('data-id')) === 'H1');
   record('human review shortcut selects gate without approving it');
+  await openOffice();
   await page.locator('[data-office-actor="demo-product"]').click();
   await page.waitForTimeout(150);
   assert(await page.evaluate(() => Boolean(document.activeElement.closest('.office-dock'))), 'office controls must own keyboard focus');
@@ -90,6 +100,7 @@ try {
   await page.keyboard.press('Delete'); await page.keyboard.press('Control+z');
   assert.equal(JSON.stringify(await readState()), stateBeforeKeys);
   record('Delete and Ctrl+Z do not reach flow shortcuts');
+  if (await page.locator(".office-detached-close").isVisible()) await page.locator(".office-detached-close").click();
   const submissions = await page.evaluate(() => window.__officeTest.submits);
   const pane = await page.locator('.star-map-canvas').boundingBox();
   await page.mouse.move(pane.x + pane.width / 2, pane.y + 60);
@@ -110,7 +121,7 @@ try {
   await page.locator('.pipeline-focus-button').click();
   assert.equal(await page.locator('.office-dock').getAttribute('data-expanded'), 'true');
   record('focus mode collapses dock and restores preference');
-  await page.setViewportSize({ width: 1266, height: 823 });
+  await viewport(1266, 823);
   await page.getByRole('button', { name: '打开独立协作舱' }).click();
   assert(await page.getByRole('dialog', { name: '独立协作舱' }).isVisible());
   assert.equal(await page.locator('.office-scene canvas').count(), 1);

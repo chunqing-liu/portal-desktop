@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const { chromium } = createRequire(import.meta.url)('playwright');
+const browser = await chromium.connectOverCDP('http://127.0.0.1:9224');
+const page = browser.contexts().flatMap(context => context.pages()).find(candidate => candidate.url().includes('5174') || candidate.url().startsWith('beings://desktop'));
+assert(page);
+const session = await page.context().newCDPSession(page);
+const viewport = (width, height) => session.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+const diagnostics = () => page.locator('.office-scene').evaluate(element => JSON.parse(element.dataset.officeDiagnostics));
+const state = () => page.evaluate(() => JSON.parse(localStorage.getItem('beings:star-map:v4')));
+const results = [];
+const pass = name => { results.push(name); console.log('PASS ' + name); };
+try {
+  await viewport(1600, 1100);
+  await page.evaluate(() => { localStorage.removeItem('beings:star-map:v4'); localStorage.setItem('starmap-office-open', 'true'); localStorage.setItem('starmap-office-reduced', 'false'); });
+  await page.reload();
+  assert.equal(await page.locator('#options-home').getByRole('button', { name: /协作舱|办公室/ }).count(), 0);
+  await page.locator('#options-home button').filter({ hasText: '小镇' }).evaluate(button => button.click());
+  await page.locator('.place-switcher button').filter({ hasText: '星图' }).click();
+  await page.waitForFunction(() => document.querySelector('.office-scene')?.dataset.officeDiagnostics);
+  const before = JSON.stringify(await state());
+  const runtimeId = (await diagnostics()).runtimeId;
+  await page.getByRole('button', { name: '办公室 · 实验', exact: true }).click();
+  assert.equal(await page.locator('.star-map-canvas').isVisible(), false);
+  assert((await page.locator('.office-dock').boundingBox()).height > 500);
+  assert.equal((await diagnostics()).runtimeId, runtimeId);
+  assert.equal(JSON.stringify(await state()), before);
+  assert.equal(await page.locator('.office-scene canvas').count(), 1);
+  pass('P5-1 no homepage entry; main-area office reuses one unchanged projection');
+  for (const [width, height] of [[1600, 1100], [1266, 823], [1366, 768]]) {
+    await viewport(width, height); await page.waitForTimeout(200);
+    const labels = await page.locator('.office-labels').evaluate(overlay => {
+      const visible = [...overlay.children].filter(label => !label.hidden);
+      const furniture = visible.length ? JSON.parse(visible[0].dataset.furniture) : [];
+      return { width: overlay.clientWidth, height: overlay.clientHeight, labels: visible.map(label => ({ x: parseFloat(label.style.left), y: parseFloat(label.style.top), width: label.offsetWidth, height: label.offsetHeight })), furniture };
+    });
+    assert.equal(labels.labels.length, (await diagnostics()).actors);
+    const overlaps = (left, right) => left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+    labels.labels.forEach((label, index) => {
+      assert(label.x >= 0 && label.y >= 0 && label.x + label.width <= labels.width && label.y + label.height <= labels.height, JSON.stringify({ width, height, ...labels }));
+      assert(!labels.furniture.some(item => overlaps(label, item)));
+      assert(!labels.labels.slice(index + 1).some(item => overlaps(label, item)));
+    });
+    assert(await page.locator('.office-body').isVisible());
+  }
+  pass('P5-2/P5-4 both small windows retain readable office and furniture-free labels');
+  await page.locator('.office-task-list > button').first().click();
+  assert(await page.locator('.star-map-canvas').isVisible());
+  assert(await page.locator('.pipeline-detail-meta').isVisible());
+  assert.equal(await page.locator('.office-dock').getAttribute('data-detached'), 'false');
+  await page.locator('.office-heading > button').first().click();
+  assert(await page.getByText('窗口有点小，已切换为摘要模式').isVisible());
+  await page.getByRole('button', { name: '打开独立协作舱' }).click();
+  await page.locator('.office-task-list > button').first().click();
+  assert.equal(await page.getByRole('dialog', { name: '独立协作舱' }).isVisible(), false);
+  assert(await page.locator('.pipeline-detail-meta').isVisible());
+  pass('P5-3 task navigation returns to unobstructed canvas from both office modes');
+  await page.getByRole('button', { name: '办公室 · 实验', exact: true }).click();
+  assert((await page.locator('.office-review').textContent()).includes('演示'));
+  assert((await page.locator('.office-task-list > button').first().textContent()).includes('演示'));
+  pass('P5-6/P5-7 plain-language summary and demo task/review markings');
+  await page.waitForTimeout(300);
+  const idle = await diagnostics(); assert.equal(idle.ticker, false); assert.equal(idle.breathing, true);
+  await page.waitForTimeout(1800); assert((await diagnostics()).idleRenders > idle.idleRenders);
+  await page.getByRole('checkbox', { name: '减少动态' }).check();
+  const reduced = await diagnostics(); await page.waitForTimeout(1800);
+  assert.equal((await diagnostics()).idleRenders, reduced.idleRenders);
+  await page.getByRole('checkbox', { name: '减少动态' }).uncheck();
+  await page.getByRole('button', { name: '画布', exact: true }).click();
+  const hidden = await diagnostics(); await page.waitForTimeout(1800);
+  assert.equal((await diagnostics()).idleRenders, hidden.idleRenders); assert.equal((await diagnostics()).ticker, false); assert.equal((await diagnostics()).breathing, false);
+  pass('P5-5 visible idle breathes without ticker; reduced/hidden zero idle renders');
+  assert.equal((await diagnostics()).runtimeId, runtimeId);
+  pass('canvas return retains the same office runtime and task data');
+  console.log('SUMMARY ' + results.length + '/' + results.length + ' PASS');
+} finally { await browser.close(); }

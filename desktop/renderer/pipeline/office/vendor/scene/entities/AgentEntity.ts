@@ -33,6 +33,7 @@ export class AgentEntity extends Container {
     this.animationY = agent.y
 
     this.statusLabel = new StatusLabel(agent.name)
+    this.statusLabel.visible = !this.frameTexture
     this.bubble = new Bubble()
 
     if (frameResourcesOwned && isApartmentReady(agent.appearanceId ?? agent.id)) {

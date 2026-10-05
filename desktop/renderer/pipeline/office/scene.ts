@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import { Application, Container, Graphics } from 'pixi.js';
 import 'pixi.js/unsafe-eval';
 import type { OfficePresence } from '../../../shared/office';
 import type { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
@@ -8,6 +8,7 @@ import { projectAgents } from './vendor/runtime/adapters/legacy';
 import { computeAgentDepthZ } from './vendor/scene/systems/deskDepthSort';
 import { CELL_PIXELS } from './vendor/scene/gridProjection';
 import { OfficeTextures } from './textures';
+import { placeOfficeLabel, type LabelRect } from './label-layout';
 
 export class StarmapScene {
   private static applications = 0;
@@ -18,7 +19,10 @@ export class StarmapScene {
   private layer = new Container();
   private highlight = new Graphics();
   private entities = new Map<string, AgentEntity>();
-  private labels = new Map<string, Text>();
+  private labels = new Map<string, HTMLElement>();
+  private overlay?: HTMLDivElement;
+  private breathTimer?: ReturnType<typeof setTimeout>;
+  private idleRenders = 0;
   private props: PropView[] = [];
   private observer?: ResizeObserver;
   private resize?: () => void;
@@ -43,6 +47,7 @@ export class StarmapScene {
     this.element = element;
     this.textures = new OfficeTextures(app.renderer);
     element.appendChild(app.canvas);
+    this.overlay = document.createElement('div'); this.overlay.className = 'office-labels'; element.appendChild(this.overlay);
     app.canvas.setAttribute('aria-label', '伙伴的像素办公室，等价信息见人员列表');
     app.ticker.maxFPS = 30;
     this.layer.sortableChildren = true;
@@ -55,6 +60,7 @@ export class StarmapScene {
       const scale = Math.min(element.clientWidth / (data.width * CELL_PIXELS), element.clientHeight / (data.height * CELL_PIXELS));
       this.world.scale.set(scale);
       this.world.position.set((element.clientWidth - data.width * CELL_PIXELS * scale) / 2, (element.clientHeight - data.height * CELL_PIXELS * scale) / 2);
+      this.layoutLabels();
       if (this.active) app.render();
     };
     this.resize = resize;
@@ -73,7 +79,7 @@ export class StarmapScene {
     this.layer = new Container();
     this.layer.sortableChildren = true;
     this.highlight = new Graphics();
-    this.entities.clear(); this.labels.clear();
+    this.entities.clear(); this.labels.clear(); this.overlay?.replaceChildren();
     const data = this.runtime.readWorld();
     const floor = new Graphics();
     for (let row = 0; row < data.height; row++) for (let column = 0; column < data.width; column++) floor.rect(column * CELL_PIXELS, row * CELL_PIXELS, CELL_PIXELS, CELL_PIXELS).fill((column + row) % 2 ? 0xe4dfd2 : 0xebe6da);
@@ -94,11 +100,9 @@ export class StarmapScene {
       entity.on('pointertap', event => { event.stopPropagation(); this.onActor(agent.id); });
       this.entities.set(agent.id, entity);
       this.layer.addChild(entity);
-      const label = new Text({ text: agent.currentTask || '待命', style: { fontFamily: 'system-ui, sans-serif', fontSize: 13, fill: 0x394b47 } });
-      label.anchor.set(0.5, 0);
-      label.zIndex = 10000;
+      const label = document.createElement('div'); label.className = 'office-actor-label'; label.dataset.officeLabel = agent.id;
       this.labels.set(agent.id, label);
-      this.layer.addChild(label);
+      this.overlay?.appendChild(label);
     }
     this.drawSelection();
   }
@@ -129,8 +133,32 @@ export class StarmapScene {
       if (entity) { entity.tint = stale ? 0x929292 : 0xffffff; entity.alpha = stale ? 0.55 : 1; }
       if (entity) entity.zIndex = computeAgentDepthZ(agent);
       const label = this.labels.get(agent.id);
-      if (label) { label.text = (agent.currentTask || '待命') + (stale ? ' · 过期 · ' + new Date(presence!.lastSeen).toLocaleTimeString() : ''); label.position.set(agent.x, agent.y + 28); }
+      if (label) label.textContent = agent.name + ' · ' + (stale ? '过期/离线' : { idle: '待命', working: '工作中', thinking: '思考中', walking: '前往', talking: '讨论中' }[agent.state]);
     }
+  }
+  private layoutLabels() {
+    if (!this.element || !this.app) return;
+    const obstacles: LabelRect[] = this.props.flatMap(view => view.roots.map(item => { const bounds = item.getBounds(); return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }; }));
+    for (const [id, label] of this.labels) {
+      const entity = this.entities.get(id); if (!entity) continue;
+      label.hidden = false;
+      const anchor = this.world.toGlobal(entity.position);
+      const rect = placeOfficeLabel(anchor, { width: label.offsetWidth, height: label.offsetHeight }, { width: this.element.clientWidth, height: this.element.clientHeight }, obstacles);
+      label.hidden = !rect;
+      label.dataset.furniture = JSON.stringify(obstacles.slice(0, this.props.reduce((count, view) => count + view.roots.length, 0)));
+      if (rect) { label.style.left = rect.x + 'px'; label.style.top = rect.y + 'px'; obstacles.push(rect); }
+    }
+  }
+  private updateBreathing() {
+    const enabled = Boolean(this.app) && this.active && !this.reduced && !this.runtime.hasMotionWork && !this.app?.ticker.started && this.runtime.readActors().some(actor => actor.presentation.status === 'idle');
+    if (!enabled && this.breathTimer !== undefined) { clearTimeout(this.breathTimer); this.breathTimer = undefined; }
+    if (enabled && this.breathTimer === undefined) this.breathTimer = setTimeout(() => {
+      this.breathTimer = undefined;
+      if (this.disposed || !this.active || this.reduced) return;
+      const opacity = [1, .9, .8, .9][Math.floor(performance.now() / 800) % 4];
+      this.entities.forEach((entity, id) => { const presence = this.presence.get(id); if (entity.data.state === 'idle' && !presence?.expired && !presence?.disconnected && presence?.status !== 'offline') entity.alpha = opacity; });
+      this.app?.render(); this.idleRenders++; this.updateBreathing(); this.diagnostics();
+    }, 800);
   }
   private changed() {
     if (this.disposed) return;
@@ -138,17 +166,18 @@ export class StarmapScene {
     const data = this.runtime.readWorld();
     const agents = projectAgents(this.runtime, false);
     this.props.forEach((view, index) => { view.update(data.props[index], this.runtime.template(data.props[index].templateId), agents); view.roots.forEach(item => item.updateCacheTexture()); });
+    this.layoutLabels();
     this.updateTicker();
     if (this.active && !this.app?.ticker.started) this.app?.render();
   }
   private diagnostics() {
-    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || entity.x !== agent.x || entity.y !== agent.y; }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined });
+    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || entity.x !== agent.x || entity.y !== agent.y; }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders });
   }
   private updateTicker() {
     if (this.disposed) return;
     const animated = !this.reduced && this.runtime.readActors().some(actor => actor.presentation.status !== 'idle');
     if (this.active && (this.runtime.hasMotionWork || animated)) this.app?.ticker.start(); else this.app?.ticker.stop();
-    this.diagnostics();
+    this.updateBreathing(); this.diagnostics();
     if (!this.active && this.runtime.hasPendingSettlement && this.maintenance === undefined && !this.maintaining) {
       this.maintenanceTime = performance.now();
       this.maintenance = setTimeout(this.settleHidden, 33);
@@ -167,7 +196,7 @@ export class StarmapScene {
     if (!this.active || !this.app) return;
     this.runtime.tick(this.app.ticker.deltaMS);
     this.onAdvance();
-    this.sync();
+    this.sync(); this.layoutLabels();
     this.entities.forEach(entity => entity.updateVisuals(entity.data.state, this.reduced ? 0 : this.app!.ticker.deltaMS / 1000));
     this.updateTicker();
   };
@@ -188,6 +217,8 @@ export class StarmapScene {
   }
   dispose() {
     this.disposed = true;
+    if (this.breathTimer !== undefined) clearTimeout(this.breathTimer); this.breathTimer = undefined;
+    this.overlay?.remove(); this.overlay = undefined;
     if (this.maintenance !== undefined) clearTimeout(this.maintenance);
     this.maintenance = undefined;
     this.observer?.disconnect(); this.unsubscribe?.();

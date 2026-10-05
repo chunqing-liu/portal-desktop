@@ -16,6 +16,7 @@ export interface OfficeTask {
   actorId?: string;
   needsMe: boolean;
   source?: string;
+  demo: boolean;
 }
 export interface OfficePerson extends ActorPresentation { identity: OfficeIdentity; tasks: OfficeTask[]; marker: string }
 export interface OfficeProjection { people: OfficePerson[]; unbound: OfficeTask[]; reviews: OfficeTask[] }
@@ -28,7 +29,7 @@ const priority: NodeStatus[] = ['failed', 'blocked', 'waiting_human', 'running',
 export function projectOffice(state: PipelineLocalState, identities: OfficeIdentity[], presence: OfficePresence[] = []): OfficeProjection {
   const tasks = state.demands.flatMap(demand => demandNodes(getPipelineFlow(demand.workflowId), demand).map(node => {
     const matches = (node.owner.trim() || node.assigned_user?.trim()) && node.execution !== '人' ? identities.filter(identity => (identity.owners.includes(node.owner.trim()) || Boolean(node.assigned_user && identity.assignedUsers?.includes(node.assigned_user)))) : [];
-    return { key: demand.id + ':' + node.id, demandId: demand.id, nodeId: node.id, demandTitle: demand.title, title: node.title, owner: node.owner, source: node.stateSource === 'being' ? node.stateReport?.beingId : undefined, status: node.status, reason: node.stateReason || (node.status === 'blocked' ? '阻塞原因未上报' : node.status === 'waiting_human' ? '审核原因未上报' : node.status === 'skipped' ? '跳过原因未上报' : ''), actorId: matches.length === 1 ? matches[0].id : undefined, needsMe: node.status === 'waiting_human' && Boolean(node.kind === 'gate' || node.requires_human_review) && node.assigned_user === state.board.currentUserId } satisfies OfficeTask;
+    return { demo: Boolean(demand.demo) && node.stateSource !== 'being', key: demand.id + ':' + node.id, demandId: demand.id, nodeId: node.id, demandTitle: demand.title, title: node.title, owner: node.owner, source: node.stateSource === 'being' ? node.stateReport?.beingId : undefined, status: node.status, reason: node.stateReason || (node.status === 'blocked' ? '阻塞原因未上报' : node.status === 'waiting_human' ? '审核原因未上报' : node.status === 'skipped' ? '跳过原因未上报' : ''), actorId: matches.length === 1 ? matches[0].id : undefined, needsMe: node.status === 'waiting_human' && Boolean(node.kind === 'gate' || node.requires_human_review) && node.assigned_user === state.board.currentUserId } satisfies OfficeTask;
   }));
   return {
     people: identities.map(identity => {
