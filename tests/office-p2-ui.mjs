@@ -21,7 +21,8 @@ try {
   const initial = await page.evaluate(() => window.beings.officeSnapshot());
   for (const entry of initial.entries.filter(entry => !entry.identity.demo)) await send(entry.identity.id, { type: 'unregister' });
   await send('demo-product', { type: 'register', identity: { id: 'demo-product', name: '产品伙伴', owners: ['产品 Agent'], assignedUsers: [], color: 0xe3a35d, demo: true } });
-  await page.setViewportSize({ width: 1600, height: 1100 });
+  const viewportSession = await page.context().newCDPSession(page);
+  await viewportSession.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false });
   await page.evaluate(() => { localStorage.removeItem('beings:star-map:v4'); localStorage.setItem('starmap-office-open', 'true'); });
   await page.reload();
   await page.locator('#options-home button').filter({ hasText: '小镇' }).evaluate(button => button.click());

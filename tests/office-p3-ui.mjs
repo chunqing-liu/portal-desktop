@@ -23,7 +23,8 @@ try {
     const receipt = await page.evaluate(input => window.beings.officeTestInject(input), { type: 'unregister', beingId: entry.identity.id, runId: 'cleanup-' + runOrder, runOrder, eventOrder: 1, eventId: prefix + '-cleanup-' + entry.identity.id });
     assert(receipt.accepted, JSON.stringify(receipt));
   }
-  await page.setViewportSize({ width: 1600, height: 1100 });
+  const viewportSession = await page.context().newCDPSession(page);
+  await viewportSession.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false });
   await page.evaluate(() => { localStorage.removeItem('beings:star-map:v4'); localStorage.setItem('starmap-office-open', 'true'); });
   await page.reload();
   await page.evaluate(async () => {

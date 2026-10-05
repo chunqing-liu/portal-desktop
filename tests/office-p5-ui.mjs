@@ -59,9 +59,13 @@ try {
   assert((await page.locator('.office-review').textContent()).includes('演示'));
   assert((await page.locator('.office-task-list > button').first().textContent()).includes('演示'));
   pass('P5-6/P5-7 plain-language summary and demo task/review markings');
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => { const value = document.querySelector(".office-scene")?.dataset.officeDiagnostics; return value && !JSON.parse(value).ticker; }, null, { timeout: 30000 });
   const idle = await diagnostics(); assert.equal(idle.ticker, false); assert.equal(idle.breathing, true);
+  const firstFrame = await page.locator(".office-scene canvas").screenshot();
   await page.waitForTimeout(1800); assert((await diagnostics()).idleRenders > idle.idleRenders);
+  let secondFrame = await page.locator(".office-scene canvas").screenshot();
+  if (firstFrame.equals(secondFrame)) { await page.waitForTimeout(850); secondFrame = await page.locator(".office-scene canvas").screenshot(); }
+  assert(!firstFrame.equals(secondFrame), "idle breathing must change actual rendered pixels");
   await page.getByRole('checkbox', { name: '减少动态' }).check();
   const reduced = await diagnostics(); await page.waitForTimeout(1800);
   assert.equal((await diagnostics()).idleRenders, reduced.idleRenders);

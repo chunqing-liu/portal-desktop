@@ -18,7 +18,8 @@ const report = async (beingId, fields) => {
   assert(receipt.accepted, JSON.stringify(receipt));
 };
 try {
-  await page.setViewportSize({ width: 1600, height: 1100 });
+  const viewportSession = await page.context().newCDPSession(page);
+  await viewportSession.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 1100, deviceScaleFactor: 1, mobile: false });
   await page.evaluate(() => { localStorage.removeItem('beings:star-map:v4'); localStorage.setItem('starmap-office-open', 'true'); localStorage.setItem('starmap-office-reduced', 'true'); });
   await page.context().setOffline(true);
   await page.reload();
