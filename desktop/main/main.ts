@@ -40,6 +40,7 @@ import type { ChatScene, NotificationTarget, SaveSettings } from '../shared/type
 import { TownLive } from './town/live';
 import { TownClient, TownCredentials, TOWN_ORIGIN } from './town/client';
 import { registerTownIpc } from './town/ipc';
+import { registerOfficeIpc } from './office/ipc';
 import { registerKitsIpc } from './kits/ipc';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -275,6 +276,8 @@ async function ready() {
       catch (error) { throw new Error(errorLog.report(channel, error)); }
     });
   };
+  const disposeOffice = registerOfficeIpc(handle, () => window || undefined, !app.isPackaged && process.env.PORTAL_OFFICE_TEST === '1');
+  app.once('will-quit', disposeOffice);
   handle('beings:client-startup', (enabled?: boolean) => clientStartup(app, process.platform, process.execPath, enabled));
   handle('beings:notifications', (patch?: unknown) => exclusive(async () => {
     const state = patch === undefined ? notifications.state : await notifications.save(patch);

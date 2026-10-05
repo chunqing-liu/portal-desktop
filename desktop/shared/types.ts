@@ -108,6 +108,10 @@ export interface DesktopAPI {
   snapshot(): Promise<Snapshot>;
   save(input: SaveSettings): Promise<Snapshot>;
   beingModelConfig(patch?: Record<string, string | number | boolean>): Promise<Record<string, unknown>>;
+  officeSnapshot(): Promise<import('./office').OfficeSnapshot>;
+  officeReport(input: import('./office').OfficeInput): Promise<import('./office').OfficeReceipt>;
+  officeTestInject(input: import('./office').OfficeInput): Promise<import('./office').OfficeReceipt>;
+  onOfficeMessage(callback: (message: import('./office').OfficeMessage) => void): () => void;
   sceneTasks(): Promise<SceneTaskSnapshot>;
   onSceneTasks(callback: (snapshot: SceneTaskSnapshot) => void): () => void;
   subagentConfig(): Promise<Omit<SubagentSetup, 'api_key'>>;

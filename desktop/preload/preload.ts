@@ -63,6 +63,14 @@ const api: DesktopAPI = {
   snapshot: () => ipcRenderer.invoke('beings:snapshot'),
   save: input => ipcRenderer.invoke('beings:save', input),
   beingModelConfig: patch => ipcRenderer.invoke("beings:model-config", patch),
+  officeSnapshot: () => ipcRenderer.invoke('beings:office-snapshot'),
+  officeReport: input => ipcRenderer.invoke('beings:office-report', input),
+  officeTestInject: input => ipcRenderer.invoke('beings:office-test-inject', input),
+  onOfficeMessage: callback => {
+    const listener = (_event: unknown, message: import('../shared/office').OfficeMessage) => callback(message);
+    ipcRenderer.on('beings:office-message', listener);
+    return () => ipcRenderer.removeListener('beings:office-message', listener);
+  },
   sceneTasks: () => ipcRenderer.invoke('beings:scene-tasks'),
   onSceneTasks: callback => {
     const listener = (_event: unknown, snapshot: import('../shared/types').SceneTaskSnapshot) => callback(snapshot);
