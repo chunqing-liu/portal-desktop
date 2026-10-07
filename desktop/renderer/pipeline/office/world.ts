@@ -1,5 +1,4 @@
 import { starmapHandoff } from './handoff';
-import { starmapMeeting } from './meeting';
 import { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
 import { builtinPlugins } from './vendor/runtime/builtin/officePack';
 import { GridNavigation } from './vendor/runtime/navigation';
@@ -7,33 +6,36 @@ import type { Actor, World } from './vendor/runtime/model';
 import { seatStepDurationMs } from './vendor/scene/gridProjection';
 import { supportsOfficePose } from './vendor/contracts/characterPose';
 import type { OfficeIdentity } from './identities';
+import { officeRole } from './roles';
 
 export function createStarmapWorld(identities: OfficeIdentity[], previous?: World): World {
   if (identities.length > 100 || new Set(identities.map(identity => identity.id)).size !== identities.length) throw new Error('名册过大或身份重复');
-  const retained = previous?.props.filter(prop => identities.some(identity => prop.id === 'desk-' + identity.id)) || [];
+  const columns = Math.max(1, Math.min(6, identities.length <= 3 ? identities.length : Math.ceil(Math.sqrt(identities.length * 1.4))));
+  const retained = previous && previous.actors.length <= identities.length ? previous.props.filter(prop => identities.some(identity => prop.id === 'desk-' + identity.id)) : [];
   const used = new Set(retained.map(prop => prop.position.x + ':' + prop.position.y));
   const positions = identities.map(identity => {
     const existing = retained.find(prop => prop.id === 'desk-' + identity.id);
     if (existing) return existing.position;
     let slot = 0;
-    while (used.has((2 + slot % 3 * 4) + ':' + (2 + Math.floor(slot / 3) * 3))) slot++;
-    const position = { x: 2 + slot % 3 * 4, y: 2 + Math.floor(slot / 3) * 3 };
+    while (used.has((2 + slot % columns * 4) + ':' + (3 + Math.floor(slot / columns) * 4))) slot++;
+    const position = { x: 2 + slot % columns * 4, y: 3 + Math.floor(slot / columns) * 4 };
     used.add(position.x + ':' + position.y);
     return position;
   });
-  const rows = Math.max(1, ...positions.map(position => Math.floor((position.y - 2) / 3) + 1));
-  const props = identities.map((identity, index) => ({ id: 'desk-' + identity.id, name: identity.name + '的工位', templateId: 'office.workstation', position: positions[index], state: {}, stateRevision: 0 }));
+  const rows = Math.max(1, ...positions.map(position => Math.floor((position.y - 3) / 4) + 1));
+  const props = identities.map((identity, index) => ({ id: 'desk-' + identity.id, name: identity.name + '的工位', templateId: 'office.workstation', position: positions[index], state: { role: officeRole(identity).role }, stateRevision: 0 }));
   const actors: Actor[] = identities.map((identity, index) => ({ id: identity.id, name: identity.name + (identity.demo ? ' · 演示' : ''), templateId: identity.id, color: identity.color, homeId: props[index].id, position: { x: props[index].position.x, y: props[index].position.y + 1 }, facing: 'back', posture: 'seated', using: { propId: props[index].id, interactionId: 'seat' }, presentation: { status: 'idle', title: '待命', sourceRevision: 0 } }));
   for (const actor of actors) {
     const existing = previous?.actors.find(item => item.id === actor.id);
-    if (existing) Object.assign(actor, { position: existing.position, posture: existing.posture, facing: existing.facing, using: existing.using, presentation: { ...existing.presentation, sourceRevision: 0 } });
+    if (existing) actor.presentation = { ...existing.presentation, sourceRevision: 0 };
+    if (existing && existing.homeId === actor.homeId && retained.some(prop => prop.id === actor.homeId)) Object.assign(actor, { position: existing.position, posture: existing.posture, facing: existing.facing, using: existing.using, presentation: { ...existing.presentation, sourceRevision: 0 } });
   }
-  const boardPosition = previous?.props.find(prop => prop.id === 'collab-board')?.position || { x: 5, y: rows * 3 + 3 };
-  const boardY = Math.max(boardPosition.y, rows * 3 + 3);
-  const height = boardY + 4;
-  return { sceneId: 'starmap-office', unit: 'cell', width: 14, height, gridSize: 1, layoutRevision: 0, bounds: { left: 0, top: 0, right: 14, bottom: height }, actors, props: [...props, { id: 'collab-board', name: '协作白板', templateId: 'starmap.whiteboard', position: { x: 5, y: boardY }, state: { title: '白板协作', text: '等待议题' }, stateRevision: 0 }] };
+  const width = Math.max(8, ...positions.map(position => position.x + 4)) + 1;
+  const height = Math.max(8, rows * 4 + 4);
+  const boardPosition = { x: width - 3, y: 1 };
+  return { sceneId: 'starmap-office', unit: 'cell', width, height, gridSize: 1, layoutRevision: 0, bounds: { left: 0, top: 0, right: width, bottom: height }, actors, props: [...props, { id: 'collab-board', name: '协作白板', templateId: 'office.whiteboard', position: boardPosition, state: { title: '白板协作', text: '团队工作备忘' }, stateRevision: 0 }] };
 }
 
 export function createStarmapRuntime(identities: OfficeIdentity[], previous?: World) {
-  return new OfficeRuntime({ world: createStarmapWorld(identities, previous), plugins: [...builtinPlugins, starmapHandoff, starmapMeeting], createNavigation: templates => new GridNavigation(templates), seatStepDuration: seatStepDurationMs, supportsPose: supportsOfficePose });
+  return new OfficeRuntime({ world: createStarmapWorld(identities, previous), plugins: [...builtinPlugins, starmapHandoff], createNavigation: templates => new GridNavigation(templates), seatStepDuration: seatStepDurationMs, supportsPose: supportsOfficePose });
 }

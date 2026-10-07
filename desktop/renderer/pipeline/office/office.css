@@ -7,13 +7,10 @@
 .office-heading button:disabled { opacity: .5; cursor: default; }
 .office-body { display: flex; height: calc(100% - 36px); min-height: 0; }
 .office-body[hidden] { display: none; }
-.office-scene { flex: 1; min-width: 0; overflow: hidden; background: #ece8dd; }
+.office-scene { flex: 1; min-width: 0; overflow: hidden; background: #f2f0e9; }
 .office-scene canvas { display: block; }
 .office-people { display: flex; flex-direction: column; width: 330px; min-width: 250px; border-left: 1px solid var(--line); padding: 8px; gap: 7px; }
 .office-person-tabs { display: flex; flex-wrap: wrap; gap: 4px; max-height: 90px; overflow: auto; flex-shrink: 0; }
-.office-meeting { max-height: 95px; overflow: auto; flex-shrink: 0; padding: 5px 7px; background: var(--control); border-left: 2px solid var(--secondary); }
-.office-meeting > strong { display: block; margin-bottom: 3px; }
-.office-meeting > div { color: var(--muted); }
 .office-person-tabs button { flex: 1; min-width: 0; text-align: left; background: var(--control); color: var(--text); border: 1px solid var(--line); padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; }
 .office-person-tabs button[aria-pressed=true], .office-person-tabs button[data-highlighted=true] { border-color: var(--secondary); }
 .office-person-tabs button[data-stale=true] { opacity: .55; filter: grayscale(1); }
@@ -39,7 +36,11 @@
 .pipeline-view-modes button[aria-pressed=true] { background: var(--control); color: var(--text); }
 #pipeline-view .star-map-shell[data-office-view=true] { grid-template-columns: minmax(0, 1fr); }
 #pipeline-view .star-map-shell[data-office-view=true] > aside, #pipeline-view .star-map-shell[data-office-view=true] .star-map-canvas { display: none; }
+#place-sheet:has(.office-dock[data-full-view=true]):not(.pipeline-focus-sheet) { width: min(1440px, calc(100vw - 34px)); height: min(1100px, calc(100dvh - 34px)); }
 .office-dock[data-full-view=true] { flex: 1; height: 100%; min-height: 0; }
 .office-scene { position: relative; }
 .office-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.office-actor-label { position: absolute; white-space: nowrap; font: 11px system-ui, sans-serif; color: #394b47; padding: 2px 4px; background: #faf9f2ed; border-radius: 3px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; }
+.office-actor-label { transition: background-color .2s, border-color .2s, box-shadow .2s; border: 1px solid #83938638; box-shadow: 0 2px 7px #394b4710; position: absolute; white-space: nowrap; font: 11px system-ui, sans-serif; color: #394b47; padding: 2px 4px; background: #fcfbf6f0; border-radius: 5px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; }
+.office-actor-label[data-emphasis=true], .office-actor-label[data-talking=true] { border-color: #729788; background: #fafff4; box-shadow: 0 3px 12px #48736224; }
+.office-scene[data-office-reduced=true] .office-actor-label { transition: none; }
+@media (prefers-reduced-motion: reduce) { .office-actor-label { transition: none; } }

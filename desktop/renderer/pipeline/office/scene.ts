@@ -3,10 +3,14 @@ import 'pixi.js/unsafe-eval';
 import type { OfficePresence } from '../../../shared/office';
 import type { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
 import { AgentEntity } from './vendor/scene/entities/AgentEntity';
-import { createOfficePropViews, type PropView } from './vendor/scene/views/propViews';
+import type { PropView } from './vendor/scene/views/propViews';
+import { OfficeArtwork } from './artwork';
+import { officeReturnRoute, officeWalkRoute, sampleOfficeWalk } from './roster-motion';
+import type { Point, World } from './vendor/runtime/model';
+import { officeRole } from './roles';
 import { projectAgents } from './vendor/runtime/adapters/legacy';
 import { computeAgentDepthZ } from './vendor/scene/systems/deskDepthSort';
-import { CELL_PIXELS } from './vendor/scene/gridProjection';
+import { CELL_PIXELS, propPixels } from './vendor/scene/gridProjection';
 import { OfficeTextures } from './textures';
 import { placeOfficeLabel, type LabelRect } from './label-layout';
 
@@ -23,6 +27,20 @@ export class StarmapScene {
   private overlay?: HTMLDivElement;
   private breathTimer?: ReturnType<typeof setTimeout>;
   private idleRenders = 0;
+  private renders = 0;
+  private artwork = new OfficeArtwork();
+  private transitions = new Map<string, { started: number; entering: boolean; entity: AgentEntity; route: Point[] }>();
+  private previousWorld?: World;
+  private room?: Container;
+  private displaySize = { width: 0, height: 0 };
+  private light = new Graphics();
+  private activity = new Map<string, Graphics>();
+  private stateUntil = 0;
+  private hoverUntil = 0;
+  private hovered?: string;
+  private focused?: string;
+  private emphasis = new Map<string, number>();
+  private rosterTransitions = 0;
   private props: PropView[] = [];
   private observer?: ResizeObserver;
   private resize?: () => void;
@@ -40,7 +58,7 @@ export class StarmapScene {
 
   async mount(element: HTMLElement) {
     const app = new Application();
-    await app.init({ width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), backgroundColor: 0xece8dd, antialias: false, autoDensity: true, resolution: Math.min(devicePixelRatio || 1, 2), autoStart: false });
+    await app.init({ width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), backgroundColor: 0xf2f0e9, antialias: true, autoDensity: true, resolution: Math.min(devicePixelRatio || 1, 2), autoStart: false });
     if (this.disposed) { app.destroy(true, { children: true }); return; }
     this.app = app;
     StarmapScene.applications++;
@@ -48,7 +66,7 @@ export class StarmapScene {
     this.textures = new OfficeTextures(app.renderer);
     element.appendChild(app.canvas);
     this.overlay = document.createElement('div'); this.overlay.className = 'office-labels'; element.appendChild(this.overlay);
-    app.canvas.setAttribute('aria-label', '伙伴的像素办公室，等价信息见人员列表');
+    app.canvas.setAttribute('aria-label', '伙伴的程序化工作室，等价信息见人员列表');
     app.ticker.maxFPS = 30;
     this.layer.sortableChildren = true;
     app.stage.addChild(this.world);
@@ -56,12 +74,12 @@ export class StarmapScene {
     const resize = () => {
       if (this.disposed || element.clientWidth < 1 || element.clientHeight < 1) return;
       app.renderer.resize(element.clientWidth, element.clientHeight);
-      const data = this.runtime.readWorld();
-      const scale = Math.min(element.clientWidth / (data.width * CELL_PIXELS), element.clientHeight / (data.height * CELL_PIXELS));
+      const { width, height } = this.displaySize;
+      const scale = Math.min(element.clientWidth / (width * CELL_PIXELS), element.clientHeight / (height * CELL_PIXELS));
       this.world.scale.set(scale);
-      this.world.position.set((element.clientWidth - data.width * CELL_PIXELS * scale) / 2, (element.clientHeight - data.height * CELL_PIXELS * scale) / 2);
+      this.world.position.set((element.clientWidth - width * CELL_PIXELS * scale) / 2, (element.clientHeight - height * CELL_PIXELS * scale) / 2);
       this.layoutLabels();
-      if (this.active) app.render();
+      this.render();
     };
     this.resize = resize;
     this.observer = new ResizeObserver(resize);
@@ -72,39 +90,114 @@ export class StarmapScene {
     this.setActive(this.active);
   }
 
+  private clearTransitions() {
+    for (const transition of this.transitions.values()) if (!transition.entering) { transition.entity.removeFromParent(); transition.entity.destroy({ children: true }); }
+    this.transitions.clear();
+    this.entities.forEach(entity => { entity.scale.y = 1; entity.finishVisualTransition(); });
+  }
+  private render() { if (this.active && this.app) { this.app.render(); this.renders++; } }
+  private drawRoom() {
+    this.room?.removeFromParent(); this.room?.destroy({ children: true });
+    const floor = this.artwork.room(this.displaySize.width * CELL_PIXELS, this.displaySize.height * CELL_PIXELS, this.entities.size);
+    this.room = floor;
+    this.world.addChildAt(floor, 0);
+    floor.cacheAsTexture({ resolution: Math.min(2, 4096 / Math.max(this.displaySize.width * CELL_PIXELS, this.displaySize.height * CELL_PIXELS)) });
+  }
+  private animateRoster() {
+    const now = performance.now();
+    for (const [id, transition] of this.transitions) {
+      const sampled = sampleOfficeWalk(transition.route, now - transition.started);
+      const entity = transition.entity;
+      entity.apply({ state: 'walking', seated: false, viewFacing: sampled.facing, facing: sampled.facing === 'left' ? -1 : 1 });
+      entity.setPosition(sampled.x, sampled.y); entity.zIndex = sampled.y;
+      entity.alpha = 1;
+      entity.updateVisuals('walking', this.app!.ticker.deltaMS / 1000);
+      if (sampled.done) {
+        if (!transition.entering) { entity.removeFromParent(); entity.destroy({ children: true }); }
+        else { const agent = projectAgents(this.runtime, false).find(actor => actor.id === id); if (agent) { entity.apply(agent); entity.setPosition(agent.x, agent.y); } this.stateUntil = now + 240; }
+        this.transitions.delete(id);
+      }
+    }
+    if (!this.transitions.size && (this.displaySize.width !== this.runtime.readWorld().width || this.displaySize.height !== this.runtime.readWorld().height)) {
+      this.displaySize = { width: this.runtime.readWorld().width, height: this.runtime.readWorld().height };
+      this.drawRoom(); this.resize?.();
+    }
+  }
   private populate() {
+    const now = performance.now();
+    const ongoing = new Map([...this.transitions].map(([id, transition]) => [id, { ...transition, agent: { ...transition.entity.data } }]));
+    const previousAgents = [...this.entities.values()].map(entity => ({ ...entity.data }));
+    const previousIds = new Set(previousAgents.map(agent => agent.id));
+    this.clearTransitions();
     this.world.removeChildren().forEach(child => child.destroy({ children: true }));
-    this.textures?.dispose();
+    this.room = undefined;
+    this.artwork.dispose(); this.textures?.dispose();
     if (this.app) this.textures = new OfficeTextures(this.app.renderer);
-    this.layer = new Container();
-    this.layer.sortableChildren = true;
-    this.highlight = new Graphics();
-    this.entities.clear(); this.labels.clear(); this.overlay?.replaceChildren();
+    this.layer = new Container(); this.layer.sortableChildren = true;
+    this.highlight = new Graphics(); this.light = new Graphics();
+    this.entities.clear(); this.labels.clear(); this.activity.clear(); this.emphasis.clear(); this.overlay?.replaceChildren();
     const data = this.runtime.readWorld();
-    const floor = new Graphics();
-    for (let row = 0; row < data.height; row++) for (let column = 0; column < data.width; column++) floor.rect(column * CELL_PIXELS, row * CELL_PIXELS, CELL_PIXELS, CELL_PIXELS).fill((column + row) % 2 ? 0xe4dfd2 : 0xebe6da);
-    floor.rect(0, 0, data.width * CELL_PIXELS, 28).fill(0xb6c6b4);
-    for (let column = 1; column < data.width; column += 3) floor.rect(column * CELL_PIXELS, 4, 65, 18).fill(0xd8e9eb).stroke({ color: 0x829b91, width: 3 });
-    this.world.addChild(floor, this.highlight, this.layer);
-    floor.cacheAsTexture({ resolution: 1 });
-    const registry = createOfficePropViews(() => false);
+    const retirees = previousAgents.filter(agent => !data.actors.some(actor => actor.id === agent.id));
+    const animated = this.active && !this.reduced;
+    const exiting = retirees.length > 0 || [...ongoing.values()].some(transition => !transition.entering && !data.actors.some(actor => actor.id === transition.agent.id));
+    this.displaySize = { width: animated && exiting ? Math.max(data.width, this.displaySize.width, this.previousWorld?.width || 0) : data.width, height: animated && exiting ? Math.max(data.height, this.displaySize.height, this.previousWorld?.height || 0) : data.height };
+    this.world.addChild(this.light, this.highlight, this.layer);
     const agents = projectAgents(this.runtime, false);
     this.props = data.props.map(prop => {
-      const view = registry.create(prop, this.runtime.template(prop.templateId));
-      view.roots.forEach(item => { this.layer.addChild(item); item.cacheAsTexture({ resolution: 1 }); });
+      const view = prop.templateId === 'office.workstation' ? this.artwork.workstation(prop) : this.artwork.whiteboard(prop);
       view.update(prop, this.runtime.template(prop.templateId), agents);
+      view.roots.forEach(item => { this.layer.addChild(item); item.cacheAsTexture({ resolution: 2 }); });
+      if (prop.templateId === 'office.workstation') {
+        const actorId = data.actors.find(actor => actor.homeId === prop.id)?.id;
+        if (actorId) {
+          view.hitTarget.eventMode = 'static'; view.hitTarget.cursor = 'pointer';
+          view.hitTarget.on('pointerover', () => this.hover(actorId)).on('pointerout', () => this.hover(undefined));
+          view.hitTarget.on('pointertap', event => { event.stopPropagation(); this.focused = actorId; this.hover(actorId); this.onActor(actorId); });
+          const effect = new Graphics(); this.activity.set(actorId, effect); this.layer.addChild(effect);
+        }
+      }
       return view;
     });
+    const makeEntity = (agent: typeof agents[number]) => {
+      const variation = [...agent.id].reduce((total, letter) => total + letter.charCodeAt(0), 0);
+      return new AgentEntity(agent, false, (state, phase, color, seated, facing) => this.textures!.actor(state, phase, color, seated, facing, variation));
+    };
+    const walk = (id: string, entity: AgentEntity, route: Point[], entering: boolean, started = now) => {
+      this.transitions.set(id, { started, entering, entity, route });
+      const point = sampleOfficeWalk(route, now - started);
+      entity.apply({ state: 'walking', seated: false, viewFacing: point.facing, facing: point.facing === 'left' ? -1 : 1 });
+      entity.setPosition(point.x, point.y); entity.zIndex = point.y;
+    };
     for (const agent of agents) {
-      const entity = new AgentEntity(agent, false, (state, phase, color, seated) => this.textures!.actor(state, phase, color, seated));
-      entity.on('pointertap', event => { event.stopPropagation(); this.onActor(agent.id); });
-      this.entities.set(agent.id, entity);
-      this.layer.addChild(entity);
+      const entity = makeEntity(agent);
+      entity.on('pointertap', event => { event.stopPropagation(); this.focused = agent.id; this.hover(agent.id); this.onActor(agent.id); });
+      entity.on('pointerover', () => this.hover(agent.id)).on('pointerout', () => this.hover(undefined));
+      this.entities.set(agent.id, entity); this.layer.addChild(entity);
       const label = document.createElement('div'); label.className = 'office-actor-label'; label.dataset.officeLabel = agent.id;
-      this.labels.set(agent.id, label);
-      this.overlay?.appendChild(label);
+      this.labels.set(agent.id, label); this.overlay?.appendChild(label);
+      const transition = ongoing.get(agent.id);
+      if (animated && transition) {
+        walk(agent.id, entity, transition.entering ? transition.route : officeReturnRoute(transition.route, now - transition.started), true, transition.entering ? transition.started : now);
+      } else if (animated && !previousIds.has(agent.id)) {
+        const actor = data.actors.find(actor => actor.id === agent.id)!;
+        walk(agent.id, entity, officeWalkRoute(data, this.runtime, actor.homeId!, actor.position, true), true);
+        this.rosterTransitions++;
+      }
     }
-    this.drawSelection();
+    if (animated && this.previousWorld) for (const agent of retirees) {
+      const actor = this.previousWorld.actors.find(actor => actor.id === agent.id)!;
+      const entity = makeEntity({ ...agent, state: 'walking', seated: false }); this.layer.addChild(entity);
+      const transition = ongoing.get(agent.id);
+      const route = transition?.entering ? officeReturnRoute(transition.route, now - transition.started) : officeWalkRoute(this.previousWorld, this.runtime, actor.homeId!, actor.position, false);
+      walk(agent.id, entity, route, false); this.rosterTransitions++;
+    }
+    if (animated) for (const [id, transition] of ongoing) {
+      if (transition.entering || data.actors.some(actor => actor.id === id) || retirees.some(agent => agent.id === id)) continue;
+      const entity = makeEntity(transition.agent); this.layer.addChild(entity);
+      walk(id, entity, transition.route, false, transition.started);
+    }
+    this.previousWorld = data;
+    this.drawRoom(); this.drawSelection(); this.drawActivity();
   }
   refreshRoster() {
     if (this.app) { this.populate(); this.sync(); this.resize?.(); this.changed(); }
@@ -126,20 +219,24 @@ export class StarmapScene {
   private sync() {
     for (const agent of projectAgents(this.runtime, false)) {
       const entity = this.entities.get(agent.id);
-      entity?.apply(agent);
-      entity?.setPosition(agent.x, agent.y);
+      if (entity && !this.transitions.has(agent.id)) {
+        if (entity.data.state !== agent.state) this.stateUntil = performance.now() + 240;
+        entity.apply(agent);
+        entity.setPosition(agent.x, agent.y);
+      }
       const presence = this.presence.get(agent.id);
       const stale = presence && (presence.expired || presence.disconnected || presence.status === 'offline');
-      if (entity) { entity.tint = stale ? 0x929292 : 0xffffff; entity.alpha = stale ? 0.55 : 1; }
+      if (entity) { entity.tint = stale ? 0x929292 : 0xffffff; entity.alpha = stale ? 0.55 : 1; if (this.reduced) entity.finishVisualTransition(); }
       if (entity) entity.zIndex = computeAgentDepthZ(agent);
       const label = this.labels.get(agent.id);
-      if (label) label.textContent = agent.name + ' · ' + (stale ? '过期/离线' : { idle: '待命', working: '工作中', thinking: '思考中', walking: '前往', talking: '讨论中' }[agent.state]);
+      if (label) { const identity = presence?.identity; label.textContent = agent.name + (identity ? ' · ' + officeRole(identity).label : '') + ' · ' + (stale ? '过期/离线' : { idle: '待命', working: '工作中', thinking: '思考中', walking: '前往', talking: '讨论中' }[agent.state]); }
     }
   }
   private layoutLabels() {
     if (!this.element || !this.app) return;
     const obstacles: LabelRect[] = this.props.flatMap(view => view.roots.map(item => { const bounds = item.getBounds(); return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }; }));
-    for (const [id, label] of this.labels) {
+    const prioritized = [...this.labels].sort(([first], [second]) => Number(second === this.hovered || second === this.focused) - Number(first === this.hovered || first === this.focused));
+    for (const [id, label] of prioritized) {
       const entity = this.entities.get(id); if (!entity) continue;
       label.hidden = false;
       const anchor = this.world.toGlobal(entity.position);
@@ -155,9 +252,9 @@ export class StarmapScene {
     if (enabled && this.breathTimer === undefined) this.breathTimer = setTimeout(() => {
       this.breathTimer = undefined;
       if (this.disposed || !this.active || this.reduced) return;
-      const opacity = [1, .9, .8, .9][Math.floor(performance.now() / 800) % 4];
-      this.entities.forEach((entity, id) => { const presence = this.presence.get(id); if (entity.data.state === 'idle' && !presence?.expired && !presence?.disconnected && presence?.status !== 'offline') entity.alpha = opacity; });
-      this.app?.render(); this.idleRenders++; this.updateBreathing(); this.diagnostics();
+      const opacity = [1, .985, .97, .985][Math.floor(performance.now() / 800) % 4];
+      this.entities.forEach((entity, id) => { const presence = this.presence.get(id); if (entity.data.state === 'idle' && !presence?.expired && !presence?.disconnected && presence?.status !== 'offline') { entity.alpha = opacity; entity.scale.y = 1 + (1 - opacity) * .4; } });
+      this.drawActivity(); this.drawLight(); this.render(); this.idleRenders++; this.updateBreathing(); this.diagnostics();
     }, 800);
   }
   private changed() {
@@ -168,17 +265,26 @@ export class StarmapScene {
     this.props.forEach((view, index) => { view.update(data.props[index], this.runtime.template(data.props[index].templateId), agents); view.roots.forEach(item => item.updateCacheTexture()); });
     this.layoutLabels();
     this.updateTicker();
-    if (this.active && !this.app?.ticker.started) this.app?.render();
+    if (this.active && !this.reduced) this.animateRoster();
+    this.drawActivity(); this.drawLight();
+    if (this.active && !this.app?.ticker.started) this.render();
   }
   private diagnostics() {
-    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || entity.x !== agent.x || entity.y !== agent.y; }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders });
+    if (this.element) this.element.dataset.officeReduced = String(this.reduced);
+    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || !this.transitions.has(agent.id) && (entity.x !== agent.x || entity.y !== agent.y); }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders, renders: this.renders, rosterTransitions: this.rosterTransitions, reduced: this.reduced, hovered: this.hovered, effects: this.activity.size, transitions: this.transitions.size, visualActors: [...this.entities].map(([id, entity]) => ({ id, x: entity.x, y: entity.y, state: entity.data.state, scaleX: Math.abs(entity.scale.x), scaleY: entity.scale.y })), desks: this.props.length - 1, room: { width: this.runtime.readWorld().width, height: this.runtime.readWorld().height }, scale: this.world.scale.x });
   }
   private updateTicker() {
     if (this.disposed) return;
     const animated = !this.reduced && this.runtime.readActors().some(actor => actor.presentation.status !== 'idle');
-    if (this.active && (this.runtime.hasMotionWork || animated)) this.app?.ticker.start(); else this.app?.ticker.stop();
+    const enabled = this.active && !this.reduced && (this.runtime.hasMotionWork || animated || this.transitions.size > 0 || performance.now() < this.stateUntil || performance.now() < this.hoverUntil);
+    if (enabled) this.app?.ticker.start();
+    else if (this.app?.ticker.started) {
+      this.app.ticker.stop(); this.hoverUntil = 0;
+      this.entities.forEach(entity => entity.finishVisualTransition());
+      this.drawActivity(); this.layoutLabels(); this.render();
+    }
     this.updateBreathing(); this.diagnostics();
-    if (!this.active && this.runtime.hasPendingSettlement && this.maintenance === undefined && !this.maintaining) {
+    if ((!this.active || this.reduced) && this.runtime.hasPendingSettlement && this.maintenance === undefined && !this.maintaining) {
       this.maintenanceTime = performance.now();
       this.maintenance = setTimeout(this.settleHidden, 33);
     }
@@ -186,37 +292,81 @@ export class StarmapScene {
   private settleHidden = () => {
     const now = performance.now();
     this.maintenance = undefined;
-    if (this.active || this.disposed || !this.runtime.hasPendingSettlement) return;
+    if (this.active && !this.reduced || this.disposed || !this.runtime.hasPendingSettlement) return;
     this.maintaining = true;
     try { this.runtime.settleCancelled(now - this.maintenanceTime); this.maintenanceTime = now; this.onAdvance(); }
     finally { this.maintaining = false; }
-    if (!this.active && !this.disposed && this.runtime.hasPendingSettlement) this.maintenance = setTimeout(this.settleHidden, 33);
+    if ((!this.active || this.reduced) && !this.disposed && this.runtime.hasPendingSettlement) this.maintenance = setTimeout(this.settleHidden, 33);
   };
   private onTick = () => {
     if (!this.active || !this.app) return;
     this.runtime.tick(this.app.ticker.deltaMS);
     this.onAdvance();
-    this.sync(); this.layoutLabels();
-    this.entities.forEach(entity => entity.updateVisuals(entity.data.state, this.reduced ? 0 : this.app!.ticker.deltaMS / 1000));
+    this.sync(); this.animateRoster();
+    this.entities.forEach((entity, id) => { if (!this.transitions.has(id)) entity.updateVisuals(entity.data.state, this.app!.ticker.deltaMS / 1000); });
+    this.drawActivity(); this.layoutLabels(); this.drawLight();
+    this.renders++;
     this.updateTicker();
   };
   setActive(active: boolean) {
     this.active = active;
+    if (!active) this.clearTransitions(); else { this.sync(); this.drawActivity(); this.drawLight(); this.render(); }
     if (active && this.maintenance !== undefined) { clearTimeout(this.maintenance); this.maintenance = undefined; }
     this.updateTicker();
   }
-  setReduced(reduced: boolean) { this.reduced = reduced; this.changed(); }
-  select(ids: string[]) { this.selected = ids; this.drawSelection(); if (this.active) this.app?.render(); }
+  setReduced(reduced: boolean) { this.reduced = reduced; if (reduced) this.clearTransitions(); this.changed(); }
+  select(ids: string[]) { this.selected = ids; this.drawSelection(); this.drawActivity(); this.render(); }
+  private hover(id?: string) {
+    if (id === this.hovered && performance.now() < this.hoverUntil) return;
+    this.hovered = id; this.hoverUntil = this.reduced ? 0 : performance.now() + 280;
+    this.layoutLabels(); this.drawActivity(); this.render(); this.updateTicker();
+  }
+  private drawActivity() {
+    const now = this.reduced ? 0 : performance.now();
+    for (const [id, effect] of this.activity) {
+      const actor = this.runtime.readActors().find(actor => actor.id === id);
+      const prop = this.runtime.readWorld().props.find(prop => prop.id === actor?.homeId);
+      const entity = this.entities.get(id); if (!actor || !prop || !entity) continue;
+      const emphasized = id === this.hovered || id === this.focused || this.selected.includes(id);
+      const previous = this.emphasis.get(id) || 0;
+      const amount = this.reduced || now >= this.hoverUntil ? Number(emphasized) : previous + (Number(emphasized) - previous) * .28;
+      this.emphasis.set(id, amount);
+      entity.scale.x = Math.sign(entity.scale.x || 1) * (1 + amount * .045);
+      if (entity.data.state !== 'idle') entity.scale.y = 1 + amount * .045;
+      const pixel = propPixels(prop);
+      effect.position.set(pixel.x, pixel.y); effect.zIndex = pixel.y + 1; effect.clear();
+      const working = actor.presentation.status === 'working', thinking = actor.presentation.status === 'thinking';
+      const pulse = .5 + Math.sin(now / 1800 + pixel.x) * .5;
+      effect.poly([-40, -10, 25, -10, 34, 18, -35, 18]).fill({ color: 0x8ccac3, alpha: working || thinking ? .08 + pulse * .035 : .035 });
+      effect.ellipse(0, 47, 16, 9).fill({ color: 0xb4ded1, alpha: working || thinking ? .07 : .025 });
+      if (working) {
+        const phase = this.reduced ? 0 : now / 900 % 1;
+        if (prop.state.role === 'frontend' || prop.state.role === 'product' || prop.state.role === 'engine') {
+          for (let bar = 0; bar < 5; bar++) effect.rect(-12 + bar * 5, -27 - Math.sin(now / 900 + bar) * 2, 3, 3 + bar % 3).fill({ color: 0x93cbb9, alpha: .7 });
+        } else for (let row = 0; row < 5; row++) effect.rect(-32 + row % 2 * 4, -47 + ((row + phase) % 5) * 4, 12 + row % 3 * 5, 1).fill({ color: 0xb7e0bf, alpha: .6 });
+      }
+      if (amount > .005) effect.roundRect(-78, -59, 156, 137, 10).stroke({ color: 0x6d998a, alpha: amount * .65, width: 1.5 });
+      const label = this.labels.get(id);
+      if (label) { label.dataset.emphasis = String(emphasized); label.dataset.talking = String(entity.data.state === 'talking'); }
+    }
+  }
+  private drawLight() {
+    this.light.clear();
+    const width = this.displaySize.width * CELL_PIXELS, height = this.displaySize.height * CELL_PIXELS;
+    const drift = this.reduced ? 0 : Math.sin(performance.now() / 18000) * 5;
+    this.light.poly([width * .24, 114, width * .46, 114, width * .56 + drift, height - 25, width * .35 + drift, height - 25]).fill({ color: 0xfff6d9, alpha: .04 + drift * .002 });
+  }
   private drawSelection() {
     this.highlight.clear();
     const data = this.runtime.readWorld();
     for (const actor of data.actors.filter(actor => this.selected.includes(actor.id))) {
       const desk = data.props.find(prop => prop.id === actor.homeId);
-      if (desk) this.highlight.rect(desk.position.x * CELL_PIXELS - 8, desk.position.y * CELL_PIXELS - 15, 120, 130).fill({ color: 0x779bc0, alpha: 0.18 }).stroke({ color: 0x447ca1, width: 3 });
+      if (desk) { const pixel = propPixels(desk); this.highlight.roundRect(pixel.x - 79, pixel.y - 63, 158, 147, 10).fill({ color: 0x779b8c, alpha: .1 }); }
     }
   }
   dispose() {
     this.disposed = true;
+    this.clearTransitions();
     if (this.breathTimer !== undefined) clearTimeout(this.breathTimer); this.breathTimer = undefined;
     this.overlay?.remove(); this.overlay = undefined;
     if (this.maintenance !== undefined) clearTimeout(this.maintenance);
@@ -225,7 +375,7 @@ export class StarmapScene {
     this.app?.ticker.stop(); this.app?.ticker.remove(this.onTick);
     if (this.app) StarmapScene.applications--;
     this.app?.destroy(true, { children: true }); this.app = undefined;
-    this.textures?.dispose(); this.textures = undefined;
+    this.textures?.dispose(); this.textures = undefined; this.artwork.dispose();
     this.unsubscribe = undefined; this.observer = undefined; this.diagnostics();
   }
 }

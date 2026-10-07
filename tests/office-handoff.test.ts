@@ -7,7 +7,6 @@ import { builtinPlugins } from '../desktop/renderer/pipeline/office/vendor/runti
 import { SceneFault } from '../desktop/renderer/pipeline/office/vendor/runtime/protocol';
 import { GridNavigation } from '../desktop/renderer/pipeline/office/vendor/runtime/navigation';
 import { starmapHandoff } from '../desktop/renderer/pipeline/office/handoff';
-import { starmapMeeting } from '../desktop/renderer/pipeline/office/meeting';
 import { OfficeHost } from '../desktop/renderer/pipeline/office/host';
 import type { OfficeInput } from '../desktop/shared/office';
 const handoff = (eventId: string, mode: 'business' | 'visual' = 'visual', runOrder = 1): Extract<OfficeInput, { type: 'handoff' }> => ({ type: 'handoff', eventId, handoffId: eventId, beingId: 'demo-product', toBeingId: 'demo-development', runId: 'run-' + runOrder, runOrder, eventOrder: 1, mode, summary: '授权交接摘要', durationMs: 300 });
@@ -67,7 +66,7 @@ describe('starmap handoff lifecycle', () => {
   it('surfaces NO_ROUTE once without teleporting or retrying', () => {
     const world = createStarmapWorld(DEMO_IDENTITIES);
     let blocked = false;
-    const runtime = new OfficeRuntime({ world, plugins: [...builtinPlugins, starmapHandoff, starmapMeeting], createNavigation: templates => {
+    const runtime = new OfficeRuntime({ world, plugins: [...builtinPlugins, starmapHandoff], createNavigation: templates => {
       const navigation = new GridNavigation(templates), route = navigation.path.bind(navigation);
       navigation.path = (...args) => { if (blocked) throw new SceneFault('NO_ROUTE', '测试注入：目标不可达'); return route(...args); };
       return navigation;

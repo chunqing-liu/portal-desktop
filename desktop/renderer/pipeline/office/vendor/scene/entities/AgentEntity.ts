@@ -25,7 +25,7 @@ export class AgentEntity extends Container {
   private animationX: number
   private animationY: number
 
-  constructor(agent: Agent, frameResourcesOwned = true, private frameTexture?: (state: AgentState, phase: number, color: number, seated: boolean) => Texture) {
+  constructor(agent: Agent, frameResourcesOwned = true, private frameTexture?: (state: AgentState, phase: number, color: number, seated: boolean, facing: string) => Texture) {
     super()
     this.agentId = agent.id
     this.agent = { ...agent }
@@ -188,6 +188,11 @@ export class AgentEntity extends Container {
       this.drawFallbackBody(state, 0)
     }
 
+    if (this.blendBody) {
+      this.blendRemaining = Math.max(0, this.blendRemaining - dt)
+      this.blendBody.alpha = this.blendRemaining / .24
+      if (!this.blendRemaining) this.finishVisualTransition()
+    }
     this.bubble.update(dt)
     this.statusLabel.setState(state)
     this.statusLabel.setTask(
@@ -242,12 +247,31 @@ export class AgentEntity extends Container {
     this.addChild(this.fallbackBody, this.fallbackScarf, this.statusLabel, this.bubble)
   }
 
+  private blendBody?: Sprite
+  private blendRemaining = 0
+  private frameState = ''
+
+  finishVisualTransition() {
+    this.blendBody?.destroy()
+    this.blendBody = undefined
+    this.blendRemaining = 0
+  }
+
   private drawFallbackBody(state: AgentState, _bob: number) {
     if (!this.fallbackBody || !this.fallbackScarf) return
     this.fallbackScarf.clear()
     if (this.frameTexture) {
-      const texture = this.frameTexture(state, this.walkPhase, this.agent.color, this.agent.seated === true)
+      const texture = this.frameTexture(state, this.walkPhase, this.agent.color, this.agent.seated === true, this.agent.viewFacing || 'front')
       if (!this.textureBody) { this.textureBody = new Sprite(texture); this.textureBody.position.set(-28, -44); this.addChildAt(this.textureBody, 0) }
+      const frameState = state + ':' + this.agent.seated + ':' + this.agent.viewFacing
+      if (this.frameState && this.frameState !== frameState) {
+        this.finishVisualTransition()
+        this.blendBody = new Sprite(this.textureBody.texture)
+        this.blendBody.position.copyFrom(this.textureBody.position)
+        this.addChild(this.blendBody)
+        this.blendRemaining = .24
+      }
+      this.frameState = frameState
       this.textureBody.texture = texture
       this.fallbackBody.visible = false
     } else drawPixelActor(this.fallbackBody, state, this.walkPhase, this.agent.color, this.agent.seated === true)

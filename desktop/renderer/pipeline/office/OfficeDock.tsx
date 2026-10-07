@@ -6,7 +6,7 @@ import { OfficePresenceClient } from './presence';
 import { applyBeingNodeReport } from './reports';
 import { projectOffice, STATUS_MARKERS, type OfficeTask } from './projection';
 import { OfficeHost } from './host';
-import type { MeetingView } from './meeting';
+import { officeRole } from './roles';
 import './office.css';
 
 export function OfficeDock({ state, selectedIds, focusMode, active, fullView = false, onExitView, onNavigate, onReports }: { state: PipelineLocalState; selectedIds: string[]; focusMode: boolean; active: boolean; fullView?: boolean; onExitView?: () => void; onNavigate: (demandId: string, nodeId: string) => void; onReports?: (reports: OfficeNodeReport[], identities: OfficeIdentity[]) => void }) {
@@ -16,10 +16,10 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
   const [available, setAvailable] = useState(0);
   const [availableWidth, setAvailableWidth] = useState(0);
   const [actorId, setActorId] = useState(DEMO_IDENTITIES[0].id);
-  const [reduced, setReduced] = useState(() => localStorage.getItem('starmap-office-reduced') === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [reduced, setReduced] = useState(() => localStorage.getItem('starmap-office-reduced') === 'true');
+  const [systemReduced, setSystemReduced] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [documentVisible, setDocumentVisible] = useState(!document.hidden);
   const [error, setError] = useState('');
-  const [meeting, setMeeting] = useState<MeetingView>();
   const [identities, setIdentities] = useState<OfficeIdentity[]>(DEMO_IDENTITIES);
   const [presence, setPresence] = useState<OfficeSnapshot>({ sequence: 0, entries: [], reports: [] });
   const [reportErrors, setReportErrors] = useState<string[]>([]);
@@ -49,7 +49,7 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
     const instance = new OfficeHost(DEMO_IDENTITIES, setActorId, next => { setIdentities(next); setActorId(current => next.some(identity => identity.id === current) ? current : next[0]?.id || ''); }, next => {
       const signature = JSON.stringify(next);
       if (signature !== feedbackSignature.current) { feedbackSignature.current = signature; setFeedback(next); }
-    }, setMeeting);
+    });
     host.current = instance;
     const client = new OfficePresenceClient(snapshot => {
       setPresence(snapshot);
@@ -76,7 +76,13 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
   useEffect(() => { if (fullView) setStandalone(false); }, [fullView]);
   useEffect(() => { host.current?.scene.select(JSON.parse(highlights)); }, [highlights]);
   useEffect(() => { host.current?.setActive(sceneVisible); }, [sceneVisible]);
-  useEffect(() => { host.current?.scene.setReduced(reduced); localStorage.setItem('starmap-office-reduced', String(reduced)); }, [reduced]);
+  useEffect(() => {
+    const media = matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setSystemReduced(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  useEffect(() => { host.current?.setReduced(reduced || systemReduced); localStorage.setItem('starmap-office-reduced', String(reduced)); }, [reduced, systemReduced]);
   useEffect(() => { localStorage.setItem('starmap-office-open', String(open)); }, [open]);
   useEffect(() => { if (!expanded || !active) setStandalone(false); }, [expanded, active]);
   useEffect(() => { if (detached && expanded && active) canvas.current?.parentElement?.focus(); }, [detached, expanded, active]);
@@ -106,11 +112,10 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
     <div className="office-body" hidden={!expanded || (compact && !detached)} role={detached ? 'dialog' : undefined} aria-modal={detached || undefined} aria-label={detached ? '独立协作舱' : undefined} tabIndex={detached ? -1 : undefined}>
       {detached && <button type="button" className="office-detached-close" onClick={() => { setStandalone(false); if (largeRoster) setOpen(false); root.current?.focus(); }}>关闭独立协作舱</button>}
       <div className="office-scene" ref={canvas} />
-      <aside className="office-people" aria-label="人员与关联任务"><div className="office-person-tabs">{projection.people.map(item => <button type="button" key={item.id} data-office-actor={item.id} data-status={item.status} data-stale={presence.entries.some(entry => entry.identity.id === item.id && (entry.expired || entry.disconnected || entry.status === 'offline'))} data-highlighted={JSON.parse(highlights).includes(item.id)} aria-pressed={item.id === actorId} onClick={() => setActorId(item.id)}>{item.identity.name}<small>{item.identity.demo ? '演示 · ' : ''}{item.marker}</small></button>)}</div>
+      <aside className="office-people" aria-label="人员与关联任务"><div className="office-person-tabs">{projection.people.map(item => <button type="button" key={item.id} data-office-actor={item.id} data-status={item.status} data-stale={presence.entries.some(entry => entry.identity.id === item.id && (entry.expired || entry.disconnected || entry.status === 'offline'))} data-highlighted={JSON.parse(highlights).includes(item.id)} aria-pressed={item.id === actorId} onClick={() => setActorId(item.id)}>{item.identity.name}<small>{item.identity.demo ? '演示 · ' : ''}{officeRole(item.identity).label} · {item.marker}</small></button>)}</div>
         <div className="office-task-list"><strong>{person?.identity.name} · {person?.identity.demo ? '演示' : 'Being'} · {person?.tasks.length || 0} 项</strong>{person?.tasks.map(taskButton)}<details><summary>未绑定任务 {projection.unbound.length} 项</summary>{projection.unbound.map(taskButton)}</details><details><summary>人类伙伴 · {reviewDemo ? "演示 · 待你审核" : "待你审核"} {projection.reviews.length} 项</summary>{projection.reviews.map(taskButton)}</details></div>
         <div className="office-activity-feedback" aria-live="polite">{reportErrors.slice(-2).map(item => <div key={item}>节点上报未应用 · {item}</div>)}{feedback.slice(-2).map(item => <div key={item.eventId + item.status}>{item.eventId} · {item.status}{item.code && ' · ' + item.code}</div>)}</div>
-        {meeting && <div className="office-meeting" data-meeting-phase={meeting.phase} aria-live="polite"><strong>白板协作 · {{ arriving: '等待到场', active: '讨论中', waiting: '等待参与者', paused: '画面暂停 · 会话保留', ending: '收尾中', ended: '已结束' }[meeting.phase]}</strong><div>{meeting.summary}</div>{meeting.error && <div>{meeting.error.eventId} · {meeting.error.code}</div>}{meeting.participants.map(member => <div key={member.id} data-meeting-member={member.id} data-member-state={member.state}>{identities.find(identity => identity.id === member.id)?.name || member.id} · {{ waiting: '排队', arriving: '前往白板', present: '已到场', leaving: '离场收尾', returning: '返回工位', left: '已离开', failed: '未能到场' }[member.state]}{member.code && ' · ' + member.code}</div>)}</div>}
-        <label className="office-reduced"><input type="checkbox" checked={reduced} onChange={event => setReduced(event.target.checked)} />减少动态效果</label>{error && <p role="status">场景暂不可用，任务列表可继续使用：{error}</p>}
+        <label className="office-reduced"><input type="checkbox" checked={reduced || systemReduced} disabled={systemReduced} onChange={event => setReduced(event.target.checked)} />减少动态效果</label>{error && <p role="status">场景暂不可用，任务列表可继续使用：{error}</p>}
       </aside>
     </div>
     {expanded && compact && !detached && <div className="office-compact"><button type="button" onClick={() => setStandalone(true)}>打开独立协作舱</button><span>窗口有点小，已切换为摘要模式。</span></div>}

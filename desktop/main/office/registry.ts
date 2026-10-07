@@ -6,7 +6,6 @@ export class OfficePresenceRegistry {
   private seen = new Map<string, string>();
   private reports = new Map<string, OfficeNodeReport>();
   private handoffs = new Map<string, Extract<OfficeInput, { type: 'handoff' }>>();
-  private meetings = new Map<string, Set<string>>();
   private listeners = new Set<(message: OfficeMessage) => void>();
   private sequence = 0;
   constructor(private now = Date.now, readonly expiresAfterMs = 30000) {
@@ -28,9 +27,6 @@ export class OfficePresenceRegistry {
     if (input.type === 'register' && !entry && this.entries.size >= 100) return { accepted: false, sequence: this.sequence, code: 'ROSTER_LIMIT' };
     if (input.type === 'presence' && (input.lastSeen > this.now() + 5000 || (entry && input.lastSeen < entry.lastSeen))) return { accepted: false, sequence: this.sequence, code: 'INVALID_LAST_SEEN' };
     if (input.type === 'handoff' && (!this.entries.has(input.toBeingId) || input.toBeingId === input.beingId || this.handoffs.has(input.handoffId))) return { accepted: false, sequence: this.sequence, code: 'INVALID_HANDOFF' };
-    if (input.type === 'meeting-start' && (this.meetings.has(input.sessionId) || !input.participantIds.includes(input.beingId) || input.participantIds.some(id => !this.entries.has(id)))) return { accepted: false, sequence: this.sequence, code: 'INVALID_MEETING' };
-    if (input.type === 'meeting-join' && (!this.meetings.has(input.sessionId) || this.meetings.get(input.sessionId)!.size >= 4 || this.meetings.get(input.sessionId)!.has(input.beingId))) return { accepted: false, sequence: this.sequence, code: 'INVALID_MEETING' };
-    if ((input.type === 'meeting-leave' || input.type === 'meeting-end') && !this.meetings.get(input.sessionId)?.has(input.beingId)) return { accepted: false, sequence: this.sequence, code: 'NOT_PARTICIPANT' };
     if (input.type === 'handoff-confirm') {
       const request = this.handoffs.get(input.handoffId), senderRun = request && this.runs.get(request.beingId);
       if (!request || request.mode !== 'business' || request.toBeingId !== input.beingId || senderRun?.runOrder !== request.runOrder || senderRun.runId !== request.runId) return { accepted: false, sequence: this.sequence, code: 'INVALID_CONFIRMATION' };
@@ -47,17 +43,9 @@ export class OfficePresenceRegistry {
     if (input.type === 'unregister') this.entries.delete(input.beingId);
     if (input.type === 'disconnect') Object.assign(entry!, { disconnected: true, expired: true });
     if (input.type === 'presence') Object.assign(entry!, { status: input.status, lastSeen: input.lastSeen, summary: input.summary, expired: this.now() - input.lastSeen >= this.expiresAfterMs, disconnected: input.status === 'offline' });
-    if (input.type === 'meeting-start') { this.meetings.set(input.sessionId, new Set(input.participantIds)); if (this.meetings.size > 512) this.meetings.delete(this.meetings.keys().next().value!); }
-    if (input.type === 'meeting-join') this.meetings.get(input.sessionId)!.add(input.beingId);
-    if (input.type === 'meeting-leave' || input.type === 'disconnect' || input.type === 'unregister' || (input.type === 'presence' && input.status === 'offline')) for (const members of this.meetings.values()) members.delete(input.beingId);
-    if (input.type === 'meeting-end') this.meetings.delete(input.sessionId);
     if (input.type === 'node') this.reports.set(input.demandId + ':' + input.nodeId, { ...input, reportedAt: this.now() });
     if (input.type === 'handoff') this.handoffs.set(input.handoffId, input);
     if (input.type === 'handoff-confirm') this.handoffs.delete(input.handoffId);
-    if (input.type === 'cancel') {
-      const target = JSON.parse(this.seen.get(input.targetEventId)!) as OfficeInput;
-      if (target.type === 'meeting-start' || target.type === 'meeting-join') this.meetings.get(target.sessionId)?.delete(input.beingId);
-    }
     if (input.type === 'cancel') for (const [key, request] of this.handoffs) if (request.eventId === input.targetEventId) this.handoffs.delete(key);
     if (this.reports.size > 1000) this.reports.delete(this.reports.keys().next().value!);
     if (this.handoffs.size > 512) this.handoffs.delete(this.handoffs.keys().next().value!);
@@ -66,7 +54,7 @@ export class OfficePresenceRegistry {
   }
   expire() {
     let changed = false;
-    for (const entry of this.entries.values()) if (!entry.identity.demo && !entry.expired && this.now() - entry.lastSeen >= this.expiresAfterMs) { entry.expired = true; changed = true; for (const members of this.meetings.values()) members.delete(entry.identity.id); }
+    for (const entry of this.entries.values()) if (!entry.identity.demo && !entry.expired && this.now() - entry.lastSeen >= this.expiresAfterMs) { entry.expired = true; changed = true; }
     if (changed) this.emit();
   }
   private emit(input?: OfficeInput) {

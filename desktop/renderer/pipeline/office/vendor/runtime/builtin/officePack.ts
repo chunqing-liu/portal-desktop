@@ -22,10 +22,10 @@ export const officeObjects: ScenePlugin = {
       interactions: { seat: { name: '入座工作', anchor: 'seat', approaches: ['seatLeft', 'seatRight'], cells: [{ x: 0, y: 1 }, { x: 1, y: 1 }], facing: 'back', posture: 'seated', requiresHome: true } },
       anchors: { seat: { x: 0, y: 1 }, seatStand: { x: 0, y: 1 }, seatEntry: { x: -1, y: 1 }, seatLeft: { x: -1, y: 1 }, seatRight: { x: 2, y: 1 }, visitor: { x: -1, y: 1 }, visitorRight: { x: 2, y: 1 }, visitorFront: { x: 0, y: 2 }, conversationLeft: { x: -1, y: 1 }, conversationRight: { x: 2, y: 1 } },
       optionalAnchors: ['seatStand', 'seatEntry', 'seatLeft', 'seatRight', 'visitor', 'visitorRight', 'visitorFront', 'conversationLeft', 'conversationRight'], resources: { visitor: 1, seat: 1 } },
-    { id: 'office.whiteboard', name: '会议白板', view: 'whiteboard',
+    { id: 'office.whiteboard', name: '工作白板', view: 'whiteboard',
       footprint: { left: 0, right: 2, top: 0, bottom: 1 },
-      interactions: { write: { name: '查看白板', anchor: 'attendee1', approaches: ['attendee1'], cells: [], posture: 'standing', facing: 'back', resource: 'meeting' } },
-      anchors: { attendee1: { x: 0, y: 1 }, attendee2: { x: 1, y: 1 }, attendee3: { x: 0, y: 2 }, attendee4: { x: 1, y: 2 } }, resources: { meeting: 1 } },
+      interactions: { write: { name: '查看白板', anchor: 'reader', approaches: ['reader'], cells: [], posture: 'standing', facing: 'back', resource: 'write' } },
+      anchors: { reader: { x: 0, y: 1 } }, resources: { write: 1 } },
   ],
   stateSchemas: { 'office.whiteboard': z.strictObject({ title: z.string().max(60), text: z.string().max(500) }) },
 }
@@ -91,25 +91,6 @@ export const officeVisits: ScenePlugin = {
     } }],
 }
 
-const meetingParams = z.strictObject({ boardId: idSchema, text: z.string().max(500), durationMs: z.number().int().min(1000).max(120000).default(8000) })
-export const officeMeetings: ScenePlugin = {
-  id: 'office.meetings', name: '多人会议', version: '1.0.0', apiVersion: 1, dependencies: ['office.objects'],
-  capabilities: [{ id: 'office.meeting', name: '白板会议', params: meetingParams,
-    build(context, raw) {
-      const params = meetingParams.parse(raw), list = actors(context)
-      if (list.length < 2 || list.length > 4 || context.participants.filter(p => p.role === 'speaker').length !== 1 || context.participants.some(p => p.role !== 'speaker' && p.role !== 'attendee')) throw new SceneFault('INVALID_PARTICIPANTS', '会议需 2–4 人、一位 speaker，其余为 attendee')
-      const board = context.world.props.find(p => p.id === params.boardId && p.templateId === 'office.whiteboard')
-      if (!board) throw new SceneFault('ENTITY_NOT_FOUND', params.boardId)
-      const speaker = one(context, 'speaker')
-      return { title: '团队会议', claims: [...bodies(list), ...speeches(list), claim(`prop:${board.id}:meeting`)], phases: [
-        // Fill the back row before the front row, then leave in reverse order.
-        ...list.map((a, i) => ({ title: `${a.name}到场`, moves: [{ actorId: a.id, targetId: board.id, anchor: `attendee${i + 1}` }] })),
-        { title: '讨论', durationMs: params.durationMs, poses: list.map(a => ({ actorId: a.id, posture: 'standing', facing: 'back' })), speech: [{ actorId: speaker.id, text: params.text }] },
-        ...[...list].reverse().flatMap(a => returnHome([a])),
-      ] }
-    } }],
-}
-
 const focusParams = z.strictObject({ title: z.string().min(1).max(100) })
 const emoteParams = z.strictObject({ animation: z.enum(['emotes/wave', 'emotes/thinking', 'emotes/surprised']), durationMs: z.number().int().min(300).max(30000).default(4000) })
 export const officePersonal: ScenePlugin = {
@@ -147,4 +128,4 @@ export const furnitureUse: ScenePlugin = {
     ] }
   } }],
 }
-export const builtinPlugins = [scenePrimitives, officeObjects, officeVisits, officeMeetings, officePersonal, furnitureUse]
+export const builtinPlugins = [scenePrimitives, officeObjects, officeVisits, officePersonal, furnitureUse]

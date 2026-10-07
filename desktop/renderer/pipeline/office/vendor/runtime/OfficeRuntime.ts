@@ -102,9 +102,9 @@ export class OfficeRuntime {
 
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
   get listenerCount() { return this.listeners.size }
-  appendOfficeRoster(actors: Actor[], props: World['props'], height: number) {
+  appendOfficeRoster(actors: Actor[], props: World['props'], height: number, width = this.world.width) {
     if (this.disposed || this.editing || actors.some(actor => this.world.actors.some(existing => existing.id === actor.id)) || props.some(prop => this.world.props.some(existing => existing.id === prop.id))) throw new Error('INVALID_ROSTER_APPEND')
-    const candidate = worldSchema.parse({ ...this.world, actors: [...this.world.actors, ...actors], props: [...this.world.props, ...props], height, bounds: { ...this.world.bounds, bottom: height }, layoutRevision: this.world.layoutRevision + 1 })
+    const candidate = worldSchema.parse({ ...this.world, actors: [...this.world.actors, ...actors], props: [...this.world.props, ...props], height, width, bounds: { ...this.world.bounds, bottom: height, right: width }, layoutRevision: this.world.layoutRevision + 1 })
     candidate.actors = [...this.world.actors, ...candidate.actors.slice(this.world.actors.length)]
     this.navigation.validate(candidate)
     this.defineEntityResources(actors, props)

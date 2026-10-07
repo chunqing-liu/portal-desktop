@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)('playwright');
-const browser = await chromium.connectOverCDP('http://127.0.0.1:9224');
-const page = browser.contexts().flatMap(context => context.pages()).find(candidate => candidate.url().includes('5174') || candidate.url().startsWith('beings://desktop'));
+const browser = await chromium.connectOverCDP(process.env.OFFICE_CDP_URL || 'http://127.0.0.1:9225');
+const page = browser.contexts().flatMap(context => context.pages()).find(candidate => candidate.url().match(/^http:\/\/(localhost|127\.0\.0\.1):\d+\//) || candidate.url().startsWith('beings://desktop'));
 assert(page);
 const session = await page.context().newCDPSession(page);
 const viewport = (width, height) => session.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });

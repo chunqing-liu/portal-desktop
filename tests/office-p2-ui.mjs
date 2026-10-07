@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
-const browser = await chromium.connectOverCDP('http://127.0.0.1:9224');
-const page = browser.contexts().flatMap(context => context.pages()).find(page => page.url().includes('5174'));
-assert(page, 'P2 isolated renderer must use 9224 / 5174');
+const browser = await chromium.connectOverCDP(process.env.OFFICE_CDP_URL || 'http://127.0.0.1:9225');
+const page = browser.contexts().flatMap(context => context.pages()).find(page => page.url().match(/^http:\/\/(localhost|127\.0\.0\.1):\d+\//));
+assert(page, 'P2 isolated renderer must use 9225 / isolated Vite');
 const results = [], orders = new Map(), runs = new Map(), runBase = Date.now(), prefix = runBase + '-';
 const record = name => { results.push(name); console.log('PASS ' + name); };
 const send = async (beingId, fields) => {

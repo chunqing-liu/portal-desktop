@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const id = z.string().trim().min(1).max(128);
-export const officeIdentitySchema = z.strictObject({ id, name: z.string().trim().min(1).max(80), owners: z.array(id).max(20), assignedUsers: z.array(id).max(20).default([]), color: z.number().int().min(0).max(0xffffff), demo: z.boolean().default(false) });
+export const officeIdentitySchema = z.strictObject({ id, name: z.string().trim().min(1).max(80), role: z.string().trim().max(80).optional(), responsibilities: z.string().trim().max(240).optional(), owners: z.array(id).max(20), assignedUsers: z.array(id).max(20).default([]), color: z.number().int().min(0).max(0xffffff), demo: z.boolean().default(false) });
 export type OfficeIdentity = z.infer<typeof officeIdentitySchema>;
 const order = { eventId: id, beingId: id, runId: id, runOrder: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), eventOrder: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) };
 const nodeStatuses = ['pending', 'ready', 'running', 'waiting_human', 'blocked', 'failed', 'done', 'skipped'] as const;
@@ -13,10 +13,6 @@ export const officeInputSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...order, type: z.literal('node'), demandId: id, nodeId: id, status: z.enum(nodeStatuses), reason: z.string().max(500).optional() }),
   z.strictObject({ ...order, type: z.literal('handoff'), toBeingId: id, handoffId: id, mode: z.enum(['visual', 'business']), summary: z.string().max(160).default('交接请求'), durationMs: z.number().int().min(300).max(30000).default(1000) }),
   z.strictObject({ ...order, type: z.literal('handoff-confirm'), handoffId: id }),
-  z.strictObject({ ...order, type: z.literal('meeting-start'), sessionId: id, participantIds: z.array(id).min(2).max(4).refine(ids => new Set(ids).size === ids.length), summary: z.string().max(160).default('白板讨论') }),
-  z.strictObject({ ...order, type: z.literal('meeting-join'), sessionId: id }),
-  z.strictObject({ ...order, type: z.literal('meeting-leave'), sessionId: id }),
-  z.strictObject({ ...order, type: z.literal('meeting-end'), sessionId: id }),
   z.strictObject({ ...order, type: z.literal('cancel'), targetEventId: id }),
 ]);
 export type OfficeInput = z.infer<typeof officeInputSchema>;

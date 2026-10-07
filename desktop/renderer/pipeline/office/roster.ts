@@ -8,15 +8,15 @@ export function appendOfficeIdentities(runtime: OfficeRuntime, identities: Offic
   if (!added.length) return;
   if (current.actors.length + added.length > 100) throw new Error('ROSTER_CAPACITY');
   const initial = createStarmapWorld(added);
-  const boardY = current.props.find(prop => prop.id === 'collab-board')!.position.y;
+  const columns = Math.max(1, Math.min(6, identities.length <= 3 ? identities.length : Math.ceil(Math.sqrt(identities.length * 1.4))));
   const occupied = new Set(current.props.map(prop => prop.position.x + ':' + prop.position.y));
   const desks = initial.props.filter(prop => prop.id !== 'collab-board').map(prop => {
     let slot = 0;
-    while (occupied.has((2 + slot % 3 * 4) + ':' + (boardY + 5 + Math.floor(slot / 3) * 3))) slot++;
-    const position = { x: 2 + slot % 3 * 4, y: boardY + 5 + Math.floor(slot / 3) * 3 };
+    while (occupied.has((2 + slot % columns * 4) + ':' + (3 + Math.floor(slot / columns) * 4))) slot++;
+    const position = { x: 2 + slot % columns * 4, y: 3 + Math.floor(slot / columns) * 4 };
     occupied.add(position.x + ':' + position.y);
     return { ...prop, position };
   });
   const actors = initial.actors.map((actor, index) => ({ ...actor, position: { x: desks[index].position.x, y: desks[index].position.y + 1 } }));
-  runtime.appendOfficeRoster(actors, desks, Math.max(current.height, ...desks.map(desk => desk.position.y + 3)));
+  runtime.appendOfficeRoster(actors, desks, Math.max(current.height, ...desks.map(desk => desk.position.y + 5)), Math.max(current.width, ...desks.map(desk => desk.position.x + 5)));
 }

@@ -1,24 +1,26 @@
 import { Graphics, Rectangle, type Renderer, type Texture } from 'pixi.js';
-import { drawPixelActor } from './pixel-art';
+import { drawOfficeActor } from './character-art';
+import { OfficeArtwork } from './artwork';
 import type { AgentState } from './vendor/types/agent';
 
 export class OfficeTextures {
   private frames = new Map<string, Texture>();
+  private artwork = new OfficeArtwork();
   constructor(private renderer: Renderer) {}
   get size() { return this.frames.size; }
-  actor(state: AgentState, phase: number, color: number, seated: boolean) {
+  actor(state: AgentState, phase: number, color: number, seated: boolean, facing = 'front', variation = 0) {
     const frame = ['walking', 'working', 'thinking'].includes(state) ? Math.floor(phase) % 4 : 0;
-    const key = [state, frame, color, seated].join(':');
+    const key = [state, frame, color, seated, facing, variation % 12].join(':');
     let texture = this.frames.get(key);
     if (!texture) {
       const graphic = new Graphics();
-      drawPixelActor(graphic, state, frame, color, seated);
-      texture = this.renderer.generateTexture({ target: graphic, frame: new Rectangle(-28, -44, 72, 64), resolution: 1 });
-      texture.source.scaleMode = 'nearest';
+      drawOfficeActor(graphic, state, frame, color, seated, facing, variation, (top, bottom) => this.artwork.gradient(top, bottom));
+      texture = this.renderer.generateTexture({ target: graphic, frame: new Rectangle(-28, -44, 72, 64), resolution: 2 });
+      texture.source.scaleMode = 'linear';
       graphic.destroy();
       this.frames.set(key, texture);
     }
     return texture;
   }
-  dispose() { this.frames.forEach(texture => texture.destroy(true)); this.frames.clear(); }
+  dispose() { this.frames.forEach(texture => texture.destroy(true)); this.frames.clear(); this.artwork.dispose(); }
 }

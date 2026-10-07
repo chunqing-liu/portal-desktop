@@ -6,7 +6,7 @@ import { DEMO_IDENTITIES } from '../desktop/renderer/pipeline/office/identities'
 it('incremental registration retains actors, activities and resource owners', () => {
   const runtime = createStarmapRuntime(DEMO_IDENTITIES);
   const first = runtime.readActors()[0];
-  const receipt = runtime.submit({ protocolVersion: '2.0', sceneId: runtime.sceneId, commandId: 'stay', type: 'activity.start', capability: 'starmap.meeting', participants: [{ entityId: first.id, role: 'attendee' }], params: { slot: 1 } });
+  const receipt = runtime.submit({ protocolVersion: '2.0', sceneId: runtime.sceneId, commandId: 'stay', type: 'activity.start', capability: 'office.focus', participants: [{ entityId: first.id, role: 'worker' }], params: { title: '持续工作' } });
   expect(receipt.status).toBe('completed');
   expect(runtime.readActivePhases()).toHaveLength(1);
   runtime.tick(50);
