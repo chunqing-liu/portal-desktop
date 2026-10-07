@@ -45,6 +45,8 @@ try {
   }
   pass('P5-2/P5-4 both small windows retain readable office and furniture-free labels');
   await page.locator('.office-task-list > button').first().click();
+  assert.equal(await page.locator('.star-map-canvas').isVisible(), false);
+  await page.getByRole('button', { name: '在画布中打开', exact: true }).click();
   assert(await page.locator('.star-map-canvas').isVisible());
   assert(await page.locator('.pipeline-detail-meta').isVisible());
   assert.equal(await page.locator('.office-dock').getAttribute('data-detached'), 'false');
@@ -52,9 +54,11 @@ try {
   assert(await page.getByText('窗口有点小，已切换为摘要模式').isVisible());
   await page.getByRole('button', { name: '打开独立协作舱' }).click();
   await page.locator('.office-task-list > button').first().click();
+  assert(await page.getByRole('dialog', { name: '独立协作舱' }).isVisible());
+  await page.getByRole('button', { name: '在画布中打开', exact: true }).click();
   assert.equal(await page.getByRole('dialog', { name: '独立协作舱' }).isVisible(), false);
   assert(await page.locator('.pipeline-detail-meta').isVisible());
-  pass('P5-3 task navigation returns to unobstructed canvas from both office modes');
+  pass('P5-3 task selection stays in office; explicit navigation returns to canvas from both office modes');
   await page.getByRole('button', { name: '办公室 · 实验', exact: true }).click();
   assert((await page.locator('.office-review').textContent()).includes('演示'));
   assert((await page.locator('.office-task-list > button').first().textContent()).includes('演示'));

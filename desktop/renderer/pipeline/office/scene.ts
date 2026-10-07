@@ -1,4 +1,4 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, Text } from 'pixi.js';
 import 'pixi.js/unsafe-eval';
 import type { OfficePresence } from '../../../shared/office';
 import type { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
@@ -13,6 +13,8 @@ import { computeAgentDepthZ } from './vendor/scene/systems/deskDepthSort';
 import { CELL_PIXELS, propPixels } from './vendor/scene/gridProjection';
 import { OfficeTextures } from './textures';
 import { placeOfficeLabel, type LabelRect } from './label-layout';
+import { OfficeLeisure, LEISURE_LABELS, leisureRoute, leisureTarget, type LeisureActivity, type OfficeScreen } from './leisure';
+import type { ActorPresentation } from './bridge';
 
 export class StarmapScene {
   private static applications = 0;
@@ -29,6 +31,10 @@ export class StarmapScene {
   private idleRenders = 0;
   private renders = 0;
   private artwork = new OfficeArtwork();
+  private leisure = new OfficeLeisure();
+  private leisurePoses = new Map<string, LeisureActivity>();
+  private screens = new Map<string, OfficeScreen>();
+  private doneLabels = new Map<string, Text>();
   private transitions = new Map<string, { started: number; entering: boolean; entity: AgentEntity; route: Point[] }>();
   private previousWorld?: World;
   private room?: Container;
@@ -58,7 +64,7 @@ export class StarmapScene {
 
   async mount(element: HTMLElement) {
     const app = new Application();
-    await app.init({ width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), backgroundColor: 0xf2f0e9, antialias: true, autoDensity: true, resolution: Math.min(devicePixelRatio || 1, 2), autoStart: false });
+    await app.init({ width: Math.max(1, element.clientWidth), height: Math.max(1, element.clientHeight), backgroundColor: 0xf3f6fa, antialias: true, autoDensity: true, resolution: Math.min(devicePixelRatio || 1, 2), autoStart: false });
     if (this.disposed) { app.destroy(true, { children: true }); return; }
     this.app = app;
     StarmapScene.applications++;
@@ -114,7 +120,7 @@ export class StarmapScene {
       entity.updateVisuals('walking', this.app!.ticker.deltaMS / 1000);
       if (sampled.done) {
         if (!transition.entering) { entity.removeFromParent(); entity.destroy({ children: true }); }
-        else { const agent = projectAgents(this.runtime, false).find(actor => actor.id === id); if (agent) { entity.apply(agent); entity.setPosition(agent.x, agent.y); } this.stateUntil = now + 240; }
+        else { this.stateUntil = now + 240; }
         this.transitions.delete(id);
       }
     }
@@ -135,8 +141,9 @@ export class StarmapScene {
     if (this.app) this.textures = new OfficeTextures(this.app.renderer);
     this.layer = new Container(); this.layer.sortableChildren = true;
     this.highlight = new Graphics(); this.light = new Graphics();
-    this.entities.clear(); this.labels.clear(); this.activity.clear(); this.emphasis.clear(); this.overlay?.replaceChildren();
+    this.entities.clear(); this.labels.clear(); this.activity.clear(); this.doneLabels.clear(); this.emphasis.clear(); this.overlay?.replaceChildren();
     const data = this.runtime.readWorld();
+    this.leisure.clear(); this.leisurePoses.clear();
     const retirees = previousAgents.filter(agent => !data.actors.some(actor => actor.id === agent.id));
     const animated = this.active && !this.reduced;
     const exiting = retirees.length > 0 || [...ongoing.values()].some(transition => !transition.entering && !data.actors.some(actor => actor.id === transition.agent.id));
@@ -154,13 +161,15 @@ export class StarmapScene {
           view.hitTarget.on('pointerover', () => this.hover(actorId)).on('pointerout', () => this.hover(undefined));
           view.hitTarget.on('pointertap', event => { event.stopPropagation(); this.focused = actorId; this.hover(actorId); this.onActor(actorId); });
           const effect = new Graphics(); this.activity.set(actorId, effect); this.layer.addChild(effect);
+          const done = new Text({ text: 'Done', style: { fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: '600', fill: 0xc6f5e3 } });
+          done.anchor.set(.5); done.visible = false; this.doneLabels.set(actorId, done); this.layer.addChild(done);
         }
       }
       return view;
     });
     const makeEntity = (agent: typeof agents[number]) => {
       const variation = [...agent.id].reduce((total, letter) => total + letter.charCodeAt(0), 0);
-      return new AgentEntity(agent, false, (state, phase, color, seated, facing) => this.textures!.actor(state, phase, color, seated, facing, variation));
+      return new AgentEntity(agent, false, (state, phase, color, seated, facing) => this.textures!.actor(state, phase, color, seated, facing, variation, this.leisurePoses.get(agent.id)));
     };
     const walk = (id: string, entity: AgentEntity, route: Point[], entering: boolean, started = now) => {
       this.transitions.set(id, { started, entering, entity, route });
@@ -180,7 +189,8 @@ export class StarmapScene {
         walk(agent.id, entity, transition.entering ? transition.route : officeReturnRoute(transition.route, now - transition.started), true, transition.entering ? transition.started : now);
       } else if (animated && !previousIds.has(agent.id)) {
         const actor = data.actors.find(actor => actor.id === agent.id)!;
-        walk(agent.id, entity, officeWalkRoute(data, this.runtime, actor.homeId!, actor.position, true), true);
+        const route = actor.presentation.status === 'idle' ? leisureRoute(data, this.runtime, { x: 0, y: data.height - 2 }, leisureTarget(data, data.actors.indexOf(actor), ['phone', 'coffee', 'wander', 'exercise', 'read'][data.actors.indexOf(actor) % 5] as LeisureActivity)) : officeWalkRoute(data, this.runtime, actor.homeId!, actor.position, true);
+        walk(agent.id, entity, route, true);
         this.rosterTransitions++;
       }
     }
@@ -216,20 +226,36 @@ export class StarmapScene {
     const signature = JSON.stringify(entries.map(entry => [entry.identity.id, entry.expired, entry.disconnected, entry.status === 'offline', entry.expired || entry.disconnected || entry.status === 'offline' ? entry.lastSeen : 0]));
     if (signature !== this.presenceSignature) { this.presenceSignature = signature; this.changed(); }
   }
+  setScreens(actors: ActorPresentation[]) {
+    const screens = new Map(actors.map(actor => [actor.id, actor.screen || (actor.status === 'idle' ? 'off' : actor.status)] as const));
+    if (JSON.stringify([...screens]) === JSON.stringify([...this.screens])) return;
+    this.screens = screens;
+    this.changed();
+  }
   private sync() {
-    for (const agent of projectAgents(this.runtime, false)) {
+    const world = this.runtime.readWorld();
+    const participants = new Set(this.runtime.readActivePhases().flatMap(phase => phase.participants));
+    this.leisure.retain(world.actors.map(actor => actor.id));
+    for (const [index, agent] of projectAgents(this.runtime, false).entries()) {
       const entity = this.entities.get(agent.id);
-      if (entity && !this.transitions.has(agent.id)) {
-        if (entity.data.state !== agent.state) this.stateUntil = performance.now() + 240;
-        entity.apply(agent);
-        entity.setPosition(agent.x, agent.y);
-      }
+      const actor = world.actors[index];
       const presence = this.presence.get(agent.id);
       const stale = presence && (presence.expired || presence.disconnected || presence.status === 'offline');
+      let activity: LeisureActivity | undefined;
+      if (entity && !this.transitions.has(agent.id)) {
+        const idle = actor.presentation.status === 'idle' && agent.state === 'idle' && !participants.has(agent.id) && !stale;
+        if (participants.has(agent.id) || stale) this.leisure.forget(agent.id);
+        const pose = participants.has(agent.id) || stale ? undefined : this.leisure.sample(agent.id, index, world, this.runtime, actor.homeId!, actor.position, performance.now(), idle, this.reduced, this.active && entity.data.seated === true);
+        activity = pose?.activity;
+        if (activity) this.leisurePoses.set(agent.id, activity); else this.leisurePoses.delete(agent.id);
+        if (entity.data.state !== agent.state) this.stateUntil = performance.now() + 240;
+        entity.apply({ ...agent, ...(pose ? { seated: false, state: pose.walking ? 'walking' : 'idle', viewFacing: pose.facing, facing: 1 } : { viewFacing: agent.seated ? index % 2 ? 'left' : 'right' : agent.viewFacing }) });
+        entity.setPosition(pose?.x ?? agent.x, pose?.y ?? agent.y);
+      }
       if (entity) { entity.tint = stale ? 0x929292 : 0xffffff; entity.alpha = stale ? 0.55 : 1; if (this.reduced) entity.finishVisualTransition(); }
-      if (entity) entity.zIndex = computeAgentDepthZ(agent);
+      if (entity) entity.zIndex = computeAgentDepthZ({ ...agent, x: entity.x, y: entity.y });
       const label = this.labels.get(agent.id);
-      if (label) { const identity = presence?.identity; label.textContent = agent.name + (identity ? ' · ' + officeRole(identity).label : '') + ' · ' + (stale ? '过期/离线' : { idle: '待命', working: '工作中', thinking: '思考中', walking: '前往', talking: '讨论中' }[agent.state]); }
+      if (label) { const identity = presence?.identity; label.textContent = agent.name + (identity ? ' · ' + officeRole(identity).label : '') + ' · ' + (stale ? '过期/离线' : activity ? LEISURE_LABELS[activity] : { idle: '待命', working: '工作中', thinking: '思考中', walking: '前往', talking: '讨论中' }[entity?.data.state || agent.state]); label.dataset.activity = activity || ''; label.dataset.screen = this.screens.get(agent.id) || 'off'; }
     }
   }
   private layoutLabels() {
@@ -254,7 +280,7 @@ export class StarmapScene {
       if (this.disposed || !this.active || this.reduced) return;
       const opacity = [1, .985, .97, .985][Math.floor(performance.now() / 800) % 4];
       this.entities.forEach((entity, id) => { const presence = this.presence.get(id); if (entity.data.state === 'idle' && !presence?.expired && !presence?.disconnected && presence?.status !== 'offline') { entity.alpha = opacity; entity.scale.y = 1 + (1 - opacity) * .4; } });
-      this.drawActivity(); this.drawLight(); this.render(); this.idleRenders++; this.updateBreathing(); this.diagnostics();
+      this.sync(); this.entities.forEach(entity => entity.updateVisuals(entity.data.state, .8)); this.drawActivity(); this.drawLight(); this.layoutLabels(); this.render(); this.idleRenders++; this.updateTicker();
     }, 800);
   }
   private changed() {
@@ -271,12 +297,12 @@ export class StarmapScene {
   }
   private diagnostics() {
     if (this.element) this.element.dataset.officeReduced = String(this.reduced);
-    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || !this.transitions.has(agent.id) && (entity.x !== agent.x || entity.y !== agent.y); }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders, renders: this.renders, rosterTransitions: this.rosterTransitions, reduced: this.reduced, hovered: this.hovered, effects: this.activity.size, transitions: this.transitions.size, visualActors: [...this.entities].map(([id, entity]) => ({ id, x: entity.x, y: entity.y, state: entity.data.state, scaleX: Math.abs(entity.scale.x), scaleY: entity.scale.y })), desks: this.props.length - 1, room: { width: this.runtime.readWorld().width, height: this.runtime.readWorld().height }, scale: this.world.scale.x });
+    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || !this.transitions.has(agent.id) && !this.leisure.has(agent.id) && (entity.x !== agent.x || entity.y !== agent.y); }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders, renders: this.renders, rosterTransitions: this.rosterTransitions, reduced: this.reduced, hovered: this.hovered, effects: this.activity.size, transitions: this.transitions.size, leisureMoving: this.leisure.moving, visualActors: [...this.entities].map(([id, entity]) => ({ id, x: entity.x, y: entity.y, state: entity.data.state, seated: entity.data.seated, facing: entity.data.viewFacing, activity: this.leisurePoses.get(id), screen: this.screens.get(id) || 'off', scaleX: Math.abs(entity.scale.x), scaleY: entity.scale.y })), desks: this.props.length - 1, room: { width: this.runtime.readWorld().width, height: this.runtime.readWorld().height }, scale: this.world.scale.x });
   }
   private updateTicker() {
     if (this.disposed) return;
     const animated = !this.reduced && this.runtime.readActors().some(actor => actor.presentation.status !== 'idle');
-    const enabled = this.active && !this.reduced && (this.runtime.hasMotionWork || animated || this.transitions.size > 0 || performance.now() < this.stateUntil || performance.now() < this.hoverUntil);
+    const enabled = this.active && !this.reduced && (this.runtime.hasMotionWork || animated || this.leisure.moving || this.transitions.size > 0 || performance.now() < this.stateUntil || performance.now() < this.hoverUntil);
     if (enabled) this.app?.ticker.start();
     else if (this.app?.ticker.started) {
       this.app.ticker.stop(); this.hoverUntil = 0;
@@ -314,7 +340,7 @@ export class StarmapScene {
     if (active && this.maintenance !== undefined) { clearTimeout(this.maintenance); this.maintenance = undefined; }
     this.updateTicker();
   }
-  setReduced(reduced: boolean) { this.reduced = reduced; if (reduced) this.clearTransitions(); this.changed(); }
+  setReduced(reduced: boolean) { this.reduced = reduced; if (reduced) this.clearTransitions(); this.sync(); this.changed(); }
   select(ids: string[]) { this.selected = ids; this.drawSelection(); this.drawActivity(); this.render(); }
   private hover(id?: string) {
     if (id === this.hovered && performance.now() < this.hoverUntil) return;
@@ -335,10 +361,20 @@ export class StarmapScene {
       if (entity.data.state !== 'idle') entity.scale.y = 1 + amount * .045;
       const pixel = propPixels(prop);
       effect.position.set(pixel.x, pixel.y); effect.zIndex = pixel.y + 1; effect.clear();
-      const working = actor.presentation.status === 'working', thinking = actor.presentation.status === 'thinking';
+      const presence = this.presence.get(id);
+      const stale = presence && (presence.expired || presence.disconnected || presence.status === 'offline');
+      const screen = stale ? 'off' : this.screens.get(id) || (actor.presentation.status === 'idle' ? 'off' : actor.presentation.status);
+      const working = screen === 'working', thinking = screen === 'thinking';
+      const done = this.doneLabels.get(id);
+      if (done) { done.visible = screen === 'done'; done.position.set(pixel.x - 10, pixel.y - 34); done.zIndex = pixel.y + 2; }
+      if (screen !== 'off') {
+        const role = String(prop.state.role || 'general') as ReturnType<typeof officeRole>['role'];
+        this.artwork.screen(effect, -10, -34, 65, 40, role, screen !== 'done');
+        if (screen === 'done') effect.roundRect(-40.5, -52, 61, 35, 2).fill(0x264b54);
+        if (role === 'engine' || role === 'frontend') this.artwork.screen(effect, 40, -29, 31, 32, role === 'engine' ? 'backend' : 'frontend', working || thinking);
+      }
       const pulse = .5 + Math.sin(now / 1800 + pixel.x) * .5;
-      effect.poly([-40, -10, 25, -10, 34, 18, -35, 18]).fill({ color: 0x8ccac3, alpha: working || thinking ? .08 + pulse * .035 : .035 });
-      effect.ellipse(0, 47, 16, 9).fill({ color: 0xb4ded1, alpha: working || thinking ? .07 : .025 });
+      if (working || thinking) effect.poly([-40, -10, 25, -10, 34, 18, -35, 18]).fill({ color: 0x8cbfea, alpha: .08 + pulse * .035 });
       if (working) {
         const phase = this.reduced ? 0 : now / 900 % 1;
         if (prop.state.role === 'frontend' || prop.state.role === 'product' || prop.state.role === 'engine') {

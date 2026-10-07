@@ -16,6 +16,7 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
   const [available, setAvailable] = useState(0);
   const [availableWidth, setAvailableWidth] = useState(0);
   const [actorId, setActorId] = useState(DEMO_IDENTITIES[0].id);
+  const [selectedTaskKey, setSelectedTaskKey] = useState('');
   const [reduced, setReduced] = useState(() => localStorage.getItem('starmap-office-reduced') === 'true');
   const [systemReduced, setSystemReduced] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [documentVisible, setDocumentVisible] = useState(!document.hidden);
@@ -35,7 +36,7 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
   const host = useRef<OfficeHost | null>(null);
   const resize = useRef<{ start: number; height: number } | null>(null);
   const projection = useMemo(() => projectOffice(state, identities, presence.entries), [state, identities, presence.entries]);
-  const presentations = JSON.stringify(projection.people.map(({ id, status, title }) => ({ id, status, title })));
+  const presentations = JSON.stringify(projection.people.map(({ id, status, title, screen }) => ({ id, status, title, screen })));
   const highlights = JSON.stringify(projection.people.filter(person => person.tasks.some(task => task.demandId === state.selectedDemandId && selectedIds.includes(task.nodeId))).map(person => person.id));
   const largeRoster = identities.length > 8;
   const detached = standalone || (!fullView && largeRoster);
@@ -44,6 +45,7 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
   const sceneVisible = expanded && active && documentVisible && (detached || !compact);
   const dockHeight = Math.min(height, Math.max(220, available - 360));
   const person = projection.people.find(person => person.id === actorId);
+  const selectedTask = [...projection.people.flatMap(item => item.tasks), ...projection.unbound].find(task => task.key === selectedTaskKey);
 
   useEffect(() => {
     const instance = new OfficeHost(DEMO_IDENTITIES, setActorId, next => { setIdentities(next); setActorId(current => next.some(identity => identity.id === current) ? current : next[0]?.id || ''); }, next => {
@@ -91,10 +93,10 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
     event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
     resize.current = { start: event.clientY, height };
   };
-  const navigate = (task: OfficeTask) => { onNavigate(task.demandId, task.nodeId); if (detached || fullView) { setStandalone(false); setOpen(false); onExitView?.(); } };
+  const navigate = (task: OfficeTask) => { setSelectedTaskKey(task.key); setOpen(true); if (task.actorId) setActorId(task.actorId); if (compact && !fullView) setStandalone(true); };
   const reviewDemo = projection.reviews.length > 0 && projection.reviews.every(task => task.demo);
   const mixedReviewDemo = !reviewDemo && projection.reviews.some(task => task.demo);
-  const taskButton = (task: OfficeTask) => <button type="button" key={task.key} data-office-task={task.key} onClick={() => navigate(task)}><span>{task.demo && "演示 · "}{task.demandTitle} · {task.title}</span><small>{STATUS_MARKERS[task.status]}{task.reason && ' · ' + task.reason}{task.source && ' · 由 ' + task.source + ' 上报'}</small></button>;
+  const taskButton = (task: OfficeTask) => <button type="button" key={task.key} data-office-task={task.key} aria-pressed={selectedTaskKey === task.key} onClick={() => navigate(task)}><span>{task.demo && "演示 · "}{task.demandTitle} · {task.title}</span><small>{STATUS_MARKERS[task.status]}{task.reason && ' · ' + task.reason}{task.source && ' · 由 ' + task.source + ' 上报'}</small></button>;
 
   return <section ref={root} className="office-dock" aria-label="协作舱" tabIndex={-1} data-expanded={expanded} data-full-view={fullView} data-detached={expanded && active && detached} data-large-roster={largeRoster} onKeyDown={event => {
     event.stopPropagation();
@@ -115,6 +117,7 @@ export function OfficeDock({ state, selectedIds, focusMode, active, fullView = f
       <aside className="office-people" aria-label="人员与关联任务"><div className="office-person-tabs">{projection.people.map(item => <button type="button" key={item.id} data-office-actor={item.id} data-status={item.status} data-stale={presence.entries.some(entry => entry.identity.id === item.id && (entry.expired || entry.disconnected || entry.status === 'offline'))} data-highlighted={JSON.parse(highlights).includes(item.id)} aria-pressed={item.id === actorId} onClick={() => setActorId(item.id)}>{item.identity.name}<small>{item.identity.demo ? '演示 · ' : ''}{officeRole(item.identity).label} · {item.marker}</small></button>)}</div>
         <div className="office-task-list"><strong>{person?.identity.name} · {person?.identity.demo ? '演示' : 'Being'} · {person?.tasks.length || 0} 项</strong>{person?.tasks.map(taskButton)}<details><summary>未绑定任务 {projection.unbound.length} 项</summary>{projection.unbound.map(taskButton)}</details><details><summary>人类伙伴 · {reviewDemo ? "演示 · 待你审核" : "待你审核"} {projection.reviews.length} 项</summary>{projection.reviews.map(taskButton)}</details></div>
         <div className="office-activity-feedback" aria-live="polite">{reportErrors.slice(-2).map(item => <div key={item}>节点上报未应用 · {item}</div>)}{feedback.slice(-2).map(item => <div key={item.eventId + item.status}>{item.eventId} · {item.status}{item.code && ' · ' + item.code}</div>)}</div>
+        {selectedTask && <section className="office-task-detail" aria-label="办公室任务详情"><strong>{selectedTask.title}</strong><p>{selectedTask.demandTitle} · {STATUS_MARKERS[selectedTask.status]}</p>{selectedTask.reason && <p>{selectedTask.reason}</p>}<button type="button" onClick={() => { onNavigate(selectedTask.demandId, selectedTask.nodeId); if (detached || fullView) { setStandalone(false); setOpen(false); onExitView?.(); } }}>在画布中打开</button></section>}
         <label className="office-reduced"><input type="checkbox" checked={reduced || systemReduced} disabled={systemReduced} onChange={event => setReduced(event.target.checked)} />减少动态效果</label>{error && <p role="status">场景暂不可用，任务列表可继续使用：{error}</p>}
       </aside>
     </div>

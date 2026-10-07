@@ -8,7 +8,7 @@ const page = browser.contexts().flatMap(context => context.pages()).find(candida
 assert(page, 'P6 needs the isolated 9225 office');
 const errors = [], requests = [], results = [], prefix = 'p6-' + Date.now();
 page.on('pageerror', error => errors.push(error.message)); page.on('request', request => requests.push(request.url()));
-const directory = 'desktop/renderer/pipeline/office/p6-screenshots';
+const directory = process.env.OFFICE_SCREENSHOT_DIR || 'desktop/renderer/pipeline/office/p6-screenshots';
 let viewportSession;
 const capture = async (filename, clip) => { const image = await viewportSession.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, ...(clip ? { clip: { ...clip, scale: 1 } } : {}) }); await writeFile(directory + '/' + filename, Buffer.from(image.data, 'base64')); };
 let order = 0;
@@ -54,7 +54,8 @@ try {
   record('one actual identity walks from the door and occupies one adaptive workstation');
   for (const identity of identities.slice(1, 6)) { await report(identity.id, { type: 'register', identity }); await report(identity.id, { type: 'presence', status: 'idle', lastSeen: Date.now(), summary: '' }); }
   await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).actors === 6);
-  assert.equal((await diagnostics()).visualActors.filter(actor => actor.state === 'walking').length, 5, 'rapid registrations preserve every active entry route');
+  const registrations = (await diagnostics()).visualActors;
+  assert(identities.slice(1, 6).every(identity => registrations.find(actor => actor.id === identity.id)?.state === 'walking'), 'rapid registrations preserve every new identity entry route');
   await settled();
   const six = await diagnostics(); assert.equal(six.desks, 6); assert(six.room.height > single.room.height);
   const tabs = await page.locator('.office-person-tabs').innerText();
@@ -65,7 +66,7 @@ try {
   const deskClip = { x: Math.round(offset.x + 66 * six.scale), y: Math.round(offset.y + 103 * six.scale), width: Math.round(185 * six.scale), height: Math.round(220 * six.scale) };
   await capture('02-workstation-detail.png', deskClip);
   await report(identities[0].id, { type: 'presence', status: 'thinking', lastSeen: Date.now(), summary: '检查渲染管线' });
-  await page.waitForTimeout(650);
+  await page.waitForFunction(id => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).visualActors.find(actor => actor.id === id)?.seated, identities[0].id);
   await capture('03-character-detail.png', { x: Math.round(offset.x + 112 * six.scale), y: Math.round(offset.y + 151 * six.scale), width: Math.round(110 * six.scale), height: Math.round(115 * six.scale) });
   await capture('04-office-in-context.png');
   record('six roster-driven roles use distinct desks/screens; panorama and closeups captured');
@@ -73,7 +74,8 @@ try {
   const activeBefore = (await diagnostics()).renders;
   await page.waitForTimeout(500); assert((await diagnostics()).renders > activeBefore);
   await report(identities[0].id, { type: 'presence', status: 'idle', lastSeen: Date.now(), summary: '' }); await settled();
-  await page.mouse.move(offset.x + 150 * six.scale, offset.y + 165 * six.scale);
+  const hoveredActor = (await diagnostics()).visualActors.find(actor => actor.id === identities[0].id);
+  await page.mouse.move(offset.x + hoveredActor.x * six.scale, offset.y + (hoveredActor.y - 15) * six.scale);
   await page.waitForFunction(id => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).hovered === id, identities[0].id);
   await page.waitForTimeout(350);
   assert.equal(await page.locator('[data-office-label="' + identities[0].id + '"]').getAttribute('data-emphasis'), 'true');

@@ -26,6 +26,7 @@ const navigate = async nodeId => {
   const button = page.locator(selector).first();
   if (!(await button.isVisible())) await page.locator('.office-person-tabs button').first().click();
   await page.locator(selector).first().click();
+  await page.getByRole('button', { name: '在画布中打开', exact: true }).click();
 };
 const setStatus = async (nodeId, status) => {
   await navigate(nodeId);
@@ -71,10 +72,9 @@ try {
   record('node selection highlights executor workstation');
   await openOffice();
   const actorPoint = await page.evaluate(async () => {
-    const { projectAgents } = await import('/pipeline/office/vendor/runtime/adapters/legacy.ts');
     const { CELL_PIXELS } = await import('/pipeline/office/vendor/scene/gridProjection.ts');
     const runtime = window.__officeTest.runtime, world = runtime.readWorld();
-    const actor = projectAgents(runtime, false)[2];
+    const actor = JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).visualActors.find(actor => actor.id === 'demo-test');
     const bounds = document.querySelector('.office-scene canvas').getBoundingClientRect();
     const scale = Math.min(bounds.width / (world.width * CELL_PIXELS), bounds.height / (world.height * CELL_PIXELS));
     return { x: bounds.x + (bounds.width - world.width * CELL_PIXELS * scale) / 2 + actor.x * scale, y: bounds.y + (bounds.height - world.height * CELL_PIXELS * scale) / 2 + (actor.y - 15) * scale };
@@ -84,12 +84,14 @@ try {
   record('pixel character click opens that identity and task list');
   await page.locator('.office-person-tabs button').nth(1).click();
   await page.locator('.office-task-list > button').first().click();
+  await page.getByRole('button', { name: '在画布中打开', exact: true }).click();
   assert(await page.locator('.react-flow__node.selected').count());
   record('person task navigates to track and selects node');
   await openOffice();
   await page.locator('.office-person-tabs button').first().click();
   await setStatus('H1', 'waiting_human');
   await page.locator('.office-review').click();
+  await page.getByRole('button', { name: '在画布中打开', exact: true }).click();
   assert((await page.locator('.react-flow__node.selected').getAttribute('data-id')) === 'H1');
   record('human review shortcut selects gate without approving it');
   await openOffice();

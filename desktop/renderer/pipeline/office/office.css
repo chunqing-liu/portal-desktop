@@ -7,11 +7,11 @@
 .office-heading button:disabled { opacity: .5; cursor: default; }
 .office-body { display: flex; height: calc(100% - 36px); min-height: 0; }
 .office-body[hidden] { display: none; }
-.office-scene { flex: 1; min-width: 0; overflow: hidden; background: #f2f0e9; }
+.office-scene { flex: 1; min-width: 0; overflow: hidden; background: #f3f6fa; }
 .office-scene canvas { display: block; }
-.office-people { display: flex; flex-direction: column; width: 330px; min-width: 250px; border-left: 1px solid var(--line); padding: 8px; gap: 7px; }
+.office-people { display: flex; flex-direction: column; width: 330px; min-width: 250px; border-left: 1px solid var(--line); padding: 14px; gap: 12px; }
 .office-person-tabs { display: flex; flex-wrap: wrap; gap: 4px; max-height: 90px; overflow: auto; flex-shrink: 0; }
-.office-person-tabs button { flex: 1; min-width: 0; text-align: left; background: var(--control); color: var(--text); border: 1px solid var(--line); padding: 5px; border-radius: 4px; font-size: 10px; cursor: pointer; }
+.office-person-tabs button { flex: 1 1 46%; min-width: 0; text-align: left; background: transparent; color: var(--text); border: 1px solid var(--line); padding: 8px; border-radius: 8px; font-size: 11px; cursor: pointer; }
 .office-person-tabs button[aria-pressed=true], .office-person-tabs button[data-highlighted=true] { border-color: var(--secondary); }
 .office-person-tabs button[data-stale=true] { opacity: .55; filter: grayscale(1); }
 .office-activity-feedback { color: var(--muted); max-height: 32px; overflow: auto; font-size: 9px; }
@@ -40,7 +40,11 @@
 .office-dock[data-full-view=true] { flex: 1; height: 100%; min-height: 0; }
 .office-scene { position: relative; }
 .office-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.office-actor-label { transition: background-color .2s, border-color .2s, box-shadow .2s; border: 1px solid #83938638; box-shadow: 0 2px 7px #394b4710; position: absolute; white-space: nowrap; font: 11px system-ui, sans-serif; color: #394b47; padding: 2px 4px; background: #fcfbf6f0; border-radius: 5px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; }
-.office-actor-label[data-emphasis=true], .office-actor-label[data-talking=true] { border-color: #729788; background: #fafff4; box-shadow: 0 3px 12px #48736224; }
+.office-actor-label { transition: background-color .2s, border-color .2s, box-shadow .2s; border: 1px solid #9ab0cb38; box-shadow: 0 2px 8px #3654780c; position: absolute; white-space: nowrap; font: 11px system-ui, sans-serif; color: #3d5877; padding: 3px 6px; background: #ffffffed; border-radius: 6px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; }
+.office-actor-label[data-emphasis=true], .office-actor-label[data-talking=true] { border-color: #799ecc; background: #f4f9ff; box-shadow: 0 3px 12px #4873a524; }
+.office-task-list button[aria-pressed=true] { background: var(--control); border-radius: 6px; }
+.office-task-detail { border-top: 1px solid var(--line); padding-top: 10px; }
+.office-task-detail p { color: var(--muted); margin: 6px 0; }
+.office-task-detail button { background: var(--control); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
 .office-scene[data-office-reduced=true] .office-actor-label { transition: none; }
 @media (prefers-reduced-motion: reduce) { .office-actor-label { transition: none; } }

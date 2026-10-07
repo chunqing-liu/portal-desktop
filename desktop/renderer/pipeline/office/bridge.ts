@@ -1,10 +1,12 @@
 import type { OfficeRuntime } from './vendor/runtime/OfficeRuntime';
 import type { NodeStateSource } from './identities';
+import type { OfficeScreen } from './leisure';
 
 export interface ActorPresentation {
   id: string;
   status: 'idle' | 'working' | 'thinking';
   title: string;
+  screen?: OfficeScreen;
 }
 
 export class OfficeBridge {
@@ -36,4 +38,3 @@ export class OfficeBridge {
   markStale() { this.stale = true; }
   dispose() { this.disposed = true; clearTimeout(this.timer); this.latest = []; }
 }
-

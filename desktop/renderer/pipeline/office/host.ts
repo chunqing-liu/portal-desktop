@@ -28,7 +28,7 @@ export class OfficeHost {
     this.handoffs = new HandoffController(this.runtime, () => this.onFeedback([...this.handoffs.feedback]));
     this.unsubscribe = this.runtime.subscribe(() => this.maybeRebuild());
   }
-  project(actors: ActorPresentation[]) { this.latest = actors; this.bridge.project(actors.filter(actor => this.identities.some(identity => identity.id === actor.id))); }
+  project(actors: ActorPresentation[]) { this.latest = actors; this.scene.setScreens(actors); this.bridge.project(actors.filter(actor => this.identities.some(identity => identity.id === actor.id))); }
   roster(identities: OfficeIdentity[]) {
     if (JSON.stringify(identities) === JSON.stringify(this.pending || this.identities)) return;
     const retained = this.identities.every(identity => identities.some(next => JSON.stringify(next) === JSON.stringify(identity)));
