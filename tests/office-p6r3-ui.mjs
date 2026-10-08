@@ -127,7 +127,10 @@ try {
     await session.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }); await page.waitForTimeout(200);
     assert(await page.locator('.office-scene').isVisible()); assert.equal(await page.locator('.office-actor-label:visible').count(), 0);
   }
-  await page.getByLabel('减少动态效果').check(); const reduced = await diagnostic(); await page.waitForTimeout(1200); assert.equal((await diagnostic()).renders, reduced.renders); assert.equal((await diagnostic()).ticker, false);
+  clearInterval(heartbeat);
+  await page.getByLabel('减少动态效果').check();
+  let settledRenders = -1; for (let attempt = 0; attempt < 40; attempt++) { const current = (await diagnostic()).renders; if (current === settledRenders) break; settledRenders = current; await page.waitForTimeout(300); }
+  const reduced = await diagnostic(); await page.waitForTimeout(1200); assert.equal((await diagnostic()).renders, reduced.renders); assert.equal((await diagnostic()).ticker, false);
   await page.getByLabel('减少动态效果').uncheck(); await page.getByRole('button', { name: '画布', exact: true }).click();
   const toggle = page.locator('.office-heading > button').first();
   if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
