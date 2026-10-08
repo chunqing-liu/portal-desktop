@@ -10,7 +10,8 @@ describe('P6R2 leisure and monitor projection', () => {
   it('puts five idle partners off their seats in five recognizable activities without changing runtime state', () => {
     const identities = Array.from({ length: 5 }, (_, index) => ({ ...DEMO_IDENTITIES[1], id: 'developer-' + index, role: '开发' }));
     const runtime = createStarmapRuntime(identities), world = runtime.readWorld(), leisure = new OfficeLeisure();
-    const poses = world.actors.map((actor, index) => leisure.sample(actor.id, index, world, runtime, actor.homeId!, actor.position, 0, true, false)!);
+    world.actors.forEach((actor, index) => { const pose = leisure.sample(actor.id, index, world, runtime, actor.homeId!, actor.position, 0, true, false)!; expect(pose.stage).toBe('rising'); expect(pose.activity).toBeUndefined(); expect({ x: pose.x, y: pose.y }).toEqual(seatPixels(actor.position)); });
+    const poses = world.actors.map((actor, index) => { leisure.sample(actor.id, index, world, runtime, actor.homeId!, actor.position, 15000, true, false); return leisure.sample(actor.id, index, world, runtime, actor.homeId!, actor.position, 19500, true, false)!; });
     expect(poses.map(pose => pose.activity)).toEqual(LEISURE_ACTIVITIES);
     expect(new Set(poses.map(pose => pose.x + ':' + pose.y)).size).toBe(5);
     poses.forEach((pose, index) => expect({ x: pose.x, y: pose.y }).not.toEqual(seatPixels(world.actors[index].position)));
@@ -30,19 +31,20 @@ describe('P6R2 leisure and monitor projection', () => {
   it('cycles the same partner through all five activities, travelling before using the next prop', () => {
     const runtime = createStarmapRuntime(DEMO_IDENTITIES), world = runtime.readWorld(), actor = world.actors[0], leisure = new OfficeLeisure();
     const sample = (now: number) => leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, now, true, false)!;
-    expect(sample(0).activity).toBe('phone');
-    const activities = new Set([sample(0).activity]);
-    for (let cycle = 1; cycle < 6; cycle++) { sample(cycle * 60000); activities.add(sample(cycle * 60000 + 20000).activity); }
+    expect(sample(0).stage).toBe('rising');
+    const activities = new Set();
+    for (let time = 0; time < 180000; time += 100) { const pose = sample(time); if (pose.activity && pose.activity !== 'brew') activities.add(pose.activity); }
     expect(activities).toEqual(new Set(LEISURE_ACTIVITIES)); runtime.dispose();
   });
   it('returns continuously to the workstation for work and departs continuously when work ends', () => {
     const runtime = createStarmapRuntime(DEMO_IDENTITIES), world = runtime.readWorld(), actor = world.actors[0], leisure = new OfficeLeisure();
-    const idle = leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 0, true, false)!;
-    const returning = leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 100, false, false)!;
+    leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 0, true, false);
+    const idle = leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 1000, true, false)!;
+    const returning = leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 1000, false, false)!;
     expect(returning.returning).toBe(true); expect(returning.x).toBe(idle.x); expect(returning.y).toBe(idle.y);
     expect(leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 60000, false, false)).toBeUndefined();
     const departing = leisure.sample(actor.id, 0, world, runtime, actor.homeId!, actor.position, 61000, true, false, true)!;
-    expect(departing.walking).toBe(true); expect({ x: departing.x, y: departing.y }).toEqual(seatPixels(actor.position));
+    expect(departing.stage).toBe('rising'); expect({ x: departing.x, y: departing.y }).toEqual(seatPixels(actor.position));
     runtime.dispose();
   });
   it('freezes leisure under reduced motion and drops departed identities', () => {

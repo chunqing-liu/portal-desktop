@@ -69,7 +69,7 @@ try {
   const handoffId = prefix + '-handoff', walkingBaseline = (await diagnostics()).textures;
   await report(participants[0], { type: 'handoff', handoffId, toBeingId: participants[1], mode: 'visual', summary: '生产离线工位交接', durationMs: 300 });
   await page.waitForFunction(() => document.querySelector('.office-activity-feedback').textContent.includes('completed'), undefined, { timeout: 90000 });
-  await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).ticker === false);
+  await page.waitForFunction(() => { const value = JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics); return !value.transitions && !value.leisureMoving && !value.positionMismatches; }, undefined, { timeout: 60000 });
   assert((await diagnostics()).textures > walkingBaseline, 'handoff must generate walking textures');
   await page.getByLabel('减少动态效果').check();
   await page.screenshot({ path: 'test-results/office-p4-production.png' });

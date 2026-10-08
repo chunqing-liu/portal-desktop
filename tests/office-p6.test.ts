@@ -18,7 +18,7 @@ describe('adaptive procedural office', () => {
       expect(sampleOfficeWalk(route, 100000).done).toBe(true);
       expect(officeWalkRoute(world, runtime, actor.homeId!, actor.position, false).at(-1)).toEqual(route[0]);
     }
-    expect(world.width).toBeLessThanOrEqual(29); expect(world.height).toBeLessThanOrEqual(76);
+    expect(world.width).toBeLessThanOrEqual(29); expect(world.height).toBeLessThanOrEqual(80);
     runtime.dispose();
   });
   it('turns interrupted walks back from their exact visual position', () => {

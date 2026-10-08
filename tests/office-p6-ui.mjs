@@ -14,7 +14,7 @@ const capture = async (filename, clip) => { const image = await viewportSession.
 let order = 0;
 const report = async (beingId, fields) => { const receipt = await page.evaluate(input => window.beings.officeReport(input), { beingId, runId: prefix, eventId: prefix + '-' + ++order, ...fields }); assert(receipt.accepted, JSON.stringify(receipt)); };
 const diagnostics = () => page.locator('.office-scene').evaluate(element => JSON.parse(element.dataset.officeDiagnostics));
-const settled = () => page.waitForFunction(() => { const value = JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics); return !value.ticker && !value.transitions && !value.positionMismatches; }, undefined, { timeout: 30000 });
+const settled = () => page.waitForFunction(() => { const value = JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics); return !value.transitions && !value.leisureMoving && !value.positionMismatches; }, undefined, { timeout: 30000 });
 const record = text => { results.push(text); console.log('PASS ' + text); };
 const seeds = [
   { id: 'demo-product', name: '产品伙伴', owners: ['产品 Agent'], assignedUsers: [], color: 0xe3a35d, demo: true },
@@ -81,8 +81,9 @@ try {
   assert.equal(await page.locator('[data-office-label="' + identities[0].id + '"]').getAttribute('data-emphasis'), 'true');
   assert((await diagnostics()).visualActors[0].scaleX > 1.03, 'hover enlargement survives character frame updates');
   await page.mouse.move(10, 10); await settled();
+  await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).visualActors[0].scaleX === 1);
   assert.equal((await diagnostics()).visualActors[0].scaleX, 1);
-  record('working/thinking frames animate; hover highlights and settles without a permanent ticker');
+  record('working/thinking frames animate; hover highlights while scene activities animate');
   for (const identity of identities.slice(6)) { await report(identity.id, { type: 'register', identity }); await report(identity.id, { type: 'presence', status: 'idle', lastSeen: Date.now(), summary: '' }); }
   await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).actors === 10); await settled();
   assert.equal((await diagnostics()).desks, 10);

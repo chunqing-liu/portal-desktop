@@ -27,14 +27,20 @@ try {
   assert.equal(JSON.stringify(await state()), before);
   assert.equal(await page.locator('.office-scene canvas').count(), 1);
   pass('P5-1 no homepage entry; main-area office reuses one unchanged projection');
+  await page.getByRole('checkbox', { name: '减少动态' }).check();
   for (const [width, height] of [[1600, 1100], [1266, 823], [1366, 768]]) {
     await viewport(width, height); await page.waitForTimeout(200);
+    await page.mouse.move(10, 10);
+    assert.equal(await page.locator('.office-actor-label:visible').count(), 0, 'P6R3 has no permanent labels');
+    const value = await diagnostics(), actor = value.visualActors[0], bounds = await page.locator('.office-scene').boundingBox();
+    await page.mouse.move(bounds.x + (bounds.width - value.room.width * 50 * value.scale) / 2 + actor.x * value.scale, bounds.y + (bounds.height - value.room.height * 50 * value.scale) / 2 + (actor.y - 15) * value.scale);
+    await page.waitForFunction(id => !document.querySelector('[data-office-label="' + id + '"]').hidden, actor.id);
     const labels = await page.locator('.office-labels').evaluate(overlay => {
       const visible = [...overlay.children].filter(label => !label.hidden);
       const furniture = visible.length ? JSON.parse(visible[0].dataset.furniture) : [];
       return { width: overlay.clientWidth, height: overlay.clientHeight, labels: visible.map(label => ({ x: parseFloat(label.style.left), y: parseFloat(label.style.top), width: label.offsetWidth, height: label.offsetHeight })), furniture };
     });
-    assert.equal(labels.labels.length, (await diagnostics()).actors);
+    assert.equal(labels.labels.length, 1, 'Only the hovered partner has a label');
     const overlaps = (left, right) => left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
     labels.labels.forEach((label, index) => {
       assert(label.x >= 0 && label.y >= 0 && label.x + label.width <= labels.width && label.y + label.height <= labels.height, JSON.stringify({ width, height, ...labels }));
@@ -44,6 +50,8 @@ try {
     assert(await page.locator('.office-body').isVisible());
   }
   pass('P5-2/P5-4 both small windows retain readable office and furniture-free labels');
+  await page.mouse.move(10, 10);
+  await page.getByRole('checkbox', { name: '减少动态' }).uncheck();
   await page.locator('.office-task-list > button').first().click();
   assert.equal(await page.locator('.star-map-canvas').isVisible(), false);
   await page.getByRole('button', { name: '在画布中打开', exact: true }).click();
@@ -63,21 +71,21 @@ try {
   assert((await page.locator('.office-review').textContent()).includes('演示'));
   assert((await page.locator('.office-task-list > button').first().textContent()).includes('演示'));
   pass('P5-6/P5-7 plain-language summary and demo task/review markings');
-  await page.waitForFunction(() => { const value = document.querySelector(".office-scene")?.dataset.officeDiagnostics; return value && !JSON.parse(value).ticker; }, null, { timeout: 30000 });
-  const idle = await diagnostics(); assert.equal(idle.ticker, false); assert.equal(idle.breathing, true);
+  await page.waitForFunction(() => { const value = document.querySelector(".office-scene")?.dataset.officeDiagnostics; return value && JSON.parse(value).ticker; }, null, { timeout: 30000 });
+  const idle = await diagnostics(); assert.equal(idle.ticker, true); assert.equal(idle.breathing, false);
   const firstFrame = await page.locator(".office-scene canvas").screenshot();
-  await page.waitForTimeout(1800); assert((await diagnostics()).idleRenders > idle.idleRenders);
+  await page.waitForTimeout(1800); assert((await diagnostics()).renders > idle.renders);
   let secondFrame = await page.locator(".office-scene canvas").screenshot();
   if (firstFrame.equals(secondFrame)) { await page.waitForTimeout(850); secondFrame = await page.locator(".office-scene canvas").screenshot(); }
-  assert(!firstFrame.equals(secondFrame), "idle breathing must change actual rendered pixels");
+  assert(!firstFrame.equals(secondFrame), "idle interaction must change actual rendered pixels");
   await page.getByRole('checkbox', { name: '减少动态' }).check();
   const reduced = await diagnostics(); await page.waitForTimeout(1800);
-  assert.equal((await diagnostics()).idleRenders, reduced.idleRenders);
+  assert.equal((await diagnostics()).renders, reduced.renders); assert.equal((await diagnostics()).ticker, false);
   await page.getByRole('checkbox', { name: '减少动态' }).uncheck();
   await page.getByRole('button', { name: '画布', exact: true }).click();
   const hidden = await diagnostics(); await page.waitForTimeout(1800);
-  assert.equal((await diagnostics()).idleRenders, hidden.idleRenders); assert.equal((await diagnostics()).ticker, false); assert.equal((await diagnostics()).breathing, false);
-  pass('P5-5 visible idle breathes without ticker; reduced/hidden zero idle renders');
+  assert.equal((await diagnostics()).renders, hidden.renders); assert.equal((await diagnostics()).ticker, false); assert.equal((await diagnostics()).breathing, false);
+  pass('P5-5 visible idle walks/interacts; reduced/hidden zero renders');
   assert.equal((await diagnostics()).runtimeId, runtimeId);
   pass('canvas return retains the same office runtime and task data');
   console.log('SUMMARY ' + results.length + '/' + results.length + ' PASS');

@@ -2,14 +2,14 @@ import { Graphics, Rectangle, type Renderer, type Texture } from 'pixi.js';
 import { drawOfficeActor } from './character-art';
 import { OfficeArtwork } from './artwork';
 import type { AgentState } from './vendor/types/agent';
-import type { LeisureActivity } from './leisure';
+import type { InteractionAction } from './leisure';
 
 export class OfficeTextures {
   private frames = new Map<string, Texture>();
   private artwork = new OfficeArtwork();
   constructor(private renderer: Renderer) {}
   get size() { return this.frames.size; }
-  actor(state: AgentState, phase: number, color: number, seated: boolean, facing = 'front', variation = 0, activity?: LeisureActivity) {
+  actor(state: AgentState, phase: number, color: number, seated: boolean, facing = 'front', variation = 0, activity?: InteractionAction) {
     const frame = activity || ['walking', 'working', 'thinking'].includes(state) ? Math.floor(phase) % 4 : 0;
     const key = [state, frame, color, seated, facing, variation % 12, activity].join(':');
     let texture = this.frames.get(key);

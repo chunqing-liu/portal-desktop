@@ -10,7 +10,16 @@ export const starmapHandoff: ScenePlugin = {
   capabilities: [{ id: 'starmap.handoff', name: '拜访交接', params, build(context, raw) {
     const input = params.parse(raw);
     const plan = officeVisits.capabilities![0].build(context, { stops: [{ hostId: input.toBeingId, message: input.summary, reply: input.confirmed ? '收到 · 接收方已确认' : undefined }], durationMs: input.durationMs });
-    if (!input.confirmed) plan.phases = plan.phases.filter(phase => !phase.speech?.some(speech => speech.actorId === input.toBeingId));
+    const members = context.participants.map(participant => context.world.actors.find(actor => actor.id === participant.entityId)!);
+    plan.claims = plan.claims.filter(claim => !claim.resource.startsWith('prop:'));
+    plan.claims.push({ resource: 'prop:collab-board:write', units: 1 });
+    plan.phases = [
+      { title: '起身前往白板', moves: members.map((actor, index) => ({ actorId: actor.id, targetId: 'collab-board', anchor: index ? 'reader2' : 'reader' })), poses: members.map(actor => ({ actorId: actor.id, posture: 'standing' as const })) },
+      { title: '白板交接讨论', durationMs: input.durationMs, poses: members.map(actor => ({ actorId: actor.id, facing: 'back' as const })), speech: [{ actorId: members[0].id, text: input.summary }] },
+      ...(input.confirmed ? [{ title: '接收方回应', durationMs: Math.max(800, Math.min(input.durationMs, 2000)), speech: [{ actorId: input.toBeingId, text: '收到 · 接收方已确认' }] }] : []),
+      { title: '返回工位', moves: members.map(actor => ({ actorId: actor.id, targetId: actor.homeId!, anchor: 'seat' })) },
+      { title: '入座', poses: members.map(actor => ({ actorId: actor.id, posture: 'seated' as const, facing: 'back' as const })) },
+    ];
     return plan;
   } }],
 };

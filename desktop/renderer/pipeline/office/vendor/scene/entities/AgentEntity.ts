@@ -264,7 +264,7 @@ export class AgentEntity extends Container {
       const texture = this.frameTexture(state, this.walkPhase, this.agent.color, this.agent.seated === true, this.agent.viewFacing || 'front')
       if (!this.textureBody) { this.textureBody = new Sprite(texture); this.textureBody.position.set(-28, -44); this.addChildAt(this.textureBody, 0) }
       const frameState = state + ':' + this.agent.seated + ':' + this.agent.viewFacing
-      if (this.frameState && this.frameState !== frameState) {
+      if (state !== 'walking' && this.frameState && !this.frameState.startsWith('walking:') && this.frameState !== frameState) {
         this.finishVisualTransition()
         this.blendBody = new Sprite(this.textureBody.texture)
         this.blendBody.position.copyFrom(this.textureBody.position)

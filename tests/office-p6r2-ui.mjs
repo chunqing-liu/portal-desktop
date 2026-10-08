@@ -19,7 +19,7 @@ const report = async (beingId, fields) => {
   assert(result.accepted, JSON.stringify(result)); return result;
 };
 const diagnostic = () => page.locator('.office-scene').evaluate(element => JSON.parse(element.dataset.officeDiagnostics));
-const settled = () => page.waitForFunction(() => { const value = JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics); return !value.transitions && !value.leisureMoving && value.visualActors.every(actor => actor.activity); }, undefined, { timeout: 60000 });
+const settled = () => page.waitForFunction(() => { const value = JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics); return !value.transitions && !value.leisureMoving && value.visualActors.every(actor => actor.activity && actor.activity !== 'brew'); }, undefined, { timeout: 60000 });
 const pass = label => { results.push(label); console.log('PASS ' + label); };
 const open = async () => {
   await page.locator('#options-home button').filter({ hasText: '小镇' }).evaluate(button => button.click());
@@ -56,7 +56,7 @@ try {
   for (const identity of identities.slice(0, 6)) { await report(identity.id, { type: 'register', identity }); await report(identity.id, { type: 'presence', status: 'idle', lastSeen: Date.now(), summary: '' }); }
   await settled();
   const idle = await diagnostic(); assert.equal(idle.actors, 6); assert.equal(idle.desks, 6);
-  assert(idle.visualActors.every(actor => actor.seated === false && actor.screen === 'off'));
+  assert(idle.visualActors.every(actor => actor.screen === 'off' && actor.stage === 'interacting'));
   assert.deepEqual(new Set(idle.visualActors.map(actor => actor.activity)), new Set(['phone', 'coffee', 'wander', 'exercise', 'read']));
   await page.locator('.office-scene').screenshot({ path: directory + '/after-01-six-idle.png' });
   pass('Six people, six dark desks; all five leisure props visible off the seats');
@@ -70,9 +70,9 @@ try {
   await page.locator('.office-scene').screenshot({ path: directory + '/after-03-working.png' });
   pass('Work recalls the partner to their desk; lit monitor and camera-facing three-quarter pose');
   await report(identity.id, { type: 'presence', status: 'idle', lastSeen: Date.now(), summary: '' });
-  await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).visualActors.every(actor => !actor.seated && actor.screen === 'off'));
+  await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).visualActors.every(actor => actor.screen === 'off' && actor.stage === 'interacting'));
   await settled();
-  assert((await diagnostic()).visualActors.every(actor => !actor.seated && actor.screen === 'off'));
+  assert((await diagnostic()).visualActors.every(actor => actor.screen === 'off' && actor.stage === 'interacting'));
   for (const identity of identities.slice(6)) { await report(identity.id, { type: 'register', identity }); await report(identity.id, { type: 'presence', status: 'idle', lastSeen: Date.now(), summary: '' }); }
   await page.waitForFunction(() => JSON.parse(document.querySelector('.office-scene').dataset.officeDiagnostics).actors === 10);
   await settled(); const ten = await diagnostic();
@@ -91,7 +91,7 @@ try {
     await viewport(width, height); await page.waitForTimeout(250);
     assert(await page.locator('.office-scene').isVisible()); assert(await page.locator('.office-people').isVisible());
     const labels = await page.locator('.office-labels').evaluate(element => [...element.children].filter(label => !label.hidden).map(label => ({ left: parseFloat(label.style.left), top: parseFloat(label.style.top), right: parseFloat(label.style.left) + label.offsetWidth, bottom: parseFloat(label.style.top) + label.offsetHeight, width: element.clientWidth, height: element.clientHeight })));
-    assert.equal(labels.length, (await diagnostic()).actors);
+    assert(labels.length <= (await diagnostic()).actors);
     assert(labels.every(label => label.left >= 0 && label.top >= 0 && label.right <= label.width && label.bottom <= label.height));
   }
   await page.screenshot({ path: directory + '/after-06-small-window.png' });

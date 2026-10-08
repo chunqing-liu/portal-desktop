@@ -13,7 +13,9 @@ import { computeAgentDepthZ } from './vendor/scene/systems/deskDepthSort';
 import { CELL_PIXELS, propPixels } from './vendor/scene/gridProjection';
 import { OfficeTextures } from './textures';
 import { placeOfficeLabel, type LabelRect } from './label-layout';
-import { OfficeLeisure, LEISURE_LABELS, leisureRoute, leisureTarget, type LeisureActivity, type OfficeScreen } from './leisure';
+import { OfficeLeisure, LEISURE_LABELS, officeRouteFromPixel, type InteractionAction, type LeisurePose, type OfficeScreen } from './leisure';
+import { OfficeDiscussion } from './discussion';
+import { sceneObjectArtwork } from './scene-art';
 import type { ActorPresentation } from './bridge';
 
 export class StarmapScene {
@@ -32,7 +34,11 @@ export class StarmapScene {
   private renders = 0;
   private artwork = new OfficeArtwork();
   private leisure = new OfficeLeisure();
-  private leisurePoses = new Map<string, LeisureActivity>();
+  private leisurePoses = new Map<string, InteractionAction>();
+  private behaviors = new Map<string, LeisurePose>();
+  private discussion = new OfficeDiscussion();
+  private ambientDiscussion = new OfficeDiscussion();
+  private responses = new Graphics();
   private screens = new Map<string, OfficeScreen>();
   private doneLabels = new Map<string, Text>();
   private transitions = new Map<string, { started: number; entering: boolean; entity: AgentEntity; route: Point[] }>();
@@ -60,6 +66,7 @@ export class StarmapScene {
   private selected: string[] = [];
   private presence = new Map<string, OfficePresence>();
   private presenceSignature = '';
+  private poseSampledAt = 0;
   constructor(private runtime: OfficeRuntime, private onActor: (id: string) => void, private onAdvance = () => {}) {}
 
   async mount(element: HTMLElement) {
@@ -86,6 +93,7 @@ export class StarmapScene {
       this.world.position.set((element.clientWidth - width * CELL_PIXELS * scale) / 2, (element.clientHeight - height * CELL_PIXELS * scale) / 2);
       this.layoutLabels();
       this.render();
+      this.diagnostics();
     };
     this.resize = resize;
     this.observer = new ResizeObserver(resize);
@@ -140,18 +148,18 @@ export class StarmapScene {
     this.artwork.dispose(); this.textures?.dispose();
     if (this.app) this.textures = new OfficeTextures(this.app.renderer);
     this.layer = new Container(); this.layer.sortableChildren = true;
-    this.highlight = new Graphics(); this.light = new Graphics();
+    this.highlight = new Graphics(); this.light = new Graphics(); this.responses = new Graphics();
     this.entities.clear(); this.labels.clear(); this.activity.clear(); this.doneLabels.clear(); this.emphasis.clear(); this.overlay?.replaceChildren();
     const data = this.runtime.readWorld();
-    this.leisure.clear(); this.leisurePoses.clear();
+    this.leisure.retain(data.actors.map(actor => actor.id)); this.discussion.retain(data.actors.map(actor => actor.id)); this.leisurePoses.clear(); this.behaviors.clear();
     const retirees = previousAgents.filter(agent => !data.actors.some(actor => actor.id === agent.id));
     const animated = this.active && !this.reduced;
     const exiting = retirees.length > 0 || [...ongoing.values()].some(transition => !transition.entering && !data.actors.some(actor => actor.id === transition.agent.id));
     this.displaySize = { width: animated && exiting ? Math.max(data.width, this.displaySize.width, this.previousWorld?.width || 0) : data.width, height: animated && exiting ? Math.max(data.height, this.displaySize.height, this.previousWorld?.height || 0) : data.height };
-    this.world.addChild(this.light, this.highlight, this.layer);
+    this.world.addChild(this.light, this.highlight, this.layer); this.responses.zIndex = 100000; this.layer.addChild(this.responses);
     const agents = projectAgents(this.runtime, false);
     this.props = data.props.map(prop => {
-      const view = prop.templateId === 'office.workstation' ? this.artwork.workstation(prop) : this.artwork.whiteboard(prop);
+      const view = prop.templateId === 'office.workstation' ? this.artwork.workstation(prop) : prop.templateId === 'office.whiteboard' ? this.artwork.whiteboard(prop) : sceneObjectArtwork(this.artwork, prop);
       view.update(prop, this.runtime.template(prop.templateId), agents);
       view.roots.forEach(item => { this.layer.addChild(item); item.cacheAsTexture({ resolution: 2 }); });
       if (prop.templateId === 'office.workstation') {
@@ -179,17 +187,19 @@ export class StarmapScene {
     };
     for (const agent of agents) {
       const entity = makeEntity(agent);
+      const previous = previousAgents.find(item => item.id === agent.id);
+      if (previous) entity.setPosition(previous.x, previous.y);
       entity.on('pointertap', event => { event.stopPropagation(); this.focused = agent.id; this.hover(agent.id); this.onActor(agent.id); });
       entity.on('pointerover', () => this.hover(agent.id)).on('pointerout', () => this.hover(undefined));
       this.entities.set(agent.id, entity); this.layer.addChild(entity);
-      const label = document.createElement('div'); label.className = 'office-actor-label'; label.dataset.officeLabel = agent.id;
+      const label = document.createElement('div'); label.className = 'office-actor-label'; label.dataset.officeLabel = agent.id; label.hidden = true; label.setAttribute('role', 'tooltip');
       this.labels.set(agent.id, label); this.overlay?.appendChild(label);
       const transition = ongoing.get(agent.id);
       if (animated && transition) {
         walk(agent.id, entity, transition.entering ? transition.route : officeReturnRoute(transition.route, now - transition.started), true, transition.entering ? transition.started : now);
       } else if (animated && !previousIds.has(agent.id)) {
         const actor = data.actors.find(actor => actor.id === agent.id)!;
-        const route = actor.presentation.status === 'idle' ? leisureRoute(data, this.runtime, { x: 0, y: data.height - 2 }, leisureTarget(data, data.actors.indexOf(actor), ['phone', 'coffee', 'wander', 'exercise', 'read'][data.actors.indexOf(actor) % 5] as LeisureActivity)) : officeWalkRoute(data, this.runtime, actor.homeId!, actor.position, true);
+        const route = officeWalkRoute(data, this.runtime, actor.homeId!, actor.position, true);
         walk(agent.id, entity, route, true);
         this.rosterTransitions++;
       }
@@ -198,7 +208,7 @@ export class StarmapScene {
       const actor = this.previousWorld.actors.find(actor => actor.id === agent.id)!;
       const entity = makeEntity({ ...agent, state: 'walking', seated: false }); this.layer.addChild(entity);
       const transition = ongoing.get(agent.id);
-      const route = transition?.entering ? officeReturnRoute(transition.route, now - transition.started) : officeWalkRoute(this.previousWorld, this.runtime, actor.homeId!, actor.position, false);
+      const route = transition?.entering ? officeReturnRoute(transition.route, now - transition.started) : officeRouteFromPixel(this.previousWorld, this.runtime, agent, { x: 0, y: this.previousWorld.height - 2 }, actor.homeId!);
       walk(agent.id, entity, route, false); this.rosterTransitions++;
     }
     if (animated) for (const [id, transition] of ongoing) {
@@ -234,28 +244,48 @@ export class StarmapScene {
   }
   private sync() {
     const world = this.runtime.readWorld();
-    const participants = new Set(this.runtime.readActivePhases().flatMap(phase => phase.participants));
+    const phases = this.runtime.readActivePhases();
+    const participants = new Set(phases.flatMap(phase => phase.participants));
+    const discussionGroup = [...new Set(phases.filter(phase => phase.capability === 'starmap.handoff' && !['返回工位', '入座'].includes(phase.title)).flatMap(phase => phase.participants))].slice(0, 3);
+    const now = performance.now();
+    this.poseSampledAt = now;
     this.leisure.retain(world.actors.map(actor => actor.id));
     for (const [index, agent] of projectAgents(this.runtime, false).entries()) {
       const entity = this.entities.get(agent.id);
       const actor = world.actors[index];
       const presence = this.presence.get(agent.id);
       const stale = presence && (presence.expired || presence.disconnected || presence.status === 'offline');
-      let activity: LeisureActivity | undefined;
+      let activity: InteractionAction | undefined;
       if (entity && !this.transitions.has(agent.id)) {
         const idle = actor.presentation.status === 'idle' && agent.state === 'idle' && !participants.has(agent.id) && !stale;
-        if (participants.has(agent.id) || stale) this.leisure.forget(agent.id);
-        const pose = participants.has(agent.id) || stale ? undefined : this.leisure.sample(agent.id, index, world, this.runtime, actor.homeId!, actor.position, performance.now(), idle, this.reduced, this.active && entity.data.seated === true);
+        const desk = world.props.find(prop => prop.id === actor.homeId)!;
+        const home = { x: desk.position.x, y: desk.position.y + 1 };
+        const pose = this.discussion.sample(agent.id, stale ? [] : discussionGroup, world, this.runtime, actor.homeId!, home, entity.position, now, this.reduced)
+          || this.leisure.sample(agent.id, index, world, this.runtime, actor.homeId!, home, now, idle, this.reduced, false, entity.position, discussionGroup.length, this.screens.get(agent.id) === 'done');
+        if (this.discussion.has(agent.id)) this.leisure.forget(agent.id);
+        if (pose) this.behaviors.set(agent.id, pose); else this.behaviors.delete(agent.id);
         activity = pose?.activity;
         if (activity) this.leisurePoses.set(agent.id, activity); else this.leisurePoses.delete(agent.id);
-        if (entity.data.state !== agent.state) this.stateUntil = performance.now() + 240;
-        entity.apply({ ...agent, ...(pose ? { seated: false, state: pose.walking ? 'walking' : 'idle', viewFacing: pose.facing, facing: 1 } : { viewFacing: agent.seated ? index % 2 ? 'left' : 'right' : agent.viewFacing }) });
+        const state = pose ? pose.walking ? 'walking' : activity === 'present' || activity === 'listen' ? 'talking' : 'idle' : agent.state;
+        if (entity.data.state !== state) this.stateUntil = now + 240;
+        entity.apply({ ...agent, state, ...(pose ? { seated: pose.seated || pose.stage === 'waiting', viewFacing: pose.facing, facing: 1, bubbleText: undefined } : { viewFacing: agent.seated ? index % 2 ? 'left' : 'right' : agent.viewFacing }) });
         entity.setPosition(pose?.x ?? agent.x, pose?.y ?? agent.y);
       }
       if (entity) { entity.tint = stale ? 0x929292 : 0xffffff; entity.alpha = stale ? 0.55 : 1; if (this.reduced) entity.finishVisualTransition(); }
       if (entity) entity.zIndex = computeAgentDepthZ({ ...agent, x: entity.x, y: entity.y });
       const label = this.labels.get(agent.id);
-      if (label) { const identity = presence?.identity; label.textContent = agent.name + (identity ? ' · ' + officeRole(identity).label : '') + ' · ' + (stale ? '过期/离线' : activity ? LEISURE_LABELS[activity] : { idle: '待命', working: '工作中', thinking: '思考中', walking: '前往', talking: '讨论中' }[entity?.data.state || agent.state]); label.dataset.activity = activity || ''; label.dataset.screen = this.screens.get(agent.id) || 'off'; }
+      if (label) { label.textContent = agent.name + ' · ' + (stale ? '过期/离线' : activity ? LEISURE_LABELS[activity] : this.behaviors.get(agent.id)?.stage === 'waiting' ? '等候场景空位' : { idle: '起身准备活动', working: '在工位敲键盘', thinking: '在工位思考', walking: '正在前往场景', talking: '讨论中' }[entity?.data.state || agent.state]); label.dataset.activity = activity || ''; label.dataset.screen = this.screens.get(agent.id) || 'off'; }
+    }
+    const board = [...this.behaviors].filter(([, pose]) => pose.activity === 'wander').map(([id]) => id);
+    this.ambientDiscussion.retain(board);
+    if (!discussionGroup.length && board.length) for (const id of board) {
+      const entity = this.entities.get(id)!, actor = world.actors.find(actor => actor.id === id)!, desk = world.props.find(prop => prop.id === actor.homeId)!;
+      if (board.length < 2 && !this.ambientDiscussion.has(id)) continue;
+      const pose = this.ambientDiscussion.sample(id, board, world, this.runtime, actor.homeId!, { x: desk.position.x, y: desk.position.y + 1 }, entity.position, now, this.reduced)!;
+      this.behaviors.set(id, pose);
+      if (pose.activity) this.leisurePoses.set(id, pose.activity); else this.leisurePoses.delete(id);
+      entity.apply({ state: pose.walking ? 'walking' : 'talking', seated: false, viewFacing: pose.facing, bubbleText: undefined }); entity.setPosition(pose.x, pose.y); entity.zIndex = pose.y;
+      const label = this.labels.get(id); if (label) label.textContent = entity.data.name + ' · ' + (pose.activity ? LEISURE_LABELS[pose.activity] : '换站位继续讨论');
     }
   }
   private layoutLabels() {
@@ -264,7 +294,8 @@ export class StarmapScene {
     const prioritized = [...this.labels].sort(([first], [second]) => Number(second === this.hovered || second === this.focused) - Number(first === this.hovered || first === this.focused));
     for (const [id, label] of prioritized) {
       const entity = this.entities.get(id); if (!entity) continue;
-      label.hidden = false;
+      label.hidden = id !== this.hovered && id !== this.focused && !this.selected.includes(id);
+      if (label.hidden) continue;
       const anchor = this.world.toGlobal(entity.position);
       const rect = placeOfficeLabel(anchor, { width: label.offsetWidth, height: label.offsetHeight }, { width: this.element.clientWidth, height: this.element.clientHeight }, obstacles);
       label.hidden = !rect;
@@ -297,12 +328,13 @@ export class StarmapScene {
   }
   private diagnostics() {
     if (this.element) this.element.dataset.officeReduced = String(this.reduced);
-    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || !this.transitions.has(agent.id) && !this.leisure.has(agent.id) && (entity.x !== agent.x || entity.y !== agent.y); }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders, renders: this.renders, rosterTransitions: this.rosterTransitions, reduced: this.reduced, hovered: this.hovered, effects: this.activity.size, transitions: this.transitions.size, leisureMoving: this.leisure.moving, visualActors: [...this.entities].map(([id, entity]) => ({ id, x: entity.x, y: entity.y, state: entity.data.state, seated: entity.data.seated, facing: entity.data.viewFacing, activity: this.leisurePoses.get(id), screen: this.screens.get(id) || 'off', scaleX: Math.abs(entity.scale.x), scaleY: entity.scale.y })), desks: this.props.length - 1, room: { width: this.runtime.readWorld().width, height: this.runtime.readWorld().height }, scale: this.world.scale.x });
+    if (this.element) this.element.dataset.officePoseSampledAt = String(this.poseSampledAt);
+    if (this.element) this.element.dataset.officeDiagnostics = JSON.stringify({ applications: StarmapScene.applications, tickerListeners: this.app?.ticker.count || 0, ticker: Boolean(this.app?.ticker.started), runtimeId: this.runtime.runtimeId, actors: this.entities.size, positionMismatches: projectAgents(this.runtime, false).filter(agent => { const entity = this.entities.get(agent.id); return !entity || !this.transitions.has(agent.id) && !this.leisure.has(agent.id) && !this.discussion.has(agent.id) && (entity.x !== agent.x || entity.y !== agent.y); }).length, textures: this.textures?.size || 0, listeners: this.runtime.listenerCount, sceneSubscriptions: this.unsubscribe ? 1 : 0, resizeObservers: this.observer ? 1 : 0, maintenance: this.maintenance !== undefined, breathing: this.breathTimer !== undefined, idleRenders: this.idleRenders, renders: this.renders, rosterTransitions: this.rosterTransitions, reduced: this.reduced, hovered: this.hovered, effects: this.activity.size, transitions: this.transitions.size, leisureMoving: this.leisure.moving, visualActors: [...this.entities].map(([id, entity]) => ({ id, x: entity.x, y: entity.y, state: entity.data.state, seated: entity.data.seated, facing: entity.data.viewFacing, activity: this.leisurePoses.get(id), stage: this.behaviors.get(id)?.stage, propId: this.behaviors.get(id)?.propId, slot: this.behaviors.get(id)?.slot, screen: this.screens.get(id) || 'off', scaleX: Math.abs(entity.scale.x), scaleY: entity.scale.y })), desks: this.runtime.readWorld().props.filter(prop => prop.templateId === 'office.workstation').length, sceneObjects: this.runtime.readWorld().props.filter(prop => prop.templateId !== 'office.workstation').map(prop => ({ id: prop.id, x: prop.position.x, y: prop.position.y })), room: { width: this.runtime.readWorld().width, height: this.runtime.readWorld().height }, scale: this.world.scale.x });
   }
   private updateTicker() {
     if (this.disposed) return;
     const animated = !this.reduced && this.runtime.readActors().some(actor => actor.presentation.status !== 'idle');
-    const enabled = this.active && !this.reduced && (this.runtime.hasMotionWork || animated || this.leisure.moving || this.transitions.size > 0 || performance.now() < this.stateUntil || performance.now() < this.hoverUntil);
+    const enabled = this.active && !this.reduced && (this.runtime.hasMotionWork || animated || this.leisure.active || this.discussion.active || this.transitions.size > 0 || performance.now() < this.stateUntil || performance.now() < this.hoverUntil);
     if (enabled) this.app?.ticker.start();
     else if (this.app?.ticker.started) {
       this.app.ticker.stop(); this.hoverUntil = 0;
@@ -336,12 +368,13 @@ export class StarmapScene {
   };
   setActive(active: boolean) {
     this.active = active;
+    this.leisure.setPaused(!active || this.reduced, performance.now()); this.discussion.setPaused(!active || this.reduced, performance.now()); this.ambientDiscussion.setPaused(!active || this.reduced, performance.now());
     if (!active) this.clearTransitions(); else { this.sync(); this.drawActivity(); this.drawLight(); this.render(); }
     if (active && this.maintenance !== undefined) { clearTimeout(this.maintenance); this.maintenance = undefined; }
     this.updateTicker();
   }
-  setReduced(reduced: boolean) { this.reduced = reduced; if (reduced) this.clearTransitions(); this.sync(); this.changed(); }
-  select(ids: string[]) { this.selected = ids; this.drawSelection(); this.drawActivity(); this.render(); }
+  setReduced(reduced: boolean) { this.reduced = reduced; this.leisure.setPaused(reduced || !this.active, performance.now()); this.discussion.setPaused(reduced || !this.active, performance.now()); this.ambientDiscussion.setPaused(reduced || !this.active, performance.now()); if (reduced) this.clearTransitions(); this.sync(); this.changed(); }
+  select(ids: string[]) { this.selected = ids; this.drawSelection(); this.drawActivity(); this.layoutLabels(); this.render(); this.diagnostics(); }
   private hover(id?: string) {
     if (id === this.hovered && performance.now() < this.hoverUntil) return;
     this.hovered = id; this.hoverUntil = this.reduced ? 0 : performance.now() + 280;
@@ -349,9 +382,22 @@ export class StarmapScene {
   }
   private drawActivity() {
     const now = this.reduced ? 0 : performance.now();
+    this.responses.clear();
+    for (const [id, pose] of this.behaviors) {
+      if (pose.activity === 'brew') {
+        this.responses.circle(pose.x + 16, pose.y - 65, 3).fill({ color: 0x9ce5c8, alpha: .6 + Math.sin(now / 280) * .3 });
+        this.responses.moveTo(pose.x + 10, pose.y - 50).lineTo(pose.x + 10, pose.y - 43).stroke({ color: 0x98714d, width: 1.7 });
+        this.responses.moveTo(pose.x + 10, pose.y - 79).quadraticCurveTo(pose.x + 15, pose.y - 84 - Math.sin(now / 350) * 2, pose.x + 11, pose.y - 91).stroke({ color: 0xc2d9de, alpha: .6, width: 1.2 });
+      } else if (pose.activity === 'present') {
+        this.responses.moveTo(pose.x + 10, pose.y - 40).lineTo(pose.x + 25, pose.y - 42 - Math.sin(now / 500) * 3).stroke({ color: 0x63999a, width: 1.5 });
+      }
+      const entity = this.entities.get(id);
+      if (entity && pose.stage === 'rising') entity.scale.y = .97;
+    }
+    const world = this.runtime.readWorld(), actors = new Map(world.actors.map(actor => [actor.id, actor])), props = new Map(world.props.map(prop => [prop.id, prop]));
     for (const [id, effect] of this.activity) {
-      const actor = this.runtime.readActors().find(actor => actor.id === id);
-      const prop = this.runtime.readWorld().props.find(prop => prop.id === actor?.homeId);
+      const actor = actors.get(id);
+      const prop = props.get(actor?.homeId || '');
       const entity = this.entities.get(id); if (!actor || !prop || !entity) continue;
       const emphasized = id === this.hovered || id === this.focused || this.selected.includes(id);
       const previous = this.emphasis.get(id) || 0;
@@ -381,6 +427,7 @@ export class StarmapScene {
           for (let bar = 0; bar < 5; bar++) effect.rect(-12 + bar * 5, -27 - Math.sin(now / 900 + bar) * 2, 3, 3 + bar % 3).fill({ color: 0x93cbb9, alpha: .7 });
         } else for (let row = 0; row < 5; row++) effect.rect(-32 + row % 2 * 4, -47 + ((row + phase) % 5) * 4, 12 + row % 3 * 5, 1).fill({ color: 0xb7e0bf, alpha: .6 });
       }
+      if (working && !this.reduced && Math.floor(now / 1600) % 9 === 8 && entity.data.seated) entity.updateVisuals('thinking', 0);
       if (amount > .005) effect.roundRect(-78, -59, 156, 137, 10).stroke({ color: 0x6d998a, alpha: amount * .65, width: 1.5 });
       const label = this.labels.get(id);
       if (label) { label.dataset.emphasis = String(emphasized); label.dataset.talking = String(entity.data.state === 'talking'); }

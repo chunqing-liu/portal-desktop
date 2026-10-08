@@ -46,21 +46,9 @@ export class OfficeArtwork {
     graphic.moveTo(width - 31, 118).lineTo(width - 31, height - 40).stroke({ color: 0xdce5ef, width: 2 });
     const loungeY = height - 106;
     graphic.roundRect(56, loungeY, Math.max(180, width - 112), 66, 18).fill({ color: 0xe1e9f5, alpha: .7 });
-    graphic.roundRect(65, loungeY + 30, 75, 22, 9).fill(this.gradient(0xa9bce9, 0x859ed5));
-    graphic.roundRect(65, loungeY + 20, 75, 19, 8).fill(this.gradient(0xc7d6f3, 0xa1b7e4));
-    graphic.moveTo(73, loungeY + 52).lineTo(73, loungeY + 58).moveTo(131, loungeY + 52).lineTo(131, loungeY + 58).stroke({ color: 0x8c9fb9, width: 3 });
-    graphic.ellipse(171, loungeY + 47, 18, 7).fill(0xf9fbff);
-    graphic.moveTo(171, loungeY + 48).lineTo(171, loungeY + 61).stroke({ color: 0xb7c5d9, width: 3 });
-    graphic.roundRect(width - 113, loungeY + 23, 40, 12, 6).fill(0xd2dde9);
-    for (const centerX of [width - 104, width - 83]) {
-      graphic.moveTo(centerX - 5, loungeY + 28).lineTo(centerX + 5, loungeY + 28).stroke({ color: 0x617993, width: 2 });
-      graphic.roundRect(centerX - 7, loungeY + 25, 3, 6, 1).fill(0x8fa5bd); graphic.roundRect(centerX + 4, loungeY + 25, 3, 6, 1).fill(0x8fa5bd);
-    }
     this.plant(graphic, width - 52, 108, .65);
     const title = new Text({ text: count ? 'STUDIO  /  ' + String(count).padStart(2, '0') : 'STUDIO  /  等待伙伴上线', style: { fontFamily: 'system-ui, sans-serif', fontSize: 10, letterSpacing: 2, fill: 0x58728c } });
     title.position.set(52, 26); root.addChild(title);
-    const lounge = new Text({ text: 'TAKE A MOMENT', style: { fontFamily: 'system-ui, sans-serif', fontSize: 8, letterSpacing: 1.7, fill: 0x6e83a0 } });
-    lounge.position.set(68, loungeY + 6); root.addChild(lounge);
     return root;
   }
   screen(graphic: Graphics, centerX: number, centerY: number, width: number, height: number, role: OfficeRole, powered = false) {
@@ -85,6 +73,7 @@ export class OfficeArtwork {
     const root = new Container(), graphic = new Graphics();
     graphic.roundRect(-61, -67, 122, 55, 5).fill(this.gradient(0xd6e2ef, 0xbacbdc));
     graphic.roundRect(-58, -64, 116, 49, 3).fill(0xfcfdff);
+    graphic.moveTo(-46, -12).lineTo(-52, 20).lineTo(-61, 20).moveTo(46, -12).lineTo(52, 20).lineTo(61, 20).stroke({ color: 0x99afc2, width: 3 });
     for (let note = 0; note < 3; note++) {
       graphic.roundRect(-49 + note * 32, -45, 24, 21, 3).fill([0xd6e5fb, 0xd3ece5, 0xe6dff5][note]);
       graphic.moveTo(-45 + note * 32, -38).lineTo(-31 + note * 32, -38).moveTo(-45 + note * 32, -33).lineTo(-36 + note * 32, -33).stroke({ color: 0x829bb7, width: 1 });

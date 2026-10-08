@@ -1,8 +1,8 @@
 import type { FillGradient, Graphics } from 'pixi.js';
 import type { AgentState } from './vendor/types/agent';
-import type { LeisureActivity } from './leisure';
+import type { InteractionAction } from './leisure';
 
-export function drawOfficeActor(graphic: Graphics, state: AgentState, phase: number, color: number, seated: boolean, facing: string, variation: number, gradient: (top: number, bottom: number) => FillGradient, activity?: LeisureActivity) {
+export function drawOfficeActor(graphic: Graphics, state: AgentState, phase: number, color: number, seated: boolean, facing: string, variation: number, gradient: (top: number, bottom: number) => FillGradient, activity?: InteractionAction) {
   const frame = Math.floor(phase) % 4, sitting = seated && state !== 'walking';
   const darken = (ink: number, factor: number) => ((Math.round((ink >> 16 & 255) * factor) << 16) | (Math.round((ink >> 8 & 255) * factor) << 8) | Math.round((ink & 255) * factor));
   const skin = [0xe7bb96, 0xc79876, 0xf0ceaa, 0xad7b5e][variation % 4];
@@ -48,12 +48,18 @@ export function drawOfficeActor(graphic: Graphics, state: AgentState, phase: num
     graphic.moveTo(-8, headY - 4).quadraticCurveTo(0, headY - 13, 8, headY - 4).stroke({ color: 0x526767, width: 2 });
     graphic.roundRect(-10, headY - 1, 3, 5, 1).fill(0x627b7d); graphic.roundRect(7, headY - 1, 3, 5, 1).fill(0x627b7d);
   }
-  if (state === 'thinking') for (let dot = 0; dot < 3; dot++) graphic.circle(17 + dot * 4, headY - 6 - dot * 3, 1.3).fill({ color: 0x708e8d, alpha: dot <= frame ? .9 : .25 });
+  if (activity === 'listen') graphic.moveTo(-4, headY - 4 + frame % 2).lineTo(4, headY - 4 + frame % 2).stroke({ color: hair, width: 2 });
   if (activity === 'phone') {
     graphic.moveTo(10, -20).lineTo(7, -13).stroke({ color: skin, width: 3 });
     graphic.roundRect(3, -21, 8, 12, 2).fill(0x263b51);
     graphic.roundRect(4.5, -19, 5, 8, 1).fill(frame % 2 ? 0xa5d9ed : 0xc3ebf5);
     graphic.circle(7, -10, .6).fill(0xffffff);
+  } else if (activity === 'brew') {
+    graphic.moveTo(10, -22).lineTo(18, -39 - frame % 2 * 4).stroke({ color: skin, width: 3.5 });
+    graphic.circle(18, -39 - frame % 2 * 4, 2.5).fill(skin);
+  } else if (activity === 'present' || activity === 'wander') {
+    graphic.moveTo(10, -22).lineTo(20, -36 - frame % 2 * 3).stroke({ color: skin, width: 3.5 });
+    graphic.moveTo(20, -36 - frame % 2 * 3).lineTo(25, -41 - frame % 2 * 3).stroke({ color: 0x3f6685, width: 1.8 });
   } else if (activity === 'coffee') {
     const cupY = frame === 2 ? -29 : -16;
     graphic.moveTo(11, -21).lineTo(12, cupY + 3).stroke({ color: skin, width: 3 });
@@ -66,8 +72,9 @@ export function drawOfficeActor(graphic: Graphics, state: AgentState, phase: num
     graphic.poly([-10, -19, 0, -16, 10, -19, 10, -8, 0, -5, -10, -8]).fill(0x6d87d4);
     graphic.poly([-9, -18, 0, -15, 9, -18, 9, -10, 0, -7, -9, -10]).fill(0xf9faf5);
     graphic.moveTo(0, -15).lineTo(0, -7).stroke({ color: 0xaab5c4, width: .8 });
+    if (frame === 2) graphic.poly([0, -15, 6, -20, 7, -11, 0, -7]).fill(0xdce6e7);
   } else if (activity === 'exercise') {
-    const lift = frame * 2;
+    const lift = [0, 6, 11, 6][frame];
     graphic.moveTo(-14, -26).lineTo(-17, -31 - lift).moveTo(11, -18).lineTo(17, -31 - lift).stroke({ color: skin, width: 3 });
     for (const handX of [-17, 17]) {
       graphic.moveTo(handX - 4, -31 - lift).lineTo(handX + 4, -31 - lift).stroke({ color: 0x748ba9, width: 2 });

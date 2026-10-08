@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HandoffController } from '../desktop/renderer/pipeline/office/handoff';
 import { createStarmapRuntime, createStarmapWorld } from '../desktop/renderer/pipeline/office/world';
+import { officeSceneObjects } from '../desktop/renderer/pipeline/office/scene-objects';
 import { DEMO_IDENTITIES } from '../desktop/renderer/pipeline/office/identities';
 import { OfficeRuntime } from '../desktop/renderer/pipeline/office/vendor/runtime/OfficeRuntime';
 import { builtinPlugins } from '../desktop/renderer/pipeline/office/vendor/runtime/builtin/officePack';
@@ -66,7 +67,7 @@ describe('starmap handoff lifecycle', () => {
   it('surfaces NO_ROUTE once without teleporting or retrying', () => {
     const world = createStarmapWorld(DEMO_IDENTITIES);
     let blocked = false;
-    const runtime = new OfficeRuntime({ world, plugins: [...builtinPlugins, starmapHandoff], createNavigation: templates => {
+    const runtime = new OfficeRuntime({ world, plugins: [...builtinPlugins, officeSceneObjects, starmapHandoff], createNavigation: templates => {
       const navigation = new GridNavigation(templates), route = navigation.path.bind(navigation);
       navigation.path = (...args) => { if (blocked) throw new SceneFault('NO_ROUTE', '测试注入：目标不可达'); return route(...args); };
       return navigation;

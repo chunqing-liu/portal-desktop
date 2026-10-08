@@ -7,6 +7,7 @@ import { seatStepDurationMs } from './vendor/scene/gridProjection';
 import { supportsOfficePose } from './vendor/contracts/characterPose';
 import type { OfficeIdentity } from './identities';
 import { officeRole } from './roles';
+import { officeSceneObjects, sceneObjects } from './scene-objects';
 
 export function createStarmapWorld(identities: OfficeIdentity[], previous?: World): World {
   if (identities.length > 100 || new Set(identities.map(identity => identity.id)).size !== identities.length) throw new Error('名册过大或身份重复');
@@ -30,12 +31,11 @@ export function createStarmapWorld(identities: OfficeIdentity[], previous?: Worl
     if (existing) actor.presentation = { ...existing.presentation, sourceRevision: 0 };
     if (existing && existing.homeId === actor.homeId && retained.some(prop => prop.id === actor.homeId)) Object.assign(actor, { position: existing.position, posture: existing.posture, facing: existing.facing, using: existing.using, presentation: { ...existing.presentation, sourceRevision: 0 } });
   }
-  const width = Math.max(8, ...positions.map(position => position.x + 4)) + 1;
-  const height = Math.max(8, rows * 4 + 4);
-  const boardPosition = { x: width - 3, y: 1 };
-  return { sceneId: 'starmap-office', unit: 'cell', width, height, gridSize: 1, layoutRevision: 0, bounds: { left: 0, top: 0, right: width, bottom: height }, actors, props: [...props, { id: 'collab-board', name: '协作白板', templateId: 'office.whiteboard', position: boardPosition, state: { title: '白板协作', text: '团队工作备忘' }, stateRevision: 0 }] };
+  const width = Math.max(identities.length <= 3 ? 18 : 20, ...positions.map(position => position.x + 4)) + 1;
+  const height = Math.max(14, rows * 4 + 10);
+  return { sceneId: 'starmap-office', unit: 'cell', width, height, gridSize: 1, layoutRevision: 0, bounds: { left: 0, top: 0, right: width, bottom: height }, actors, props: [...props, ...sceneObjects(width, height)] };
 }
 
 export function createStarmapRuntime(identities: OfficeIdentity[], previous?: World) {
-  return new OfficeRuntime({ world: createStarmapWorld(identities, previous), plugins: [...builtinPlugins, starmapHandoff], createNavigation: templates => new GridNavigation(templates), seatStepDuration: seatStepDurationMs, supportsPose: supportsOfficePose });
+  return new OfficeRuntime({ world: createStarmapWorld(identities, previous), plugins: [...builtinPlugins, officeSceneObjects, starmapHandoff], createNavigation: templates => new GridNavigation(templates), seatStepDuration: seatStepDurationMs, supportsPose: supportsOfficePose });
 }

@@ -25,7 +25,7 @@ export const officeObjects: ScenePlugin = {
     { id: 'office.whiteboard', name: '工作白板', view: 'whiteboard',
       footprint: { left: 0, right: 2, top: 0, bottom: 1 },
       interactions: { write: { name: '查看白板', anchor: 'reader', approaches: ['reader'], cells: [], posture: 'standing', facing: 'back', resource: 'write' } },
-      anchors: { reader: { x: 0, y: 1 } }, resources: { write: 1 } },
+      anchors: { reader: { x: 0, y: 1 }, reader2: { x: 1, y: 1 }, reader3: { x: 2, y: 1 } }, resources: { write: 1 } },
   ],
   stateSchemas: { 'office.whiteboard': z.strictObject({ title: z.string().max(60), text: z.string().max(500) }) },
 }
