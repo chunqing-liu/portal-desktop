@@ -1,0 +1,142 @@
+import { memo, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { evaluate, reconcileState, type UIDocument, type UINode, type Value } from './runtime';
+import { UIStream } from './stream';
+import { loadUIState, rememberUIState, saveUIState } from './storage';
+import { DataChart, DataTable, Diagram, displayValue } from './visuals';
+import { Tabs, Breakdown } from './explorers';
+import { ContentImage, Checklist } from './content';
+import { LocalApp } from './app-host';
+export interface UIActions {
+  storageKey?: string;
+  onContinue?: (text: string) => void;
+  onSnapshot?: (text: string) => void;
+}
+export const IntelligentUI = memo(function IntelligentUI({ source, streaming = false, ...actions }: UIActions & { source: string; streaming?: boolean }) {
+  const parser = useRef(new UIStream());
+  const [accepted, setAccepted] = useState<UIDocument | null>(null), [error, setError] = useState('');
+  const [showSource, setShowSource] = useState(false), [expanded, setExpanded] = useState(false);
+  const section = useRef<HTMLElement>(null);
+  // Coalesce token bursts without remounting the currently interactive tree.
+  useEffect(() => {
+    const update = () => { const result = parser.current.update(source, streaming); if (result.doc) setAccepted(result.doc); setError(result.error); };
+    if (!streaming) { update(); return; }
+    const frame = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frame);
+  }, [source, streaming]);
+  // Initial static rendering supports previews and non-browser tests.
+  const initial = useRef<{ source: string; result: ReturnType<UIStream['update']> } | null>(null);
+  if (!initial.current) initial.current = { source, result: parser.current.update(source, streaming) };
+  const doc = accepted || initial.current.result.doc;
+  const notice = error || (!accepted ? initial.current.result.error : '');
+  useEffect(() => {
+    if (!expanded) return;
+    const previous = document.activeElement as HTMLElement | null;
+    section.current?.focus();
+    return () => previous?.focus();
+  }, [expanded]);
+  return <section ref={section} tabIndex={expanded ? -1 : undefined} role={expanded ? 'dialog' : undefined} aria-modal={expanded || undefined} className={`intelligent-ui${expanded ? ' iui-expanded' : ''}`} aria-label={expanded ? doc?.title || '交互界面' : 'Intelligent UI'} onKeyDown={e => {
+    if (!expanded) return;
+    if (e.key === 'Escape') { e.stopPropagation(); setExpanded(false); }
+    if (e.key === 'Tab') {
+      const elements = [...section.current!.querySelectorAll<HTMLElement>('button:not(:disabled),input,select,summary,[tabindex="0"]')].filter(el => el.getClientRects().length);
+      const first = elements[0], last = elements.at(-1);
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === section.current)) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    }
+  }}>
+    <header className="iui-toolbar"><span className="iui-status"><span className={streaming ? 'iui-status-dot generating' : 'iui-status-dot'} />{streaming ? '正在生成' : '可交互'}</span><div className="iui-toolbar-actions"><button type="button" onClick={() => setExpanded(v => !v)} aria-label={expanded ? '收起界面' : '展开界面'}>{expanded ? '收起' : '展开'}</button><details className="iui-menu"><summary aria-label="界面更多选项">···</summary><button type="button" aria-pressed={showSource} onClick={() => setShowSource(v => !v)}>{showSource ? '预览' : '源码'}</button></details></div></header>
+    {(notice || !doc && streaming) && (!streaming || !doc) && <p className="iui-notice" role="status">{streaming ? '正在接收界面描述…' : `界面未更新：${notice}`}{doc ? ' · 已保留可用内容' : ''}</p>}
+    {notice && !streaming && actions.onContinue && <button type="button" className="iui-repair" onClick={() => actions.onContinue?.(`请修正刚才生成的智能界面「${doc?.title || '交互界面'}」。客户端报告：${notice}。请检查所有 JSON 对象、数组和表达式的括号及字段，保留原需求并重新输出完整的 intelligent-ui 界面，不要省略任何闭合括号。`)}>让 Being 修正</button>}
+    <div className="iui-preview" hidden={showSource}>{doc && <UIRuntime doc={doc} {...actions} />}</div>
+    {(showSource || !doc && !streaming) && <pre className="iui-source"><code>{source}</code></pre>}
+  </section>;
+});
+export function UIRuntime({ doc, storageKey, onContinue, onSnapshot, onEvent, embedded = false }: UIActions & { embedded?: boolean; doc: UIDocument; onEvent?: (key: string, value: Value) => void }) {
+  const prefix = useId();
+  const [snapshot, setSnapshot] = useState({ doc, values: { ...doc.state } });
+  const [actionStatus, setActionStatus] = useState('');
+  const touched = useRef(new Set<string>()), loaded = useRef(false);
+  const latest = useRef(snapshot.values);
+  let values = snapshot.values;
+  if (snapshot.doc !== doc) {
+    // A Worker owns its live state. Only streamed declarative documents retain local choices.
+    values = embedded ? { ...doc.state } : reconcileState(doc, values);
+    setSnapshot({ doc, values });
+  }
+  latest.current = values;
+  useEffect(() => {
+    let active = true;
+    if (!storageKey) return;
+    // When a live message receives its persisted identity, migrate the current values.
+    if (loaded.current) { void saveUIState(storageKey, latest.current); return; }
+    void loadUIState(storageKey).then(saved => {
+      if (!active) return;
+      loaded.current = true;
+      if (saved) setSnapshot(prev => {
+        const merged = { ...saved };
+        for (const key of touched.current) merged[key] = prev.values[key];
+        return { doc: prev.doc, values: reconcileState(prev.doc, merged) };
+      });
+    });
+    return () => { active = false; };
+  }, [storageKey]);
+  useEffect(() => {
+    if (!storageKey || !loaded.current) return;
+    rememberUIState(storageKey, values);
+    const timer = setTimeout(() => void saveUIState(storageKey, latest.current), 300);
+    return () => clearTimeout(timer);
+  }, [storageKey, values]);
+  useEffect(() => {
+    if (!storageKey) return;
+    const save = () => { if (loaded.current) void saveUIState(storageKey, latest.current); };
+    window.addEventListener('pagehide', save); document.addEventListener('visibilitychange', save);
+    return () => { save(); window.removeEventListener('pagehide', save); document.removeEventListener('visibilitychange', save); };
+  }, [storageKey]);
+  const summary = (next: Record<string, Value>) => `界面「${doc.title}」的当前选择：\n${Object.entries(next).map(([k, v]) => `${k}: ${displayValue(v)}`).join('\n')}`;
+  const update = (key: string, value: Value) => {
+    touched.current.add(key);
+    const next = { ...reconcileState(doc, latest.current), [key]: value };
+    latest.current = next;
+    setSnapshot({ doc, values: next });
+    if (storageKey) rememberUIState(storageKey, next);
+    onSnapshot?.(summary(next)); onEvent?.(key, value);
+  };
+  async function action(n: UINode) {
+    if (n.action === 'event') { onEvent?.(n.id, evaluate(n.value, values)); return; }
+    if (n.action === 'reset') { for (const key of Object.keys(doc.state)) touched.current.add(key); latest.current = { ...doc.state }; setSnapshot({ doc, values: latest.current }); onSnapshot?.(summary(latest.current)); return; }
+    const text = n.value === undefined ? summary(values) : displayValue(evaluate(n.value, values));
+    if (n.action === 'continue') { onContinue?.(`${text}\n\n${summary(values)}`); setActionStatus('已放入输入框，可编辑后发送'); }
+    else { try { await navigator.clipboard.writeText(text); setActionStatus('已复制'); } catch { setActionStatus('复制失败，请重试'); } }
+  }
+  function node(n: UINode): ReactNode {
+    const id = `${prefix}-${n.id}`, value = displayValue(evaluate(n.value, values)), bound = n.bind ? values[n.bind] : null;
+    switch (n.type) {
+      case 'tabs': return <Tabs key={n.id} node={n} selected={String(bound)} onSelect={v => update(n.bind!, v)} render={node} />;
+      case 'breakdown': return <Breakdown key={n.id} node={n} values={values} />;
+      case 'grid': case 'gallery': return <div key={n.id} className={`iui-${n.type} iui-layout-${n.variant || (n.type === 'gallery' ? 'collage' : 'two')}`}>{n.children?.map(node)}</div>;
+      case 'heading': { const Tag = `h${n.level || 3}` as 'h2' | 'h3' | 'h4'; return <Tag key={n.id} className="iui-heading">{n.label}</Tag>; }
+      case 'divider': return <hr key={n.id} className="iui-divider" />;
+      case 'facts': return <section key={n.id} className="iui-facts">{n.label && <h4>{n.label}</h4>}<dl>{n.rows!.map((row, i) => <div key={i}><dt>{displayValue(evaluate(row[0], values))}</dt><dd>{displayValue(evaluate(row[1], values))}</dd></div>)}</dl></section>;
+      case 'list': return <ul key={n.id} className="iui-list">{n.items!.map(item => <li key={item.id}><strong>{item.label}</strong>{item.description && <p>{item.description}</p>}</li>)}</ul>;
+      case 'media': return <article key={n.id} className="iui-media">{n.src && <ContentImage src={n.src} label={n.label} />}<div><h4>{n.label}</h4>{n.value !== undefined && <p>{value}</p>}</div></article>;
+      case 'stepper': return <div key={n.id} className="iui-stepper"><span id={id}>{n.label || n.id}</span><div role="group" aria-labelledby={id}><button type="button" aria-label={`减少${n.label || n.id}`} disabled={Number(bound) <= n.min!} onClick={() => update(n.bind!, Math.max(n.min!, Number((Number(latest.current[n.bind!]) - (n.step ?? 1)).toPrecision(12))))}>−</button><output aria-live="polite">{n.value === undefined ? displayValue(bound) : value}</output><button type="button" aria-label={`增加${n.label || n.id}`} disabled={Number(bound) >= n.max!} onClick={() => update(n.bind!, Math.min(n.max!, Number((Number(latest.current[n.bind!]) + (n.step ?? 1)).toPrecision(12))))}>+</button></div></div>;
+      case 'stack': case 'row': return <div key={n.id} className={`iui-${n.type}`}>{n.children?.map(node)}</div>;
+      case 'image': return <ContentImage key={n.id} src={n.src!} label={n.label} caption={n.value === undefined ? undefined : value} />;
+      case 'section': case 'card': return <section key={n.id} className={`iui-${n.type}`}>{n.label && <h4>{n.label}</h4>}{n.value !== undefined && <p>{value}</p>}{n.children?.map(node)}</section>;
+      case 'text': return <p key={n.id} className="iui-text">{n.label && <strong>{n.label} </strong>}{value}</p>;
+      case 'metric': return <div key={n.id} className="iui-metric"><span>{n.label}</span><output>{value}</output></div>;
+      case 'slider': case 'number': return <div key={n.id} className={`iui-field${n.type === 'slider' ? ' iui-range-field' : ''}`}><label htmlFor={id}>{n.label || n.id}{n.type === 'slider' && <output>{n.value === undefined ? displayValue(bound) : value}</output>}</label><input id={id} type={n.type === 'slider' ? 'range' : 'number'} min={n.min} max={n.max} step={n.step ?? 1} value={Number(bound)} onChange={e => { const number = e.target.valueAsNumber; if (Number.isFinite(number)) update(n.bind!, Math.max(n.min!, Math.min(n.max!, number))); }} />{n.type === 'slider' && <div className="iui-range-scale" aria-hidden="true"><span>{n.min}</span><span>{Number(((n.min! + n.max!) / 2).toFixed(4))}</span><span>{n.max}</span></div>}</div>;
+      case 'input': return <div key={n.id} className="iui-field"><label htmlFor={id}>{n.label || n.id}</label><input id={id} type="text" maxLength={10000} value={String(bound)} onChange={e => update(n.bind!, e.target.value)} /></div>;
+      case 'select': return <div key={n.id} className="iui-field"><label htmlFor={id}>{n.label || n.id}</label><select id={id} value={String(bound)} onChange={e => update(n.bind!, e.target.value)}>{n.options!.map((v, i) => <option key={i} value={v}>{v}</option>)}</select></div>;
+      case 'segmented': return <div key={n.id} className="iui-field"><span>{n.label}</span><div className="iui-segments" role="group" aria-label={n.label}>{n.options!.map(v => <button key={v} type="button" aria-pressed={v === bound} onClick={() => update(n.bind!, v)}>{v}</button>)}</div></div>;
+      case 'toggle': return <label key={n.id} className="iui-toggle"><input type="checkbox" checked={Boolean(bound)} onChange={e => update(n.bind!, e.target.checked)} />{n.label || n.id}</label>;
+      case 'button': return <button key={n.id} type="button" className="iui-reset" disabled={n.action === 'continue' && !onContinue || n.action === 'event' && !onEvent} onClick={() => void action(n)}>{n.label || '重置'}</button>;
+      case 'table': return <DataTable key={n.id} node={n} values={values} />;
+      case 'chart': return <DataChart key={n.id} node={n} values={values} />;
+      case 'diagram': return <Diagram key={n.id} node={n} selected={String(bound)} explode={Number(values[n.explodeBind!] || 0)} onExplode={v => n.explodeBind && update(n.explodeBind, v)} onSelect={part => update(n.bind!, part)} />;
+      case 'timeline': case 'checklist': return <Checklist key={n.id} node={n} values={values} onChange={update} />;
+      case 'app': return <LocalApp key={n.id} code={n.code!} label={n.label} onRepair={onContinue} storageKey={storageKey ? `${storageKey}:${n.id}` : undefined} render={(next, event) => <UIRuntime embedded doc={next} onContinue={onContinue} onSnapshot={onSnapshot} onEvent={event} />} />;
+    }
+  }
+  return <div className="iui-body">{!embedded && <h3>{doc.title}</h3>}{doc.body.map(node)}{actionStatus && <p className="iui-action-status" role="status">{actionStatus}</p>}</div>;
+}

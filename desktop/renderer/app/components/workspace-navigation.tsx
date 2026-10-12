@@ -1,3 +1,4 @@
+import { useNavigationSort } from "./use-navigation-sort";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { PrivacyContent } from "../../chat/components/panels";
 import { createPortal } from "react-dom";
@@ -21,8 +22,8 @@ const destinations = [
 function Icon({ path }: { path: string }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path className="rail-icon-line" pathLength="100" d={path} /></svg>;
 }
-function RailButton({ label, children, active, disabled, unread, onClick, className = "", plugin = false, id, expanded }: {
-  id?: string; expanded?: boolean; label: string; children: ReactNode; active?: boolean; disabled?: boolean; unread?: boolean;
+function RailButton({ label, children, active, disabled, unread, onClick, className = "", plugin = false, id, expanded, navigationKey }: {
+  navigationKey?: string; id?: string; expanded?: boolean; label: string; children: ReactNode; active?: boolean; disabled?: boolean; unread?: boolean;
   onClick: () => void; className?: string; plugin?: boolean;
 }) {
   const tooltipId = useId();
@@ -32,9 +33,9 @@ function RailButton({ label, children, active, disabled, unread, onClick, classN
     setTip({ left: bounds.right + 12, top: Math.max(24, Math.min(innerHeight - 24, bounds.top + bounds.height / 2)) });
   };
   return <>
-    <button id={id} aria-expanded={expanded} className={`rail-button ${className}`} aria-label={label + (unread ? " · 有新动态" : "")} aria-current={active ? "page" : undefined}
+    <button data-navigation-key={navigationKey} id={id} aria-expanded={expanded} className={`rail-button ${className}`} aria-label={label + (unread ? " · 有新动态" : "")} aria-current={active ? "page" : undefined}
       aria-describedby={tip ? tooltipId : undefined} disabled={disabled} data-plugin-navigation={plugin || undefined}
-      onMouseEnter={event => show(event.currentTarget)} onMouseLeave={() => setTip(null)}
+      onPointerDown={() => setTip(null)} onMouseEnter={event => show(event.currentTarget)} onMouseLeave={() => setTip(null)}
       onFocus={event => show(event.currentTarget)} onBlur={() => setTip(null)}
       onKeyDown={event => { if (event.key === "Escape") setTip(null); }}
       onClick={() => { setTip(null); onClick(); }}>
@@ -58,6 +59,11 @@ export function WorkspaceNavigation({ app }: { app: AppModel }) {
   const town = useModel(app.town), plugins = useModel(app.plugins);
   const name = town.displayName || app.snapshot?.settings.being || "Being";
   const [pins, setPins] = useState(readPinnedNavigation);
+  const [order, setOrder] = useState<string[]>(() => {
+    try { const saved = JSON.parse(localStorage.getItem("beings:navigation-order") || "null");
+      return Array.isArray(saved) ? saved.filter((key): key is string => typeof key === "string") : [];
+    } catch { return []; }
+  });
   const [moreOpen, setMoreOpen] = useState(false);
   const morePanel = useRef<HTMLDivElement>(null);
   const closeMore = (restoreFocus = false) => {
@@ -99,15 +105,25 @@ export function WorkspaceNavigation({ app }: { app: AppModel }) {
     setPins(next);
     try { localStorage.setItem(PINNED_NAVIGATION_KEY, JSON.stringify(next)); } catch { /* Keep the session preference. */ }
   };
+  const visibleKeys = ["chat", "search", ...pins.filter(key => entries.some(entry => entry.key === key))];
+  const orderedKeys = [...new Set([...order.filter(key => visibleKeys.includes(key)), ...visibleKeys])];
+  const sort = useNavigationSort(orderedKeys, next => {
+    setOrder(next);
+    try { localStorage.setItem("beings:navigation-order", JSON.stringify(next)); } catch { /* Keep session order. */ }
+  });
   return <nav className="workspace-rail" aria-label="主导航">
     <RailButton label={`${name} · 返回主对话`} className="rail-being" onClick={() => void app.returnToMainChat()}>
       <span aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
     </RailButton>
-    <div className="rail-links">
-      <RailButton label="对话" active={app.view === "chat"} onClick={() => app.navigate("chat")}><Icon path="M4 4h16v12H9l-5 4V4Z" /></RailButton>
-      <RailButton id="toggle-chat-search" expanded={app.searchOpen} label="查找对话" disabled={!app.snapshot?.settings.hasToken} onClick={() => app.openSearch()}><Icon path="m16 16 5 5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /></RailButton>
-      {entries.filter(entry => pins.includes(entry.key)).map(entry => <RailButton key={entry.key} label={entry.label} active={entry.active}
-        plugin={entry.plugin} unread={entry.unread} onClick={entry.open}><Icon path={entry.path} /></RailButton>)}
+    <div className="rail-links" {...sort}>
+      {orderedKeys.map(key => {
+        if (key === "chat") return <RailButton key={key} navigationKey={key}  label="对话" active={app.view === "chat"} onClick={() => app.navigate("chat")}><Icon path="M4 4h16v12H9l-5 4V4Z" /></RailButton>;
+        if (key === "search") return <RailButton key={key} navigationKey={key}  id="toggle-chat-search" expanded={app.searchOpen} label="查找对话" disabled={!app.snapshot?.settings.hasToken} onClick={() => app.openSearch()}><Icon path="m16 16 5 5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /></RailButton>;
+        const entry = entries.find(entry => entry.key === key)!;
+        return <RailButton key={key} navigationKey={key} label={entry.label} active={entry.active}
+
+          plugin={entry.plugin} unread={entry.unread} onClick={entry.open}><Icon path={entry.path} /></RailButton>;
+      })}
       <RailButton id="rail-more-trigger" label={moreOpen ? "收起更多功能" : "更多功能"} expanded={moreOpen}
         active={entries.some(entry => !pins.includes(entry.key) && entry.active)}
         unread={entries.some(entry => !pins.includes(entry.key) && entry.unread)} onClick={() => setMoreOpen(open => !open)}>

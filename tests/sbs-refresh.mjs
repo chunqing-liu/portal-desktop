@@ -176,7 +176,7 @@ try {
   await page.setViewportSize(viewport);
   await page.evaluate(async () => { await window.sbsApp.toggleTheme(); document.documentElement.dataset.theme = window.sbsApp.theme; });
   await page.getByRole('button', { name: '关闭客户端设置' }).click();
-  assert.equal(await chat.locator('#input').inputValue(), '切换时保留的草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '切换时保留的草稿');
   await page.evaluate(() => window.sbsApp.post({ type: 'beings:history-limit', limit: 5, revision: 'stale' }));
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/chat-scene-panel-light.png' });
@@ -188,7 +188,7 @@ try {
   assert.ok(historyReads.length > beforeAll, 'Switching to all scenes fetches the latest history');
   assert.equal(historyLimits.at(-1), 250, 'Saved limit reaches the live chat; stale messages cannot change it');
   await page.waitForFunction(() => document.querySelector('#chat-scene-indicator .chat-scene-label').textContent === '桌面·测试电脑');
-  assert.equal(await chat.locator('#input').inputValue(), '切换时保留的草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '切换时保留的草稿');
   assert.equal(await chat.locator('#input').isDisabled(), false, '全部场景上下文仍向当前场景发送');
   await sceneButton.click();
   assert.equal(await scenePanel.count(), 0);
@@ -208,7 +208,7 @@ try {
   await chat.getByText('返回时从服务器取回的桌面对话', { exact: true }).waitFor();
   assert.ok(historyReads.length > beforeCurrent, 'Returning to the current scene also refreshes history');
   assert.equal(await chat.getByText('切换后从服务器取回的网页对话', { exact: true }).count(), 0);
-  assert.equal(await chat.locator('#input').inputValue(), '切换时保留的草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '切换时保留的草稿');
   await page.waitForFunction(() => document.querySelector('#chat-scene-indicator .chat-scene-label').textContent === '桌面·测试电脑');
   // An out-of-date frame command cannot switch the current chat.
   const scopeReplies = await page.evaluate(() => {

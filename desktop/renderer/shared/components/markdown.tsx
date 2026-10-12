@@ -1,5 +1,7 @@
+import { IntelligentUI } from "../intelligent-ui/view";
 import hljs, { type Emitter } from "highlight.js";
-import { Fragment, memo, useId, useMemo, useState, type ReactNode } from "react";
+import { Fragment, createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { detectStructuredText, formatJSON } from './structured-text';
 import { marked, type Token, type Tokens } from "marked";
 import {
   placeFromURL,
@@ -39,6 +41,7 @@ const terms: Record<string, PlaceView> = {
 const termPattern =
   /镇公所公告|公告板|镇民通讯录|镇通讯录|通讯录|篝火|围炉|私信|邮局|收件箱|书架|卷轴|工具库|本机连接|种子花园|\b(?:announcements|contacts|seed garden|seeds|bonfire|fireside|embers|scrolls|kits?|portal)\b/gi;
 const markdownLanguages = new Set(["markdown", "md", "mkdown", "mkd"]);
+export const CodeClipboard = createContext<(text: string) => Promise<void>>(text => navigator.clipboard.writeText(text));
 export function safeLink(value: string): string | undefined {
   try {
     const url = new URL(value);
@@ -117,19 +120,28 @@ export const Markdown = memo(function Markdown({
   className = "reading-text",
   onPlace,
   chat = false,
+  richCode = chat,
   renderText,
   previewMarkdownCode = true,
+  intelligentUI = false,
+  streaming = false,
 }: {
   content: string;
   className?: string;
   onPlace?: (target: PlaceTarget) => void;
   chat?: boolean;
+  richCode?: boolean;
   renderText?: (text: string) => ReactNode;
   previewMarkdownCode?: boolean;
+  intelligentUI?: boolean;
+  streaming?: boolean;
 }) {
   const tokens = useMemo(
-    () => marked.lexer(content, { gfm: true, breaks: chat }),
-    [content, chat],
+    () => {
+      const language = richCode && detectStructuredText(content);
+      return language ? [{ type: 'code', raw: content, text: content, lang: language } as Tokens.Code] : marked.lexer(content, { gfm: true, breaks: chat });
+    },
+    [content, chat, richCode],
   );
   const linked = new Set<PlaceView>();
   // Explicit links take precedence over automatic word links throughout the message.
@@ -198,7 +210,7 @@ export const Markdown = memo(function Markdown({
       >
         {value}
       </a>
-    ) : chat && language !== undefined ? (
+    ) : richCode && language !== undefined ? (
       <HighlightedCode text={value} language={language} />
     ) : (
       value
@@ -259,8 +271,12 @@ export const Markdown = memo(function Markdown({
           const lang = (block.lang || "")
             .split(/\s/)[0]
             .replace(/[^a-z0-9_-]/gi, "");
-          node = chat && previewMarkdownCode && markdownLanguages.has(lang.toLowerCase()) ? (
+          node = intelligentUI && lang.toLowerCase() === "intelligent-ui" ? (
+            <IntelligentUI source={block.text} streaming={streaming} />
+          ) : richCode && previewMarkdownCode && markdownLanguages.has(lang.toLowerCase()) ? (
             <MarkdownCodeBlock text={block.text} language={lang} />
+          ) : richCode ? (
+            <ChatCodeBlock text={block.text} language={lang} />
           ) : (
             <div className="code-block">
               {chat && lang && <div className="code-lang">{lang}</div>}
@@ -417,6 +433,7 @@ function MarkdownCodeBlock({ text, language }: { text: string; language: string 
           >
             源码
           </button>
+          <CopyCode text={text} />
         </div>
       </div>
       <div id={panelId} role="region" aria-label={mode === "preview" ? "Markdown 预览" : "Markdown 源码"}>
@@ -429,6 +446,38 @@ function MarkdownCodeBlock({ text, language }: { text: string; language: string 
       </div>
     </div>
   );
+}
+
+function CopyCode({ text }: { text: string }) {
+  const copy = useContext(CodeClipboard);
+  const [status, setStatus] = useState('复制代码');
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return <button type="button" aria-label={status} onClick={async () => {
+    clearTimeout(timer.current);
+    try { await copy(text); setStatus('已复制'); }
+    catch { setStatus('复制失败，请重试'); }
+    timer.current = setTimeout(() => setStatus('复制代码'), 2000);
+  }}><span role="status">{status}</span></button>;
+}
+
+function ChatCodeBlock({ text, language }: { text: string; language: string }) {
+  const inferred = useMemo(() => !language ? detectStructuredText(text) : undefined, [text, language]);
+  const lang = (language || inferred || 'text').toLowerCase();
+  const json = ['json', 'jsonl', 'ndjson'].includes(lang);
+  const formatted = useMemo(() => lang === 'json' ? formatJSON(text) : undefined, [text, lang]);
+  const [pretty, setPretty] = useState(false);
+  const display = pretty && formatted !== undefined ? formatted : text;
+  return <div className="code-block rich-code-block">
+    <div className="code-lang markdown-code-toolbar">
+      <span>{inferred ? `Auto (${inferred.toUpperCase()})` : language || 'text'}</span>
+      <div className="markdown-code-modes" role="group" aria-label="代码显示选项">
+        {formatted !== undefined && <button type="button" aria-pressed={pretty} onClick={() => setPretty(value => !value)}>{pretty ? '源码' : '格式化'}</button>}
+        <CopyCode text={display} />
+      </div>
+    </div>
+    <pre><code className={`hljs lang-${language || inferred || 'text'}`}><HighlightedCode text={display} language={json ? 'json' : language || 'plaintext'} /></code></pre>
+  </div>;
 }
 
 interface Scope {
@@ -489,7 +538,7 @@ function render(node: Scope | string, key = 0): ReactNode {
     </span>
   );
 }
-function HighlightedCode({
+export function HighlightedCode({
   text,
   language,
 }: {

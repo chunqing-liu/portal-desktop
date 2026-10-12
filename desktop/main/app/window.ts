@@ -35,6 +35,15 @@ export function createMainWindow(options: MainWindowOptions) {
     if (pluginDocument) return;
     // Plugin documents cannot navigate to host pages, external sites or custom protocols.
     if (event.frame?.url.startsWith('beings://plugins/')) { event.preventDefault(); return; }
+    // Only a chat document may embed the isolated Intelligent UI runtime.
+    // The runtime is an ordinary navigation, so CSP permission alone is insufficient.
+    const parentURL = event.frame?.parent?.url;
+    const chatParent = parentURL ? new URL(parentURL) : undefined;
+    const runtimeDocument = !event.isMainFrame && parsed.protocol === 'beings:' && parsed.hostname === 'chat'
+      && parsed.pathname === '/iui-runtime.html' && !parsed.search && !parsed.hash
+      && chatParent?.protocol === 'beings:' && chatParent.hostname === 'chat'
+      && ['/', '/loom.html'].includes(chatParent.pathname);
+    if (runtimeDocument) return;
     const chatDocument = parsed.protocol === 'beings:' && parsed.hostname === 'chat' && parsed.pathname === '/';
     if (!chatDocument && url !== options.shellURL()) { event.preventDefault(); options.openExternal(url); }
   });

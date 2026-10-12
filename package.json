@@ -74,6 +74,13 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "@tiptap/extension-table": "^3.31.4",
+    "@tiptap/extension-task-item": "^3.31.4",
+    "@tiptap/extension-task-list": "^3.31.4",
+    "@tiptap/markdown": "^3.31.4",
+    "@tiptap/pm": "^3.31.4",
+    "@tiptap/react": "^3.31.4",
+    "@tiptap/starter-kit": "^3.31.4",
     "highlight.js": "11.11.1",
     "marked": "^15.0.12",
     "react": "^19.3.0",

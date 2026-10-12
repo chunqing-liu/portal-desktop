@@ -65,7 +65,7 @@ await bundle('main.cjs', `
         if (url.pathname === '/shell.js') return new Response(await readFile(path.join(__dirname, 'shell.js')), { headers: { 'Content-Type': 'text/javascript' } });
         return new Response('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/shell.css"><style>html,body,#root{margin:0;height:100%;width:100%;overflow:hidden}iframe{display:block;border:0;width:100%;height:100%}</style><div id="root"></div><script src="/shell.js"></script>', { headers: { 'Content-Type': 'text/html' } });
       }
-      if (url.pathname === '/api/history') return Response.json({ messages: [{ seq: 1, role: 'being', content: '右键选择文字，复制到剪贴板。', at: new Date().toISOString() }] });
+      if (url.pathname === '/api/history') return Response.json({ messages: [{ seq: 1, scene_id: 'desktop-fixture', role: 'being', content: '右键选择文字，复制到剪贴板。', at: new Date().toISOString() }] });
       if (url.pathname === '/api/status') return Response.json({ being_name: '菜单测试' });
       if (url.pathname === '/api/stream/active') return new Response(null, { status: 204 });
       if (url.pathname === '/api/llm/config') return Response.json({ sbs_enabled: false });
@@ -137,7 +137,10 @@ try {
   const menu = frame.getByRole('menu', { name: '编辑菜单' });
   async function open(target = input) { await target.click({ button: 'right' }); await menu.waitFor(); }
   async function choose(label) { await menu.getByRole('menuitem', { name: new RegExp('^' + label) }).click(); await menu.waitFor({ state: 'hidden' }); }
-  async function textIs(text) { await child.waitForFunction(text => document.querySelector('#input').value === text, text); }
+  async function textIs(text) { await child.waitForFunction(text => {
+    const el = document.querySelector('#input');
+    return (el.value ?? el.editor.getMarkdown()) === text;
+  }, text); }
   await input.fill('保留草稿与选区');
   await open();
   assert.equal(await menu.getByRole('menuitem').count(), 4);
@@ -150,12 +153,20 @@ try {
   await open(); await page.keyboard.press('ArrowUp');
   assert.equal(await menu.getByRole('menuitem', { name: /^全选/ }).evaluate(el => el === document.activeElement), true);
   await choose('全选');
-  assert.equal(await input.evaluate(el => el.selectionEnd - el.selectionStart), '保留草稿与选区'.length);
+  assert.equal(await input.evaluate(el => el instanceof HTMLTextAreaElement
+    ? el.selectionEnd - el.selectionStart : getSelection().toString().length), '保留草稿与选区'.length);
   await open(); await choose('复制');
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), '保留草稿与选区');
   await open(); await choose('剪切'); await textIs('');
   await open(); await choose('粘贴'); await textIs('保留草稿与选区');
-  await input.evaluate(el => el.setSelectionRange(2, 4));
+  await input.evaluate(el => {
+    if (el instanceof HTMLTextAreaElement) el.setSelectionRange(2, 4);
+    else {
+      const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode();
+      const range = document.createRange(); range.setStart(text, 2); range.setEnd(text, 4);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+    }
+  });
   await input.evaluate(el => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 500 })));
   await choose('粘贴'); await textIs('保留保留草稿与选区与选区');
 
@@ -169,6 +180,7 @@ try {
   });
   await open(); await choose('粘贴'); await frame.locator('#pending-files.active').waitFor();
   const message = frame.locator('.message.being .content').first();
+  await message.click();
   await message.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(range); });
   await open(message);
   assert.equal(await menu.getByRole('menuitem').count(), 2);
@@ -241,6 +253,8 @@ try {
     console.error(await page.frames().find(frame => frame.url().startsWith('beings://chat/'))?.evaluate(() => ({
       viewport: [innerWidth, innerHeight], menu: document.querySelector('.chat-context-menu')?.outerHTML,
       bounds: document.querySelector('.chat-context-menu')?.getBoundingClientRect().toJSON(),
+      draft: document.querySelector('#input')?.outerHTML,
+      markdown: document.querySelector('#input')?.editor?.getMarkdown(),
     })));
     await mkdir('test-results', { recursive: true });
     await page.screenshot({ path: 'test-results/chat-context-menu-failure.png' });

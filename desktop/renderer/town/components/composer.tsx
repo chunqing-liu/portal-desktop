@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 import type { TownModel } from "../models/town";
 import { useModel } from "../../shared/hooks/use-model";
 import { Dialog } from "../../shared/components/dialog";
-import { Markdown } from '../../shared/components/markdown';
+import { CodeClipboard, Markdown } from '../../shared/components/markdown';
+import { RichComposer, type ComposerHandle } from '../../shared/components/rich-composer';
 import { MentionText } from './mention-text';
 export function TownComposer({ model }: { model: TownModel }) {
   const town = useModel(model);
   const kind = town.sendTarget?.kind;
   const count = [...town.content].length;
-  const content = useRef<HTMLTextAreaElement>(null),
+  const content = useRef<ComposerHandle>(null),
     recipient = useRef<HTMLInputElement>(null);
   const close = () => {
     if (!town.sendBusy) {
@@ -21,6 +22,7 @@ export function TownComposer({ model }: { model: TownModel }) {
       (kind === "dm" ? recipient.current : content.current)?.focus();
   }, [town.sendOpen, kind]);
   return (
+    <CodeClipboard.Provider value={text => town.api.copyText(text)}>
     <Dialog
       open={town.sendOpen}
       busy={town.sendBusy}
@@ -85,7 +87,7 @@ export function TownComposer({ model }: { model: TownModel }) {
         <div id="town-send-reply" hidden={!town.sendTarget?.reply}>
           <blockquote id="town-reply-preview">
             {town.sendTarget?.reply
-              ? <><strong>{town.sendTarget.reply.author}：</strong><Markdown content={town.sendTarget.reply.preview}
+              ? <><strong>{town.sendTarget.reply.author}：</strong><Markdown richCode content={town.sendTarget.reply.preview}
                   renderText={text => <MentionText text={text} names={town.mentionNames} />} /></>
               : ""}
           </blockquote>
@@ -106,8 +108,9 @@ export function TownComposer({ model }: { model: TownModel }) {
             ? "回复内容或给 Being 的要求"
             : "内容或给 Being 的描述"}
         </label>
-        <textarea
+        <RichComposer
           id="town-send-content"
+          aria-label={town.sendTarget?.reply ? "回复内容或给 Being 的要求" : "内容或给 Being 的描述"}
           rows={6}
           required
           placeholder={
@@ -115,12 +118,12 @@ export function TownComposer({ model }: { model: TownModel }) {
               ? "直接写回复，或描述希望 Being 如何回复…"
               : "直接写下要发送的内容，或描述希望 Being 写什么…"
           }
-          ref={content}
+          textareaRef={content}
           maxLength={kind === "bonfire" ? 8000 : 64000}
           value={town.content}
           disabled={town.sendBusy}
-          onChange={(event) => {
-            town.content = event.target.value;
+          onChange={(value) => {
+            town.content = value;
             town.changed();
           }}
           onKeyDown={(event) => {
@@ -130,10 +133,10 @@ export function TownComposer({ model }: { model: TownModel }) {
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
-              if (town.canSend) event.currentTarget.form?.requestSubmit();
+              if (town.canSend) event.currentTarget.closest('form')?.requestSubmit();
             }
           }}
-        ></textarea>
+        />
         <p className="field-help town-being-send-help">
           {town.sendTarget?.reply
             ? "“让 Being 回复”会结合原消息、回复上文和你的要求直接发送。"
@@ -188,5 +191,6 @@ export function TownComposer({ model }: { model: TownModel }) {
         </div>
       </form>
     </Dialog>
+    </CodeClipboard.Provider>
   );
 }

@@ -137,13 +137,13 @@ try {
   await page.getByRole('button',{name:'切换到场景：桌面·测试设备'}).click();
   await chat.locator('#input').waitFor();
   await page.waitForFunction(() => document.querySelector('#chat-scene-indicator')?.textContent.includes('桌面·测试设备'));
-  assert.equal(await chat.locator('#input').inputValue(),'原会话草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()),'原会话草稿');
   await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor();
   assert.equal(await sbsVisibility.isChecked(),true);
   assert.equal(await chat.getByText('回复：方案内容',{exact:true}).count(),0);
   await page.getByRole('button',{name:'切换到场景：方案讨论'}).click();
   await chat.getByText('回复：方案内容',{exact:true}).waitFor();
-  assert.equal(await chat.locator('#input').inputValue(),'方案草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()),'方案草稿');
   await page.getByRole('button',{name:'切换到场景：方案讨论'}).click({button:'right'});
   await page.getByRole('menuitem',{name:'重命名',exact:true}).click();
   await page.getByRole('textbox',{name:'场景名称'}).fill('技术方案');
@@ -170,7 +170,7 @@ try {
   await chat.locator('.message-scene').filter({hasText:'技术方案'}).first().waitFor();
   await page.getByRole('button',{name:'切换到场景：技术方案'}).click();
   await chat.locator('#input:not(:disabled)').waitFor();
-  assert.equal(await chat.locator('#input').inputValue(),'方案草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()),'方案草稿');
   await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor({state:'hidden'});
   assert.equal(await sbsVisibility.isChecked(),false, 'All-scenes view must preserve the scene preference');
   assert.equal((await application.evaluate(() => globalThis.fixture.requests))[0].scene_id,discussion);
@@ -347,7 +347,11 @@ try {
   assert.equal((await page.evaluate(() => window.beings.snapshot())).chatScene.scene_id,'feishu-shared');
   // Scheduling is inspectable process metadata, never inline conversation prose.
   const wire = '独立问题\n\n[Desktop 场景调度提示]\n当前输入属于 scene_id="feishu-shared"。本客户端其他场景尚在处理或等待回复：\n[{"scene_id":"background-a"}]\n[/Desktop 场景调度提示]';
-  await chat.locator('#input').fill(wire);
+  // Preserve transport metadata verbatim instead of typing it through Markdown serialization.
+  await chat.locator('#input').evaluate((el, text) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text);
+    el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+  }, wire);
   await chat.locator('#send-btn').click();
   await chat.locator('.run-activity .scene-scheduling').waitFor({state:'attached'});
   const visibleQuestion = chat.locator('.message.user').filter({hasText:'独立问题'});

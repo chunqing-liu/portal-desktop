@@ -246,7 +246,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   await frame.locator('#input').fill('索引跳转保留的草稿');
   await frame.locator('#messages').evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});
   await frame.locator('#chat-jump-latest').waitFor();
-  assert.equal(await frame.locator('#input').inputValue(), '索引跳转保留的草稿');
+  assert.equal(await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '索引跳转保留的草稿');
   const readingPosition = await childFrame.evaluate(() => document.querySelector('#messages').scrollTop);
   appendHistory('being', '索引浏览时收到新回复。');
   await page.waitForTimeout(1600); // Pass the attention-refresh debounce.
@@ -267,7 +267,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   await page.locator('#chat-search-panel').evaluate(async el => { await Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))); });
   await page.screenshot({ path: 'test-results/chat-search.png' });
   await page.locator('.chat-search-result').click();
-  assert.equal(await frame.locator('#input').inputValue(), '索引跳转保留的草稿');
+  assert.equal(await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '索引跳转保留的草稿');
   await openChatSearch(page);
   await page.locator('#chat-search-input').fill('不存在的提问');
   await page.getByRole('status').getByText('没有匹配的对话内容',{exact:true}).waitFor();
@@ -304,9 +304,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   await frame.locator('#input').fill('unsent draft');
   const options = await openOptions(page);
   assert.equal(await options.getAttribute('open'), '');
-  assert.equal(await frame.locator('#input').inputValue(), 'unsent draft');
+  assert.equal(await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), 'unsent draft');
   await options.locator('summary').click();
-  assert.equal(await frame.locator('#input').inputValue(), 'unsent draft');
+  assert.equal(await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), 'unsent draft');
   // Repeat the native dialog/menu transition that used to drop Intel CI input.
   for (let round = 0; round < 3; round++) {
     await openClientSettings(page);

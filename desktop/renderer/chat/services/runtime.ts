@@ -1,3 +1,4 @@
+import { stripIntelligentUIContext, withIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import { createSceneRuntime } from "./scene-runtime";
 import { HistoryCache } from "./history-cache";
 import { chatHistoryLimit } from '../../../shared/chat-history';
@@ -765,7 +766,7 @@ function createStreamRuntime(state: any, options: any): any {
     isoTime: any = null,
     scene: any = role === "being" ? state.activeScene : state.currentScene,
   ) {
-    if (!streaming && role !== "system") text = cleanContent(role === "user" ? stripSceneTransition(text) : text);
+    if (!streaming && role !== "system") text = cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(text)) : text);
     if (!text && !streaming) return null; // skip empty after cleaning
 
     const ts = timestamp || formatTime();
@@ -1014,6 +1015,7 @@ function createStreamRuntime(state: any, options: any): any {
   // ---- Send ----
   function clearComposer() {
     state.draft = "";
+    state.intelligentUIForMessage = false;
     pendingFiles = [];
     renderPendingFiles();
   }
@@ -1026,7 +1028,7 @@ function createStreamRuntime(state: any, options: any): any {
   function queueDraft() {
     const msg = (state.draft || "").trim();
     if (!msg && !pendingFiles.length) return false;
-    sendQueue.push({ message: msg, files: [...pendingFiles] });
+    sendQueue.push({ message: msg, files: [...pendingFiles], intelligentUI: state.intelligentUIEnabled && state.intelligentUIForMessage });
     clearComposer();
     updateQueueIndicator();
     return true;
@@ -1038,7 +1040,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (isStreaming || !sendQueue.length) return;
     const next = sendQueue.shift();
     updateQueueIndicator();
-    send(next.message, next.files);
+    send(next.message, next.files, { intelligentUI: next.intelligentUI });
   }
 
   function scheduleFlushQueue() {
@@ -1890,13 +1892,14 @@ function createStreamRuntime(state: any, options: any): any {
     };
   }
 
-  async function spliceSend(text: any, files = pendingFiles) {
+  async function spliceSend(text: any, files = pendingFiles, sendOptions: any = {}) {
     const replyBaseline = new Set(state.items);
     let spliceMsg = (text || "").trim();
     if (!spliceMsg && !files.length) return;
     spliceMsg = options.prepareMessage?.(spliceMsg || `[${files.length} file(s)]`) ?? spliceMsg;
+    const requestMessage = withIntelligentUIContext(spliceMsg || `[${files.length} file(s)]`, !!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage), state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global']);
     const localMessage = addMessage("user", spliceMsg || `[${files.length} file(s)]`);
-    noteLocalEcho("user", spliceMsg, state.currentScene, localMessage);
+    noteLocalEcho("user", requestMessage, state.currentScene, localMessage, [spliceMsg]);
     clearComposer();
     let res;
     try {
@@ -1904,7 +1907,7 @@ function createStreamRuntime(state: any, options: any): any {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: spliceMsg || `[Sent ${files.length} file(s)]`,
+          message: requestMessage,
           session_id: sessionId,
           ...browserScenePayload(),
           ...(files.length
@@ -1939,7 +1942,7 @@ function createStreamRuntime(state: any, options: any): any {
       showThinkingIndicator();
       isStreaming = true;
       updateSendButton();
-      await driveChatStream(res, spliceMsg, [], replyBaseline);
+      await driveChatStream(res, spliceMsg, [], replyBaseline, requestMessage);
       return;
     }
     // 非 200/202：主动排空 body，别让连接挂着
@@ -1963,7 +1966,7 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
     if (isStreaming) {
-      await spliceSend(text, filesOverride || [...pendingFiles]);
+      await spliceSend(text, filesOverride || [...pendingFiles], sendOptions);
       return;
     }
     const replyBaseline = new Set(state.items);
@@ -1977,8 +1980,8 @@ function createStreamRuntime(state: any, options: any): any {
       : [...pendingFiles];
     if (!msg && !filesToSend.length) return;
     if (!isManualRetry) msg = options.prepareMessage?.(msg || `[${filesToSend.length} file(s)]`) ?? msg;
-    const requestMessage = sendOptions.requestMessage ??
-      options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg;
+    const requestMessage = isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withIntelligentUIContext(sendOptions.requestMessage ??
+      options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage), state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global']);
     turnContext = sceneTransitionNotice(requestMessage);
     replyRunSettled = false;
     pendingReply = { baseline: replyBaseline, phase: "processing" };
@@ -1988,7 +1991,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (!isManualRetry) {
       const localMessage = sendOptions.queuedMessage || addMessage("user", msg || `[${filesToSend.length} file(s)]`);
       // Servers may persist the user body without the transport-only scene cue.
-      noteLocalEcho("user", requestMessage || `[${filesToSend.length} file(s)]`, sendingScene, localMessage, [stripSceneTransition(requestMessage)]);
+      noteLocalEcho("user", requestMessage || `[${filesToSend.length} file(s)]`, sendingScene, localMessage, [stripSceneTransition(stripIntelligentUIContext(requestMessage))]);
       if (!fromQueue) clearComposer();
     }
     setStatus("thinking");
@@ -2556,7 +2559,7 @@ function createStreamRuntime(state: any, options: any): any {
       item.historySeq === Number(row.seq) && item.role === (row.role === "user" ? "user" : "being"));
     if (!message) return false;
     applyHistoryIdentity(message, historyIdentity(row));
-    message.persistedText = cleanContent(row.role === "user" ? stripSceneTransition(row.content) : row.content);
+    message.persistedText = cleanContent(row.role === "user" ? stripSceneTransition(stripIntelligentUIContext(row.content)) : row.content);
     if (!message.streaming) message.text = message.persistedText;
     changed();
     return true;
@@ -2689,7 +2692,7 @@ function createStreamRuntime(state: any, options: any): any {
       const role = message.role === "user" ? "user" : "being";
       const text = isHistoryMarker(message)
         ? `· ${breathMarkerLabel(message.content)} · ${identity.timestamp} ·`
-        : cleanContent(role === "user" ? stripSceneTransition(message.content) : message.content);
+        : cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(message.content)) : message.content);
       if (!text) continue;
       const item = isHistoryMarker(message)
         ? { ...identity, kind: "separator", id: `marker-${options.nextId()}`, marker: true, text }

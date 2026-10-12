@@ -1,3 +1,4 @@
+import { CodeClipboard } from '../shared/components/markdown';
 import { ToolsLibrary } from './components/tools-library';
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -36,6 +37,7 @@ export function Town({ model }: { model: TownModel }) {
     root = useRef<HTMLElement>(null);
   useLayoutEffect(() => { if (root.current) root.current.scrollTop = 0; }, [town.view, town.directId]);
   return (
+    <CodeClipboard.Provider value={text => town.api.copyText(text)}>
     <section
       id="town-view"
       data-module={town.view}
@@ -233,6 +235,7 @@ export function Town({ model }: { model: TownModel }) {
         </div>
       </div>
     </section>
+    </CodeClipboard.Provider>
   );
 }
 function TownBody({ town }: { town: TownModel }) {

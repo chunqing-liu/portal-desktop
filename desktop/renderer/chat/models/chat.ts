@@ -1,3 +1,4 @@
+import { readIntelligentUIPreference, saveIntelligentUIPreference } from "../../shared/intelligent-ui/context";
 import { Store } from "../../shared/models/store";
 import { messageScene, type HistoryScope, type MessageScene } from "./scenes";
 import { chatHistoryLimit } from '../../../shared/chat-history';
@@ -113,6 +114,19 @@ export interface Soul {
   [key: string]: unknown;
 }
 export class ChatState extends Store {
+  intelligentUISnapshots: Record<string, string> = {};
+  intelligentUIEnabled = readIntelligentUIPreference();
+  intelligentUIForMessage = false;
+  setIntelligentUIForMessage(enabled: boolean) {
+    this.intelligentUIForMessage = this.intelligentUIEnabled && enabled;
+    this.changed();
+  }
+  setIntelligentUIEnabled(enabled: boolean) {
+    this.intelligentUIEnabled = enabled;
+    if (!enabled) this.intelligentUIForMessage = false;
+    saveIntelligentUIPreference(enabled);
+    this.changed();
+  }
   items: ChatItem[] = [];
   historyLimit = chatHistoryLimit(Number(new URLSearchParams(location.search).get('history_limit')));
   subagentReady = false;

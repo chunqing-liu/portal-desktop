@@ -1,3 +1,6 @@
+import { templates, toUIStream } from "../shared/intelligent-ui/templates";
+import { useMessageScroll } from "./hooks/use-message-scroll";
+import { IntelligentUI } from "../shared/intelligent-ui/view";
 import { ConversationSearch, searchEntries } from "./services/conversation-search";
 import { replyBubbles } from "./models/reply-bubbles";
 import { ScheduledMessage } from './components/scheduling';
@@ -21,7 +24,8 @@ import {
 } from "./models/chat";
 import { inCurrentScene, isGlobalBeingMessage, sceneItems, sceneName, type HistoryScope } from "./models/scenes";
 import { useModel } from "../shared/hooks/use-model";
-import { Markdown } from "../shared/components/markdown";
+import { CodeClipboard, Markdown } from "../shared/components/markdown";
+import { RichComposer, type ComposerHandle } from "../shared/components/rich-composer";
 import { CopyMessage } from '../shared/components/copy-message';
 import { TemperatureGlow, ChatActivity } from "./components/messages";
 import { ChatSettings } from "./components/settings";
@@ -87,20 +91,12 @@ function ChatView({
   const currentSceneName = sceneName(state.currentScene, state.currentScene);
   const showActivity = state.historyScope === "all" || ((state.showSbsMessages || !!state.activeScene.sceneId) && inCurrentScene(state.activeScene, state.currentScene));
   const messages = useRef<HTMLDivElement>(null),
-    composer = useRef<HTMLTextAreaElement>(null),
+    composer = useRef<ComposerHandle>(null),
     fileInput = useRef<HTMLInputElement>(null);
-  const messageElements = useRef(new Map<string, HTMLDivElement>()),
-    scrollLock = useRef(true),
-    anchoredReplyId = useRef<string | null>(null),
-    trackedReplyId = useRef<string | null>(null),
-    followedTurnId = useRef<string | null>(null),
-    wheelAccum = useRef(0);
+  const messageElements = useRef(new Map<string, HTMLDivElement>());
+  const reader = useMessageScroll(visibleItems, messages, messageElements);
+  const { scrollLock, releaseAnchor } = reader;
   const scopeScroll = useRef<Partial<Record<HistoryScope, { top: number; locked: boolean }>>>({});
-  function releaseAnchor() {
-    anchoredReplyId.current = null;
-    followedTurnId.current = null;
-    wheelAccum.current = 0;
-  }
   const showStop = state.streaming && !state.draft.trim() && state.files.length === 0;
   function sendDraft() {
     releaseAnchor();
@@ -257,73 +253,6 @@ function ChatView({
     scrollLock.current = saved?.locked ?? true;
     if (messages.current && saved) messages.current.scrollTop = saved.top;
   }, [state.historyScope]);
-  useLayoutEffect(() => {
-    const el = composer.current;
-    if (!el) return;
-    const style = getComputedStyle(el),
-      line = parseFloat(style.lineHeight) || 22;
-    const max =
-      line * (matchMedia("(max-width: 640px)").matches ? 4 : 6) +
-      (parseFloat(style.paddingTop) || 0) +
-      (parseFloat(style.paddingBottom) || 0);
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, max) + "px";
-    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
-  }, [state.draft, viewport.height]);
-  useLayoutEffect(() => {
-    const container = messages.current;
-    if (!container) return;
-    let streamingReply: Message | undefined;
-    let streamingTurnId: string | null = null;
-    for (let index = visibleItems.length - 1; index >= 0; index -= 1) {
-      const item = visibleItems[index];
-      if (item.kind !== "message" || item.role !== "being" || !item.streaming) continue;
-      streamingReply = item;
-      for (let previous = index - 1; previous >= 0; previous -= 1) {
-        const candidate = visibleItems[previous];
-        if (candidate.kind === "message" && candidate.role === "user") {
-          streamingTurnId = candidate.turnId ?? candidate.id;
-          break;
-        }
-      }
-      streamingTurnId ??= item.id;
-      break;
-    }
-    if (streamingReply && trackedReplyId.current !== streamingReply.id) {
-      trackedReplyId.current = streamingReply.id;
-      if (scrollLock.current || followedTurnId.current === streamingTurnId) followedTurnId.current = streamingTurnId;
-    }
-    if (anchoredReplyId.current && (!streamingReply || streamingReply.id !== anchoredReplyId.current)) {
-      anchoredReplyId.current = null;
-      wheelAccum.current = 0;
-    }
-    if (anchoredReplyId.current) {
-      const reply = messageElements.current.get(anchoredReplyId.current);
-      if (reply) {
-        const replyTop = reply.getBoundingClientRect().top;
-        const containerTop = container.getBoundingClientRect().top;
-        container.scrollTop += replyTop - containerTop - 20;
-      }
-      return;
-    }
-    if (streamingReply && followedTurnId.current === streamingTurnId) {
-      const reply = messageElements.current.get(streamingReply.id);
-      if (reply) {
-        const replyTop = reply.getBoundingClientRect().top;
-        const containerTop = container.getBoundingClientRect().top;
-        const replyOffset = replyTop - containerTop;
-        const bottom = Math.max(0, container.scrollHeight - container.clientHeight);
-        const replyOffsetAtBottom = replyOffset + container.scrollTop - bottom;
-        if (replyOffsetAtBottom < 20) {
-          anchoredReplyId.current = streamingReply.id;
-          scrollLock.current = false;
-          container.scrollTop += replyOffset - 20;
-          return;
-        }
-      }
-    }
-    if (scrollLock.current) container.scrollTop = container.scrollHeight;
-  });
   useEffect(() => {
     const readSelection = () => {
       const selected = window.getSelection();
@@ -371,6 +300,8 @@ function ChatView({
       bridge.send({ type: "beings:open-place", ...target }),
     [bridge],
   );
+  const [showIntelligentUI, setShowIntelligentUI] = useState(false);
+  const [uiExample, setUIExample] = useState<keyof typeof templates>("bicycle");
   const close = () => {
     setPanel(null);
     if (panelReturnsToSettings)
@@ -385,6 +316,7 @@ function ChatView({
         ? `${(bytes / 1024).toFixed(1)}KB`
         : `${(bytes / 1048576).toFixed(1)}MB`;
   return (
+    <CodeClipboard.Provider value={bridge.copyText}>
     <div
       className={`chat-root${parent === window ? " standalone-chat" : ""}`}
       style={
@@ -502,26 +434,11 @@ function ChatView({
         <div
           id="messages"
           ref={messages}
-          onWheel={(event) => {
-            if (anchoredReplyId.current) {
-              wheelAccum.current += Math.abs(event.deltaY);
-              if (wheelAccum.current > 30) releaseAnchor();
-              return;
-            }
-            if (event.deltaY < 0) {
-              releaseAnchor();
-              scrollLock.current = false;
-            }
-          }}
-          onTouchMove={() => {
-            if (anchoredReplyId.current) releaseAnchor();
-          }}
-          onScroll={() => {
-            const el = messages.current!;
-            scrollLock.current =
-              el.scrollHeight - el.scrollTop - el.clientHeight <= 1;
-            setSelection(null);
-          }}
+          tabIndex={0}
+          aria-label="对话消息"
+          onWheel={reader.onWheel}
+          onTouchMove={reader.onTouchMove}
+          onScroll={() => { reader.onScroll(); setSelection(null); }}
         >
           {!visibleItems.some(item => item.kind === "message") && !state.thinking && (
             <div className="chat-scope-empty">
@@ -568,6 +485,10 @@ function ChatView({
                 </div>
                 <ScheduledMessage
                   text={item.text}
+                  intelligentUI={item.role === "being"}
+                  storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id])}
+                  onContinue={text => { state.draft = text; state.changed(); composer.current?.focus(); }}
+                  onSnapshot={text => { state.intelligentUISnapshots[item.sceneId || 'global'] = text; }}
                   streaming={item.streaming}
                   chat
                   onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
@@ -641,17 +562,24 @@ function ChatView({
               </div>
             ))}
           </div>
+          {showIntelligentUI && <div className="iui-playground" id="intelligent-ui-settings">
+            <div className="iui-playground-actions"><strong>智能界面 <small>Beta</small></strong><button type="button" aria-label="关闭智能界面设置" onClick={() => setShowIntelligentUI(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
+            <label className="iui-beta-toggle"><span>启用智能 UI</span><input type="checkbox" role="switch" checked={state.intelligentUIEnabled} onChange={event => state.setIntelligentUIEnabled(event.target.checked)} /></label>
+            <p className="iui-beta-description">启用后，可在输入框底部选择“本条使用智能 UI”。只为选中的消息附加界面能力和当前选择，发送后自动取消。</p>
+            {state.intelligentUIEnabled && <details className="iui-beta-demo"><summary>体验本地交互示例</summary><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></details>}
+          </div>}
           <div id="input-row">
-            <textarea
-              ref={composer}
+            <RichComposer
+              key={state.currentScene.sceneId || "global"}
+              textareaRef={composer}
               id="input"
               rows={1}
               className={state.queued ? "queued" : ""}
               placeholder="说点什么…"
               aria-label="message input"
               value={state.draft}
-              onChange={(event) => {
-                state.draft = event.target.value;
+              onChange={(value) => {
+                state.draft = value;
                 state.changed();
               }}
               onCompositionStart={() => {
@@ -675,6 +603,7 @@ function ChatView({
                 sendDraft();
               }}
             />
+            <button type="button" className="btn-icon iui-trigger" title={`智能界面 Beta · ${state.intelligentUIForMessage ? "本条已选择" : state.intelligentUIEnabled ? "按条选择" : "未启用"}`} aria-label="Intelligent UI Beta 设置" aria-expanded={showIntelligentUI} aria-controls="intelligent-ui-settings" data-enabled={state.intelligentUIForMessage} onClick={() => setShowIntelligentUI(v => !v)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M3.5 9.5h17M10 9.5V20"/><path d="M14 13h3M14 16h2"/></svg><span className="iui-trigger-dot" aria-hidden="true" /></button>
             <button
               className="btn-icon"
               type="button"
@@ -684,6 +613,7 @@ function ChatView({
             >
               ＋
             </button>
+            {state.intelligentUIEnabled && <div className="iui-message-option"><button type="button" aria-label="本条使用智能 UI" aria-pressed={state.intelligentUIForMessage} onClick={() => state.setIntelligentUIForMessage(!state.intelligentUIForMessage)}><span aria-hidden="true">{state.intelligentUIForMessage ? '✓' : '+'}</span>智能 UI <small>仅本条</small></button></div>}
             <button
               className={`btn-icon${showStop ? " stop" : ""}`}
               id="send-btn"
@@ -752,5 +682,6 @@ function ChatView({
         一起看这段 ↗
       </button>
     </div>
+    </CodeClipboard.Provider>
   );
 }

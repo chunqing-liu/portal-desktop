@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TownModel } from "../desktop/renderer/town/models/town";
 import { SceneStore } from "../desktop/renderer/shared/models/scene";
 import { hostPluginContext } from '../desktop/renderer/plugins/context';
-import type { DesktopAPI, KitInstallPlan, KitLibrary, LocalKit } from "../desktop/shared/types";
+import type { DesktopAPI, KitInstallPlan, KitLibrary, LocalKit, TownResult } from "../desktop/shared/types";
 
 const kit = (name: string, version = "1.0"): LocalKit => ({ name, version, directory: "/kits/" + name, description: "Kit", command: ["node", "server.mjs"], tools: [], compatible: true, eager: false });
 const library = (...kits: LocalKit[]): KitLibrary => ({ directory: "/kits", enabled: true, kits });
@@ -21,6 +21,32 @@ function fixture(overrides: Partial<DesktopAPI> = {}) {
 }
 
 describe("Kit installation status", () => {
+  it('commits remote selection with its detail request and rejects an older response', async () => {
+    const pending = new Map<string, (value: any) => void>();
+    const { model } = fixture({ town: vi.fn(query => new Promise<TownResult>(resolve => pending.set(query.id!, resolve))) });
+    const entry = (id: string) => ({ key: `grove:${id}`, kind: 'plugin' as const, name: id, description: '', local: false, remote: { id } });
+    model.selectTool(entry('goals'));
+    model.selectTool(entry('pipeline'));
+    expect(model.toolSelection).toBe('grove:pipeline');
+    expect(model.selectedId).toBe('pipeline');
+    expect(model.detail).toBeUndefined();
+    pending.get('pipeline')!({ ok: true, data: { name: '星图流程看板' }, fetchedAt: '' });
+    await vi.waitFor(() => expect(model.detail?.fragments[0].name).toBe('星图流程看板'));
+    pending.get('goals')!({ ok: true, data: { name: '目标' }, fetchedAt: '' });
+    await Promise.resolve();
+    expect(model.detail?.query.id).toBe('pipeline');
+    expect(model.detail?.fragments[0].name).toBe('星图流程看板');
+  });
+
+  it('keeps installed plugin details local even when matched to a Grove entry', () => {
+    const { model, api } = fixture();
+    model.selectTool({ key: 'plugin:goals', kind: 'plugin', name: '目标', description: '', local: true,
+      plugin: { manifest: { id: 'goals' } } as any, remote: { id: 'goals-remote' } });
+    expect(model.toolSelection).toBe('plugin:goals');
+    expect(api.town).not.toHaveBeenCalled();
+    expect(model.detail).toBeUndefined();
+  });
+
   it('clears remote resource context and rejects late details when selecting a local tool', async () => {
     let release!: (value: any) => void;
     const { model } = fixture({ town: vi.fn().mockResolvedValueOnce({ ok: true,

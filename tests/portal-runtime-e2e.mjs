@@ -180,14 +180,14 @@ try {
   assert.equal(chatRequests.length, 0);
   await page.locator('#scene-compose').click();
   await page.getByText('对话输入框已有草稿，请先处理原草稿，再放入引用。', { exact: true }).waitFor();
-  assert.equal(await frame.locator('#input').inputValue(), '保留未发送草稿');
+  assert.equal(await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '保留未发送草稿');
   assert.equal(await frame.locator('#pending-files.active').count(), 1);
   assert.equal(chatRequests.length, 0);
   await frame.locator('#input').fill('');
   await frame.getByRole('button', { name: '移除 draft.txt', exact: true }).click();
   await page.locator('#scene-compose').click();
   await page.locator('#companion-panel').waitFor({ state: 'hidden' });
-  const quote = await frame.locator('#input').inputValue();
+  const quote = await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown());
   assert(quote.startsWith('一起看看Portal 设置'));
   assert(quote.includes(preview.split('\n').map(line => '> ' + line).join('\n')));
   assert.equal(chatRequests.length, 0);

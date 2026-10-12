@@ -1,11 +1,13 @@
 import { mkdir, readFile, writeFile, copyFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
+import { writeThirdPartyLicenses } from './third-party-licenses.mjs';
 
 const output = path.resolve("desktop/generated");
 await mkdir(output, { recursive: true });
 // All chat UI is compiled from React; the HTML file is only its document entry.
-await build({
+const chatBuild = await build({
+  metafile: true,
   entryPoints: ["desktop/renderer/chat/main.tsx"],
   bundle: true,
   format: "iife",
@@ -32,22 +34,11 @@ await copyFile(
 await writeFile(path.join(output, "chat.css"),
   await readFile("desktop/renderer/shared/typography.css", "utf8") + "\n" +
   await readFile("desktop/renderer/chat/styles.css", "utf8") + "\n" +
+  await readFile("desktop/renderer/shared/components/rich-composer.css", "utf8") + "\n" +
   await readFile("desktop/renderer/shared/model-settings.css", "utf8"));
-const notices = [];
-for (const [name, file] of [
-  ["marked", "LICENSE.md"],
-  ["highlight.js", "LICENSE"],
-  ["react", "LICENSE"],
-  ["react-dom", "LICENSE"],
-  ["scheduler", "LICENSE"],
-]) {
-  notices.push(
-    `${name}\n${await readFile(path.join("node_modules", name, file), "utf8")}`,
-  );
-}
-await writeFile(
+await writeThirdPartyLicenses(
   path.join(output, "THIRD-PARTY-LICENSES.txt"),
-  notices.join("\n\n---\n\n"),
+  Object.keys(chatBuild.metafile.inputs),
 );
 console.log("Built React chat assets in desktop/generated.");
 await build({
@@ -59,3 +50,5 @@ await writeFile(path.join(output, "client-context.html"), '<!doctype html><meta 
 
 // Match the chat iframe's top-level site so Chromium uses the same storage key.
 await writeFile(path.join(output, "client-context-host.html"), '<!doctype html><meta charset="utf-8"><iframe src="beings://chat/client-context.html"></iframe>');
+
+await copyFile('web/public/iui-runtime.html', path.join(output, 'iui-runtime.html'));

@@ -138,7 +138,7 @@ try {
   assert.equal(await page.locator('#messages .message').count(), 102);
   assert.equal(await page.getByText('历史 3', { exact: true }).count(), 1);
   assert.ok(await page.locator('.message-scene').getByText('town-mail', { exact: true }).count());
-  assert.equal(await page.locator('#input').inputValue(), '切换时保留草稿');
+  assert.equal(await page.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '切换时保留草稿');
   assert.match(await page.locator('.chat-scope-caption').textContent(), /发送到：Loom/);
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/chat-scenes-all.png' });
@@ -228,7 +228,7 @@ try {
   assert.equal(await chat.locator('#messages .message').count(), 1);
   await selectScene('recent-room');
   await chat.getByText('最近场景 101', { exact: true }).waitFor();
-  assert.equal(await chat.locator('#input').inputValue(), '缓存恢复时保留草稿');
+  assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '缓存恢复时保留草稿');
   await selectScene('another-client');
   await chat.getByText('已持久化的流式回复', { exact: true }).waitFor();
   assert.equal(await chat.locator('#messages .message').count(), 1);

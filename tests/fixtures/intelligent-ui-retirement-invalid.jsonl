@@ -1,0 +1,83 @@
+{"op":"begin","version":2,"title":"退休储蓄计算器"}
+{"op":"state","key":"age","initial":30}
+{"op":"state","key":"retire","initial":60}
+{"op":"state","key":"savings","initial":200000}
+{"op":"state","key":"monthly","initial":3000}
+{"op":"state","key":"rate","initial":5}
+{"op":"node","node":{"id":"age","type":"slider","label":"当前年龄","bind":"age","min":20,"max":55,"step":1,"value":{"op":"concat","args":[{"state":"age"}," 岁"]}}
+{"op":"node","node":{"id":"retire","type":"slider","label":"退休年龄","bind":"retire","min":50,"max":70,"step":1,"value":{"op":"concat","args":[{"state":"retire"}," 岁"]}}
+{"op":"node","node":{"id":"savings","type":"number","label":"现有储蓄（元）","bind":"savings","min":0,"max":5000000,"step":10000}}
+{"op":"node","node":{"id":"monthly","type":"slider","label":"每月定投","bind":"monthly","min":500,"max":20000,"step":500,"value":{"op":"concat","args":["¥ ",{"state":"monthly"}," /月"]}}
+{"op":"node","node":{"id":"rate","type":"slider","label":"年化收益率","bind":"rate","min":1,"max":12,"step":0.5,"value":{"op":"concat","args":[{"op":"fixed","args":[{"state":"rate"},1]},"%"]}}
+{"op":"node","node":{"id":"total","type":"metric","label":"退休时总额","value":{"op":"concat","args":["¥ ",{"op":"fixed","args":[
+{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"sub","args":[{"state":"retire"},{"state":"age"}]},12]}]}]},
+  {"op":"div","args":[
+    {"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[
+      {"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"sub","args":[{"state":"retire"},{"state":"age"}]},12]}]},
+      1
+    ]}]},
+    {"op":"div","args":[{"state":"rate"},1200]}
+  ]}
+]},0]}}
+{"op":"node","node":{"id":"principal","type":"metric","label":"投入本金","value":{"op":"concat","args":["¥ ",{"op":"fixed","args":[
+{"op":"add","args":[{"state":"savings"},{"op":"mul","args":[{"state":"monthly"},{"op":"mul","args":[12,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]}]}
+]},0]}}
+{"op":"node","node":{"id":"gain","type":"metric","label":"投资收益","value":{"op":"concat","args":["¥ ",{"op":"fixed","args":[
+{"op":"sub","args":[
+  {"op":"add","args":[
+    {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"sub","args":[{"state":"retire"},{"state":"age"}]},12]}]}]},
+    {"op":"div","args":[
+      {"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[
+        {"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"sub","args":[{"state":"retire"},{"state":"age"}]},12]}]},
+        1
+      ]}]},
+      {"op":"div","args":[{"state":"rate"},1200]}
+    ]}
+  ]},
+  {"op":"add","args":[{"state":"savings"},{"op":"mul","args":[{"state":"monthly"},{"op":"mul","args":[12,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]}]}
+]},0]}}
+{"op":"node","node":{"id":"income","type":"metric","label":"退休后每月可领（4% 法则）","value":{"op":"concat","args":["¥ ",{"op":"fixed","args":[
+{"op":"div","args":[
+  {"op":"mul","args":[
+    {"op":"add","args":[
+      {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"sub","args":[{"state":"retire"},{"state":"age"}]},12]}]}]},
+      {"op":"div","args":[
+        {"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[
+          {"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"sub","args":[{"state":"retire"},{"state":"age"}]},12]}]},
+          1
+        ]}]},
+        {"op":"div","args":[{"state":"rate"},1200]}
+      ]}
+    ]},
+    0.04
+  ]},
+  12
+]},0]}}
+{"op":"node","node":{"id":"curve","type":"chart","label":"账户余额增长曲线","variant":"line","columns":["时间","账户余额（元）","rows":[
+["第 5 年",{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[5,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]}]},
+  {"op":"div","args":[{"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[5,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]},1]}]},{"op":"div","args":[{"state":"rate"},1200]}]}
+]},
+["第 10 年",{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[10,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]}]},
+  {"op":"div","args":[{"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[10,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]},1]}]},{"op":"div","args":[{"state":"rate"},1200]}]}
+]},
+["第 15 年",{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[15,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]}]},
+  {"op":"div","args":[{"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[15,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]},1]}]},{"op":"div","args":[{"state":"rate"},1200]}]}
+]},
+["第 20 年",{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[20,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]}]},
+  {"op":"div","args":[{"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[20,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]},1]}]},{"op":"div","args":[{"state":"rate"},1200]}]}
+]},
+["第 25 年",{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[25,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]}]},
+  {"op":"div","args":[{"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[25,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]},1]}]},{"op":"div","args":[{"state":"rate"},1200]}]}
+]},
+["第 30 年",{"op":"add","args":[
+  {"op":"mul","args":[{"state":"savings"},{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[30,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]}]},
+  {"op":"div","args":[{"op":"mul","args":[{"state":"monthly"},{"op":"sub","args":[{"op":"pow","args":[{"op":"add","args":[1,{"op":"div","args":[{"state":"rate"},1200]}]},{"op":"mul","args":[{"op":"min","args":[30,{"op":"sub","args":[{"state":"retire"},{"state":"age"}]}]},12]}]},1]}]},{"op":"div","args":[{"state":"rate"},1200]}]}
+]}
+]]}
+{"op":"commit"}

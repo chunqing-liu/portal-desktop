@@ -104,6 +104,7 @@ const server = createServer(async (request, response) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
+testRun: {
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : { channel: 'chrome' }) });
   const page = await browser.newPage({ viewport: { width: 1100, height: 850 } });
@@ -120,6 +121,104 @@ try {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') event.stopPropagation();
     });
   });
+  // Inspect the compact composer with its optional per-message action enabled.
+  await frame.getByRole('button', { name: 'Intelligent UI Beta 设置', exact: true }).click();
+  await frame.locator('.iui-beta-toggle input').check();
+  await frame.getByRole('button', { name: '关闭智能界面设置', exact: true }).click();
+  await mkdir('test-results', { recursive: true });
+  await frame.locator('#input-area').screenshot({ path: 'test-results/chat-composer-compact.png' });
+  const actionBounds = await Promise.all([
+    frame.getByRole('button', { name: '本条使用智能 UI', exact: true }).boundingBox(),
+    frame.locator('#send-btn').boundingBox(),
+  ]);
+  assert.ok(Math.abs(actionBounds[0].y + actionBounds[0].height / 2 - actionBounds[1].y - actionBounds[1].height / 2) < 2);
+  // Edit rendered Markdown directly; JSON/source mode retains native text editing.
+  const jsonDraft = '{"标题":"聚餐","人数":4,"id":9007199254740993123}';
+  const editor = frame.locator('.rich-composer');
+  const input = frame.locator('#input');
+  const pasteDraft = async text => {
+    await input.press('Meta+a');
+    await input.press('Backspace');
+    await input.evaluate((el, text) => {
+      const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+    }, text);
+  };
+  const paint = editor.locator('.composer-highlight');
+  await pasteDraft(jsonDraft);
+  assert.equal(await editor.locator('.composer-format').count(), 0);
+  assert.equal(await paint.locator('.hljs-attr').count(), 3);
+  assert.equal(await paint.textContent(), jsonDraft + '\n');
+  assert.equal(await frame.locator('.draft-preview').count(), 0);
+  await input.press('End');
+  await input.press('ArrowLeft');
+  await input.press('Backspace');
+  assert.equal(await input.inputValue(), jsonDraft.slice(0, -2) + '}');
+  assert.equal(await paint.textContent(), await input.inputValue() + '\n');
+  await pasteDraft(jsonDraft);
+  await mkdir('test-results', { recursive: true });
+  await frame.locator('#input-area').screenshot({ path: 'test-results/chat-rich-draft.png' });
+  const richDraft = '# 标题\n\n1. **每个事件单行完整**，保留 `JSON` 代码\n2. **支持嵌套**，所有节点平铺\n\n| 名称 | 人数 |\n| --- | --- |\n| 聚餐 | 4 |';
+  await pasteDraft(richDraft);
+  await input.locator('strong').first().waitFor();
+  assert.equal(await input.locator('ol li').count(), 2);
+  assert.equal(await input.locator('table').count(), 1);
+  assert.ok(!(await input.textContent()).includes('**'));
+  assert.equal(await editor.locator('.composer-format').count(), 0, 'Typing Markdown must not reveal a toolbar');
+  await input.locator('strong').first().waitFor();
+  await frame.locator('#input-area').screenshot({ path: 'test-results/chat-markdown-editor.png' });
+  await input.press('Control+End');
+  await input.press('Shift+Enter');
+  await page.keyboard.insertText('继续编辑');
+  assert.ok((await input.textContent()).includes('继续编辑'));
+  await input.press('Meta+z');
+  assert.ok(!(await input.textContent()).includes('继续编辑'));
+
+  const longDraft = Array.from({ length: 30 }, (_, i) => JSON.stringify({ index: i, text: '长内容，检查自动换行与光标位置。'.repeat(3) })).join('\n');
+  await pasteDraft(longDraft);
+  await input.press('Control+End');
+  await input.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+  assert.equal(await input.evaluate(el => el.scrollTop), await paint.evaluate(el => el.scrollTop));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await child().evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await pasteDraft('{"op":"state","initial":"家常小聚"}\n{"op":"commit"}');
+  await frame.locator('#input-area').screenshot({ path: 'test-results/chat-rich-draft-dark-mobile.png' });
+  assert.equal(await frame.locator('#input-area').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  const metrics = await editor.evaluate(el => {
+    const input = el.querySelector('textarea'), paint = el.querySelector('pre');
+    const a = getComputedStyle(input), b = getComputedStyle(paint);
+    return { input: [a.fontFamily, a.fontSize, a.lineHeight, a.padding, input.clientWidth], paint: [b.fontFamily, b.fontSize, b.lineHeight, b.padding, paint.clientWidth] };
+  });
+  assert.deepEqual(metrics.input, metrics.paint);
+  assert.equal(await frame.locator('#input-row').evaluate(el => {
+    const editor = el.querySelector('.rich-composer').getBoundingClientRect();
+    const send = el.querySelector('#send-btn').getBoundingClientRect();
+    return send.top >= editor.bottom;
+  }), true, 'Send button stays below the editor without obscuring text');
+  await page.setViewportSize({ width: 1100, height: 850 });
+  await child().evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await pasteDraft(richDraft);
+  await input.locator('strong').first().waitFor();
+  await input.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',keyCode:229,isComposing:true,bubbles:true,cancelable:true})));
+  assert.equal(await input.locator('strong').count(),2,'IME confirmation does not send');
+  await input.press('ControlOrMeta+a');
+  await input.press('Backspace');
+  assert.equal(await input.textContent(), '', 'Select-all clears the entire rich document');
+  if (process.argv.includes('--rich-text-only')) {
+    await pasteDraft(richDraft);
+    await input.locator('strong').first().waitFor();
+    await input.press('Enter');
+    await waitUntil(() => requests.length > 0, 'Rich text sends Markdown source');
+    assert.ok(requests.at(-1).message.includes(richDraft), JSON.stringify(requests.at(-1).message));
+    await frame.locator('.message.user').last().locator('strong').first().waitFor();
+    await frame.locator('.message.being').last().getByText('React 回复完成', {exact:true}).waitFor();
+    assert.equal(await input.textContent(), '', 'Successful send clears the rich editor');
+    await input.press('Meta+z');
+    assert.equal(await input.textContent(), '', 'Undo cannot restore another draft after send');
+    assert.deepEqual(errors, []);
+    console.log('PASS: inline editable Markdown/JSON/JSONL, source preservation, format selection, scroll alignment and narrow layout.');
+    break testRun;
+  }
   await frame.locator('#input').focus();
   await page.keyboard.press('Control+f');
   await page.waitForFunction(() => window.received.some(item => item.type === 'beings:chat-search'));
@@ -174,14 +273,14 @@ try {
   await frame.locator('#chat-index-preview').waitFor();
   await frame.locator('.chat-index-tick').first().click();
   await frame.locator('.message.index-target').waitFor();
-  assert.equal(await frame.locator('#input').inputValue(), '保留草稿');
+  assert.equal(await frame.locator('#input').evaluate(el => el instanceof HTMLTextAreaElement ? el.value : el.textContent), '保留草稿');
   await frame.locator('#messages').evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});
   await frame.locator('#chat-jump-latest').waitFor();
-  assert.match(await frame.locator('#chat-jump-latest').textContent(), /\d+ 条消息/);
+  assert.equal(await frame.locator('#chat-jump-latest').innerText(), '回到底部');
   await frame.locator('#chat-jump-latest').click();
   await child().waitForFunction(()=>{const el=document.querySelector('#messages');return el.scrollHeight-el.scrollTop-el.clientHeight<2;});
   await frame.locator('#chat-jump-latest').waitFor({state:'hidden'});
-  assert.equal(await frame.locator('#input').inputValue(), '保留草稿');
+  assert.equal(await frame.locator('#input').evaluate(el => el instanceof HTMLTextAreaElement ? el.value : el.textContent), '保留草稿');
   assert.equal(await frame.locator('#chat-places').count(),0);
   assert.equal(await frame.locator('#messages').evaluate(el => getComputedStyle(el).scrollbarWidth),'none');
   await post({ type: 'beings:chat-action', action: 'model' });
@@ -248,7 +347,7 @@ try {
   assert.match(await frame.locator('#soul-stats').innerText(), /7/);
   await frame.getByRole('button', { name: '关闭 Being 信息' }).click();
   await post({ type: 'beings:chat-action', action: 'privacy' }); await frame.locator('#privacy-panel.active').waitFor(); await frame.getByRole('button', { name: '关闭隐私说明' }).click();
-  assert.equal(await frame.locator('#input').inputValue(), '保留草稿');
+  assert.equal(await frame.locator('#input').evaluate(el => el instanceof HTMLTextAreaElement ? el.value : el.textContent), '保留草稿');
   await child().evaluate(() => {
     const readAsDataURL = FileReader.prototype.readAsDataURL;
     FileReader.prototype.readAsDataURL = function (file) {
@@ -298,7 +397,7 @@ try {
   assert.equal(await frame.locator('.run-activity').last().getAttribute('data-outcome'), 'error');
   await frame.locator('#input').fill('');
   const draft = { type: 'beings:scene-draft', id: 'draft1', text: '一起看：以下是引用内容：fixture', expiresAt: Date.now() + 10000 };
-  await post(draft); await child().waitForFunction(() => document.querySelector('#input').value.includes('fixture'));
+  await post(draft); await child().waitForFunction(() => (document.querySelector('#input').value ?? document.querySelector('#input').textContent).includes('fixture'));
   await post({ ...draft, id: 'draft2', text: '不得覆盖已有草稿' });
   await page.waitForFunction(() => window.received.some(item => item.type === 'beings:scene-draft-result' && item.id === 'draft2' && item.ok === false));
   await frame.locator('#send-btn').click();
@@ -373,4 +472,5 @@ try {
   console.log('PASS: React history/index/Markdown, searchable model settings without unsupported OAuth, API keys and parameters, attachments, live and spliced streams, stop/error cleanup, scene drafts, replay, dark/narrow layout.');
 } finally {
   heldResponse?.end(); markdownResponse?.end(); await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+}
 }

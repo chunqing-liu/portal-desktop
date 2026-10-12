@@ -984,9 +984,10 @@ export class TownModel extends Store {
   selectTool(entry?: ToolEntry) {
     if (entry?.kit) { this.selectLocal(entry.kit); return; }
     this.clearToolDetail();
+    this.toolSelection = entry?.key || '';
     this.scenes.update({ title: entry?.name || definitions.kits.title, selection: undefined,
       status: 'ready', scope: '工具库当前条目' });
-    if (entry?.remote) void this.loadDetail({ kind: 'kit', id: str(entry.remote.id) });
+    if (entry?.remote && !entry.plugin) void this.loadDetail({ kind: 'kit', id: str(entry.remote.id) });
     else this.changed();
   }
   selectLocal(kit: LocalKit) {

@@ -16,6 +16,31 @@ it('merges local and remote entries by type while retaining sideloaded plugins a
   expect(entries.filter(entry => entry.local).map(entry => entry.kind)).toEqual(['plugin', 'kit']);
   expect(entries.find(entry => entry.plugin)?.remote?.id).toBe('board');
 });
+it.each([false, true])('keeps remote plugins without plugin_id distinct regardless of order (reversed: %s)', reversed => {
+  const remote = [
+    { id: 'pipeline', name: '星图流程看板', kind: 'plugin' },
+    { id: 'goals', name: '目标', kind: 'plugin' },
+  ];
+  if (reversed) remote.reverse();
+  const local = { manifest: { id: 'local.goals', name: '目标', description: '' }, source: { kind: 'local' } } as InstalledPlugin;
+  const entries = toolEntries(remote, [], [local], []);
+  expect(entries).toHaveLength(3);
+  expect(entries[0].remote).toBeUndefined();
+  for (const record of remote) {
+    const entry = entries.find(item => item.key === `grove:${record.id}`)!;
+    expect(entry.name).toBe(record.name);
+    expect(entry.remote).toBe(record);
+  }
+});
+it('matches a sideloaded plugin only when Grove supplies its explicit plugin ID', () => {
+  const plugin = { manifest: { id: 'community.goals', name: '目标', description: '' }, source: { kind: 'local' } } as InstalledPlugin;
+  const remote = [{ id: 'goals', name: '目标', kind: 'plugin', plugin_id: 'community.goals' },
+    { id: 'pipeline', name: '星图流程看板', kind: 'plugin' }];
+  const entries = toolEntries(remote, [], [plugin], []);
+  expect(entries).toHaveLength(2);
+  expect(entries[0].remote).toBe(remote[0]);
+  expect(entries[1].remote).toBe(remote[1]);
+});
 it('only confirms local Apps when their chosen program still exists; unlink preserves the program', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'local-app-test-')); temporary.push(root);
   const program = path.join(root, 'program.exe'); await writeFile(program, 'fixture');

@@ -12,7 +12,12 @@ export function toolEntries(remote: Data[], kits: LocalKit[], plugins: Installed
   ];
   for (const item of remote) {
     const kind = groveEntryKind(item), id = str(item.id), name = str(item.name);
-    const found = entries.find(entry => entry.kind === kind && (kind === 'plugin' ? entry.plugin?.source.id === id || entry.plugin?.manifest.id === item.plugin_id : kind === 'kit' ? entry.name === name : entry.app?.id === id));
+    // Only installed plugins can match a remote record. Two absent plugin IDs
+    // must never merge unrelated Grove entries and overwrite their detail IDs.
+    const found = entries.find(entry => entry.kind === kind && (kind === 'plugin'
+      ? Boolean(entry.plugin && ((id && entry.plugin.source.kind === 'grove' && entry.plugin.source.id === id) ||
+        (typeof item.plugin_id === 'string' && item.plugin_id && entry.plugin.manifest.id === item.plugin_id)))
+      : kind === 'kit' ? entry.name === name : entry.app?.id === id));
     if (found) { found.remote = item; continue; }
     entries.push({ key: `grove:${id}`, kind, name, description: str(item.description), local: false, remote: item });
   }

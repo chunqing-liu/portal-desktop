@@ -33,14 +33,14 @@ export function JumpToLatest({ items, container, elements, scrollLock, clearAnch
     return () => { cancelAnimationFrame(frame); observer.disconnect(); node.removeEventListener("scroll", schedule); };
   }, [items, container, elements]);
   return <button id="chat-jump-latest" type="button" hidden={!away}
-    aria-label={below ? `${below} 条消息，回到最新消息` : "回到最新消息"}
+    aria-label="回到底部"
     onClick={() => {
       clearAnchor();
       scrollLock.current = true;
       container.current?.scrollTo({ top: container.current.scrollHeight,
-        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+        behavior: "instant" });
     }}>
-    <span>{below ? `${below} 条消息` : "回到最新消息"}</span>
+    <span>回到底部</span>
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
   </button>;
 }

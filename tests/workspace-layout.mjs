@@ -75,6 +75,7 @@ if (preview) {
   await new Promise(() => {});
 }
 let browser;
+testRun: {
 try {
   browser = await chromium.launch({channel:'chrome',headless:true});
   const page = await browser.newPage({reducedMotion:'reduce',viewport:{width:1440,height:960}});
@@ -104,8 +105,22 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await more.count(),0);
   assert.equal(await page.locator('#rail-more-trigger').evaluate(el=>el===document.activeElement),true);
+  const navigationOrder = () => rail.locator('[data-navigation-key]').evaluateAll(nodes => nodes.map(node => node.dataset.navigationKey));
+  const dragSource = await rail.getByRole('button',{name:'卷轴',exact:true}).boundingBox();
+  const dragTarget = await rail.getByRole('button',{name:'对话',exact:true}).boundingBox();
+  await page.mouse.move(dragSource.x + dragSource.width / 2, dragSource.y + dragSource.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(dragTarget.x + dragTarget.width / 2, dragTarget.y + dragTarget.height / 2, { steps: 12 });
+  await page.screenshot({path:'test-results/workspace-navigation-drag.png'});
+  assert.equal(await rail.locator('.rail-sorting-item').count(), 1);
+  await page.mouse.up();
+  assert.equal((await navigationOrder())[0], 'scrolls');
+  assert.equal(await rail.getByRole('button',{name:'对话',exact:true}).getAttribute('aria-current'), 'page', 'Dragging must not navigate');
+  const savedOrder = await navigationOrder();
   await page.reload();
   await rail.getByRole('button',{name:'卷轴',exact:true}).waitFor();
+  assert.deepEqual(await navigationOrder(), savedOrder, 'Dragged order survives reload');
+  if (process.argv.includes('--navigation-sort-only')) { console.log('PASS: pointer sorting, no accidental navigation, persistence after reload.'); break testRun; }
   await rail.getByRole('button',{name:'更多功能',exact:true}).click();
   await more.getByRole('button',{name:'取消固定：卷轴',exact:true}).click();
   assert.equal(await rail.getByRole('button',{name:'卷轴',exact:true}).count(),0);
@@ -331,3 +346,5 @@ try {
   assert.deepEqual(errors,[]);
   console.log('Workspace layout passed: central destinations, central chat with right-side modules, resize, dismissible Being details, retained chat, dark and narrow layouts.');
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}
+
+}

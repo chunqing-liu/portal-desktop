@@ -708,6 +708,15 @@ body[data-view=chat].has-topic .scene-ribbon{display:flex!important;min-height:0
 .workspace-rail .rail-links{justify-content:flex-start;gap:6px;padding:10px 0;min-height:0}
 .workspace-rail .rail-being{flex:none;background:var(--surface);border:1px solid var(--line);font:22px Georgia,serif;color:var(--secondary);margin-bottom:10px}
 .rail-button{position:relative}
+.rail-button[data-navigation-key]{touch-action:none;user-select:none;transition:transform 160ms cubic-bezier(.2,.8,.2,1),background 120ms}
+.rail-links{position:relative}
+.rail-links[data-sorting]::before{content:"";position:absolute;left:8px;right:8px;top:var(--sort-line);height:2px;border-radius:2px;background:var(--secondary);opacity:.25;pointer-events:none;z-index:3;transition:top 160ms cubic-bezier(.2,.8,.2,1)}
+.rail-links[data-sorting] .rail-button{cursor:grabbing}
+.rail-links[data-sorting] .rail-button:not(.rail-sorting-item){opacity:.65}
+.rail-links[data-sorting] .rail-sorting-item{z-index:2;transition:none;background:var(--control);box-shadow:0 3px 10px #00000012}
+body:has(.rail-links[data-sorting]) .rail-tooltip{display:none}
+.rail-links[data-sorting] .rail-icon-line{animation:none!important}
+@media(prefers-reduced-motion:reduce){.rail-button[data-navigation-key],.rail-links[data-sorting]::before{transition:none}}
 /* Animate the stroke itself; keep the SVG at its native size and position. */
 .rail-button:not(:disabled):is(:hover,:focus-visible) .rail-icon-line{animation:rail-icon-draw .45s ease-out}
 .rail-unread{position:absolute;right:6px;top:7px;width:6px;height:6px;background:var(--green);border-radius:50%;border:1px solid var(--bg)}

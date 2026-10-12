@@ -1,12 +1,15 @@
+import { IntelligentAnswer } from "../../shared/intelligent-ui/answer";
+import type { UIActions } from "../../shared/intelligent-ui/view";
 import type { ComponentProps } from 'react';
 import type { SceneTask } from '../../../shared/types';
 import { splitSchedulingHint } from '../models/scheduling';
 import { Markdown } from '../../shared/components/markdown';
 
-export function ScheduledMessage({ text, streaming, chat, onPlace }: { text: string; streaming: boolean; chat?: boolean; onPlace?: ComponentProps<typeof Markdown>['onPlace'] }) {
+export function ScheduledMessage({ text, streaming, chat, onPlace, intelligentUI = false, storageKey, onContinue, onSnapshot }: UIActions & { text: string; streaming: boolean; chat?: boolean; intelligentUI?: boolean; onPlace?: ComponentProps<typeof Markdown>['onPlace'] }) {
   const content = splitSchedulingHint(text);
+  if (intelligentUI) return <IntelligentAnswer text={content.text} streaming={streaming} onPlace={onPlace} storageKey={storageKey} onContinue={onContinue} onSnapshot={onSnapshot} />;
   return <>
-    <Markdown content={content.text} className={`content${streaming ? ' stream-cursor' : ''}`} chat={chat} onPlace={onPlace} />
+    <Markdown content={content.text} className={`content${streaming ? ' stream-cursor' : ''}`} chat={chat} onPlace={onPlace} intelligentUI={intelligentUI} streaming={streaming} />
 
   </>;
 }

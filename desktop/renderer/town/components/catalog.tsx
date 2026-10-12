@@ -256,12 +256,16 @@ export function DetailError({ town }: { town: TownModel }) {
 export function CatalogDetail({
   town,
   direct = false,
+  expectedId,
 }: {
   town: TownModel;
   direct?: boolean;
+  expectedId?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null),
-    detail = town.detail,
+    matchingSelection = expectedId === undefined || (town.selectedId === expectedId &&
+      (!town.detail || (town.detail.query.kind === 'kit' && town.detail.query.id === expectedId))),
+    detail = matchingSelection ? town.detail : undefined,
     first = detail?.fragments[0],
     query = detail?.query;
   const documentRoute =
@@ -278,10 +282,10 @@ export function CatalogDetail({
       ref={ref}
       className={`${direct ? "direct-reading" : "catalog-detail"}${query?.kind === "kit" ? " kit-detail" : ""}`}
     >
-      {!detail && !town.detailLoading && !town.detailError && (
+      {matchingSelection && !detail && !town.detailLoading && !town.detailError && (
         <div className="detail-placeholder">选择一项，查看内容与详情。</div>
       )}
-      {town.detailLoading && !detail && (
+      {(!matchingSelection || town.detailLoading) && !detail && (
         <p className="empty-inline">正在读取详情…</p>
       )}
       {first &&
@@ -364,7 +368,7 @@ export function CatalogDetail({
             )}
           </>
         ))}
-      <DetailError town={town} />
+      {matchingSelection && <DetailError town={town} />}
     </div>
   );
 }

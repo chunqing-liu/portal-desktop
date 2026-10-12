@@ -321,7 +321,7 @@ const Message = memo(function Message({
     [collapsible, m.content, mentionNames],
   );
   const body = (
-    <Markdown className="reading-text social-body" content={m.content}
+    <Markdown richCode className="reading-text social-body" content={m.content}
       renderText={renderText} />
   );
   return (
@@ -387,7 +387,7 @@ const Message = memo(function Message({
             </summary>
             {replyOpen && <div className="feed-reply-full">
               {replyTarget ? (
-                <Markdown
+                <Markdown richCode
                   className="reading-text social-body"
                   content={replyTarget.content}
                   renderText={renderText}

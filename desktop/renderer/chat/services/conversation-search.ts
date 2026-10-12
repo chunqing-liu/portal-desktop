@@ -1,3 +1,4 @@
+import { stripIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import type { HistoryMessage } from './history-cache';
 import { messageScene, stripSceneTransition } from '../models/scenes';
 export interface SearchEntry { id: string; text: string; sceneId: string; sceneLabel: string; role: string; at: string }
@@ -5,7 +6,7 @@ export function searchEntries(rows: HistoryMessage[], query: string): SearchEntr
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return [];
   return rows.filter(row => ['user','being','assistant'].includes(row.role)).flatMap(row => {
-    const text = stripSceneTransition(row.content || ''), position = text.toLocaleLowerCase().indexOf(needle);
+    const text = stripSceneTransition(row.role === 'user' ? stripIntelligentUIContext(row.content || '') : row.content || ''), position = text.toLocaleLowerCase().indexOf(needle);
     if (position < 0) return [];
     const scene = messageScene(row), start = Math.max(0, position - 55);
     return [{id:`history-${row.seq}`, text:(start ? '…' : '') + text.slice(start, start + Math.max(220, needle.length)) + (text.length > start + Math.max(220,needle.length) ? '…' : ''), sceneId:scene.sceneId || '', sceneLabel:scene.sceneLabel || '', role:row.role, at:row.at || ''}];

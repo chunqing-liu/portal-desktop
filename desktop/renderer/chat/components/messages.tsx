@@ -83,7 +83,7 @@ export function ChatActivity({
             {run.label}
           </span>
           {sceneLabel && <span className="message-scene" title={run.sceneId}>{sceneLabel}</span>}
-          <span className="run-elapsed">
+          <span className="run-elapsed" hidden={passive}>
             总耗时 {" "}
             {duration(
               Math.max(0, Math.floor(((run.end || now) - run.start) / 1000)),

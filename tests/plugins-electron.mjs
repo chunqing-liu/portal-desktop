@@ -310,7 +310,7 @@ try {
   await page.locator('.plugin-card').getByRole('button', { name: '流程看板', exact: true }).click();
   await page.frameLocator('.plugin-frame:visible').locator('.react-flow__node').first().waitFor();
   sdkFrame = await activePluginFrame(page);
-  assert.equal(await page.frameLocator('#chat-frame').locator('#input').inputValue(), 'SDK 草稿');
+  assert.equal(await page.frameLocator('#chat-frame').locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), 'SDK 草稿');
   assert.deepEqual(await sdkFrame.evaluate(() => grove.being.compose('不能覆盖')), { inserted: false });
   assert.equal((await app.evaluate(() => globalThis.pluginSent)).length, 0);
   await app.evaluate(() => { globalThis.pluginConfirm = false; });
