@@ -63,9 +63,10 @@ export interface Run extends MessageScene {
   context?: string;
   arg: string;
   waitingForReply?: boolean;
+  status?: import("../../../shared/types").ChatSceneActivity;
   scheduling?: { hint: string; tasks: import("../../../shared/types").SceneTask[] };
   synthetic?: boolean;
-  outcome?: "stopped" | "error" | "done";
+  outcome?: "stopped" | "error" | "timeout" | "done";
 }
 export type ChatItem =
   | Message

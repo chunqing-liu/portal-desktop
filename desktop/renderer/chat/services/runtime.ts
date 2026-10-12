@@ -211,7 +211,8 @@ function createStreamRuntime(state: any, options: any): any {
     }
   }
   let currentRun: any = null;
-  let pendingReply: any = null;
+  type PendingReply = { baseline: Set<any>; phase: "queued" | "processing" | "reply" };
+  let pendingReply: PendingReply | null = null;
   let replyRunSettled = false;
   let replayTransportOnly = false;
   function setStreamScene(scene: any) {
@@ -296,7 +297,7 @@ function createStreamRuntime(state: any, options: any): any {
     moveRun();
     if (actionLog.length || !run.entries.length || isStreaming)
       run.entries = actionLog.map((entry) => ({ ...entry }));
-    const waiting = Boolean(pendingReply?.waiting) || (!isStreaming && Boolean(pendingRecovery || pendingReply));
+    const waiting = (pendingReply && pendingReply.phase !== "processing") || (!isStreaming && Boolean(pendingRecovery || pendingReply));
     const lastTool = [...run.entries]
       .reverse()
       .find((entry) => entry.type === "tool" && !entry.done);
@@ -318,9 +319,13 @@ function createStreamRuntime(state: any, options: any): any {
             ? "已处理"
             : "已结束";
       run.hint = "";
+      run.status = run.outcome;
     } else {
+      run.status = waiting
+        ? pendingReply ? pendingReply.phase === "queued" ? "queued" : "waiting" : "reconnecting"
+        : livePhase === "tool" && lastTool ? "working" : livePhase === "text" ? "replying" : "thinking";
       run.label = waiting
-        ? pendingReply ? pendingReply.label : "正在恢复连接"
+        ? pendingReply ? pendingReply.phase === "queued" ? "已排队，等待执行" : "等待最终回复" : "正在恢复连接"
         : livePhase === "tool" && lastTool
           ? `正在运行 ${lastTool.name || "工具"}`
           : livePhase === "text"
@@ -625,10 +630,10 @@ function createStreamRuntime(state: any, options: any): any {
   }
 
   function actionLogFinalizePending() {
-    // Mark any in-progress entries as done, record duration for thinks.
+    // A reply boundary is not a tool result. Leave unresolved tools unconfirmed.
     const now = Date.now();
     for (const a of actionLog) {
-      if (!a.done) {
+      if (!a.done && a.type === "think") {
         a.done = true;
         if (a.type === "think")
           a.duration = Math.max(1, Math.round((now - a.ts) / 1000));
@@ -1229,9 +1234,9 @@ function createStreamRuntime(state: any, options: any): any {
         tuiCurrentArg = "";
       }
       replyRunSettled = false;
-      if (pendingReply?.waiting) {
-        pendingReply.waiting = false;
-        pendingReply.label = "等待处理中";
+      if (pendingReply && pendingReply.phase !== "processing") {
+        logReplyWait("progress");
+        pendingReply.phase = "processing";
         stopCatchUpWatcher();
       }
     }
@@ -1621,7 +1626,6 @@ function createStreamRuntime(state: any, options: any): any {
               const text = data.delta?.text || "";
               if (!text) continue;
               if (myEpoch !== writerEpoch) continue; // F2: 已被 poller 接管，静默丢弃
-              if (pendingReply) pendingReply.waiting = false;
               removeThinkingIndicator();
               tuiClear();
               streamText += text;
@@ -1921,7 +1925,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (res.status === 202) {
       // Heart accepted this input for splice/yield. The Being decides whether
       // to resume, switch scene or delegate; 202 is not task completion.
-      pendingReply = { baseline: replyBaseline, label: "已排队，等待回复" };
+      pendingReply = { baseline: replyBaseline, phase: "queued" };
       updateSendButton();
       startCatchUpWatcher();
       return;
@@ -1977,7 +1981,7 @@ function createStreamRuntime(state: any, options: any): any {
       options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg;
     turnContext = sceneTransitionNotice(requestMessage);
     replyRunSettled = false;
-    pendingReply = { baseline: replyBaseline, label: "等待回复", waiting: false };
+    pendingReply = { baseline: replyBaseline, phase: "processing" };
     replayTransportOnly = false;
     setStreamScene(state.currentScene);
 
@@ -2038,7 +2042,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (res.status === 202) {
       try { await res.json(); } catch (_: any) {}
       // Accepted is not completed: release the POST reader, retain this scene's run.
-      pendingReply = { baseline: replyBaseline, label: "已排队，等待回复" };
+      pendingReply = { baseline: replyBaseline, phase: "queued" };
       removeThinkingIndicator();
       tuiClear();
       finalizeSendCleanup();
@@ -2069,7 +2073,7 @@ function createStreamRuntime(state: any, options: any): any {
       const result = await consumeChatStream(res, msg, filesToSend);
       if (result.outcome === "done" && result.empty && !result.handled) {
         // EOF without any scene response is not evidence that the request completed.
-        pendingReply = { baseline: replyBaseline, label: "等待回复" };
+        pendingReply = { baseline: replyBaseline, phase: "reply" };
         removeThinkingIndicator();
         startCatchUpWatcher();
       }
@@ -2940,7 +2944,16 @@ function createStreamRuntime(state: any, options: any): any {
   const CATCH_UP_MAX_INTERVAL_MS = 30000;
   const CATCH_UP_ABSOLUTE_MAX_MS = 5 * 60 * 1000;
   let catchUpTimer: any = null;
+  let catchUpGeneration = 0;
+  function logReplyWait(event: string) {
+    console.info("[chat-reply-wait]", JSON.stringify({ event, at: new Date().toISOString(),
+      sceneId: state.currentScene.sceneId, streamId: currentStreamId || lastStreamId,
+      runId: currentRun?.id, phase: pendingReply?.phase, lastProgressAt: lastProgressTime,
+      toolCount: actionLog.filter(entry => entry.type === "tool").length }));
+  }
   function stopCatchUpWatcher() {
+    // Invalidate history reads already in flight, not just scheduled ticks.
+    catchUpGeneration++;
     if (catchUpTimer) {
       clearTimeout(catchUpTimer);
       catchUpTimer = null;
@@ -2951,13 +2964,13 @@ function createStreamRuntime(state: any, options: any): any {
     if (pendingReplyArrived()) { finishPendingReply(); return; }
     // Heart can end a breath during a scene switch without emitting a reply.
     // Keep the submitted request unresolved instead of showing a success check.
-    pendingReply.waiting = true;
-    pendingReply.label = "等待处理中";
+    pendingReply.phase = "reply";
     startCatchUpWatcher();
     updateSendButton();
   }
   function finishPendingReply(failed = false) {
     if (!pendingReply) return;
+    logReplyWait(failed ? "timeout" : "replied");
     pendingReply = null;
     stopCatchUpWatcher();
     actionLogFinalizePending();
@@ -2965,26 +2978,34 @@ function createStreamRuntime(state: any, options: any): any {
       currentRun.entries = actionLog.map(entry => ({ ...entry }));
       currentRun.end = Date.now();
       currentRun.waitingForReply = false;
-      currentRun.outcome = failed ? "error" : "done";
-      currentRun.label = failed ? "等待回复超时" : "已回复";
-      currentRun.hint = failed ? "等待处理超时，可刷新查看最新结果。" : "";
+      currentRun.outcome = failed ? "timeout" : "done";
+      currentRun.status = currentRun.outcome;
+      currentRun.label = failed ? "等待超时，结果待确认" : "已回复";
+      currentRun.hint = failed ? "连续等待 5 分钟仍未确认最终回复。后台任务可能仍在运行，本次等待超时未发送停止指令；可刷新查看最新结果。" : "";
     }
     replyRunSettled = true;
     changed();
   }
   function pendingReplyArrived() {
-    return pendingReply && state.items.some((item: any) => item.kind === "message" && item.role === "being"
-      && inCurrentScene(item, state.currentScene) && !item.streaming && !item.interim && !pendingReply.baseline.has(item)
+    const reply = pendingReply;
+    return reply && state.items.some((item: any) => item.kind === "message" && item.role === "being"
+      && inCurrentScene(item, state.currentScene) && !item.streaming && !item.interim && !reply.baseline.has(item)
       && !options.restoredHistory?.has(item));
   }
   function startCatchUpWatcher() {
     stopCatchUpWatcher();
+    if (!pendingReply || pendingReply.phase === "processing") return;
+    const generation = catchUpGeneration;
+    const reply = pendingReply;
+    logReplyWait("started");
     const deadline = Date.now() + CATCH_UP_ABSOLUTE_MAX_MS;
     let delay = CATCH_UP_INITIAL_MS;
     const tick = async () => {
       catchUpTimer = null;
-      if (!pendingReply) return;
-      if (!isStreaming || pendingReply.waiting) await reconcileHistory({ preserve: true });
+      if (generation !== catchUpGeneration || pendingReply !== reply) return;
+      await reconcileHistory({ preserve: true });
+      // Progress, cancellation, or a new wait may arrive while history loads.
+      if (generation !== catchUpGeneration || pendingReply !== reply) return;
       if (pendingReplyArrived()) { finishPendingReply(); return; }
       if (!pendingReply || catchUpTimer) return;
       if (Date.now() >= deadline) { finishPendingReply(true); return; }
@@ -3306,7 +3327,6 @@ function createStreamRuntime(state: any, options: any): any {
       case "content_block_delta": {
         const text = eventData.delta?.text || "";
         if (!text) break;
-        if (pendingReply) pendingReply.waiting = false;
         removeThinkingIndicator();
         tuiClear();
         streamText += text;
@@ -3564,11 +3584,13 @@ function createStreamRuntime(state: any, options: any): any {
     replyCompletedAt: () => currentRun?.label === "已回复" ? currentRun.end || 0 : 0,
     sceneActivity: () => {
       if (replayTransportOnly && !pendingReply) return null;
-      if (pendingReply && (pendingReply.waiting || !isStreaming)) return "waiting";
+      if (pendingRecovery) return "reconnecting";
+      if (pendingReply && (pendingReply.phase !== "processing" || !isStreaming))
+        return pendingReply.phase === "queued" ? "queued" : "waiting";
       if (isStreaming && !replyRunSettled)
         return livePhase === "tool" ? "working" : livePhase === "text" ? "replying" : "thinking";
       if (currentRun?.end) {
-        if (currentRun.outcome === "error") return "error";
+        if (currentRun.outcome === "error" || currentRun.outcome === "timeout") return currentRun.outcome;
         if (currentRun.outcome === "stopped") return "stopped";
         // A bare reasoning/stop boundary does not establish that a reply arrived.
         return currentRun.label === "已回复" ? "done" : null;
@@ -3578,7 +3600,7 @@ function createStreamRuntime(state: any, options: any): any {
     hasStream: (id: any) => isStreaming && currentStreamId === id,
     recoverConnection: onReconnected,
     syncConnection: (next: any) => { connState = next; applyDotClass(); },
-    ownsLiveScene: (scene: any) => isStreaming && !pendingReply?.waiting && inCurrentScene(scene, state.activeScene),
+    ownsLiveScene: (scene: any) => isStreaming && (!pendingReply || pendingReply.phase === "processing") && inCurrentScene(scene, state.activeScene),
     acceptReplay: replayStream,
     acceptSceneEvent: (type: any, data: any) => {
       if ((type === "meta" && !data.persisted) || type === "usage") return;

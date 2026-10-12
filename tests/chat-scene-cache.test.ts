@@ -62,7 +62,7 @@ describe("scene history cache fallback", () => {
       await vi.advanceTimersByTimeAsync(2200);
       expect(visible(state).filter(m => m.kind === "message").map(m => m.text))
         .toEqual([old[0].content, old[1].content, "今天的新问题"]);
-      expect(activity.mock.calls.at(-1)?.[0]["old-room"]).toBe("waiting");
+      expect(activity.mock.calls.at(-1)?.[0]["old-room"]).toBe("queued");
       network.push({ seq: 401, role: "being", content: "今天的新回复", scene_id: "old-room" });
       await vi.advanceTimersByTimeAsync(4000);
       expect(activity.mock.calls.at(-1)?.[0]["old-room"]).toBe("done");

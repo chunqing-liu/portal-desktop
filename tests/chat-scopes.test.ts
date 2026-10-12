@@ -592,7 +592,7 @@ describe("scene history refresh", () => {
       await runtime.send("C 输入");
       expect(requests.map(r => r.message)).toEqual(["B 输入"]);
       expect(state.items.find(i => i.kind === "run" && i.sceneId === "desktop-b"))
-        .toMatchObject({ label: "已排队，等待回复" });
+        .toMatchObject({ label: "已排队，等待执行" });
       expect(state.items.find(i => i.kind === "message" && i.text === "C 输入"))
         .toMatchObject({ queued: true });
       history.push({ seq: 1, role: "user", content: "B 输入", scene_id: "desktop-b" },
@@ -605,7 +605,7 @@ describe("scene history refresh", () => {
       expect(state.items.filter(i => i.kind === "message" && i.text === "B 排队回复")).toHaveLength(1);
       expect(state.items.find(i => i.kind === "run" && i.sceneId === "desktop-b")).toMatchObject({ outcome: "done" });
       expect(state.items.find(i => i.kind === "run" && i.sceneId === "desktop-c"))
-        .toMatchObject({ label: "已排队，等待回复" });
+        .toMatchObject({ label: "已排队，等待执行" });
     } finally { runtime.dispose(); }
   });
 
@@ -641,7 +641,7 @@ describe("scene history refresh", () => {
       expect(state.items.some(item => item.kind === "message" && item.text === "A 旧格式回复")).toBe(true);
       if (strict) {
         expect(requests.map(r => r.message)).toEqual(["A 输入"]);
-        expect(state.items.find(item => item.kind === "run" && item.sceneId === "desktop-test")).toMatchObject({ label: "已排队，等待回复", waitingForReply: true });
+        expect(state.items.find(item => item.kind === "run" && item.sceneId === "desktop-test")).toMatchObject({ label: "已排队，等待执行", waitingForReply: true });
         history.push({ seq: 2, role: "being", content: "A 场景回复", scene_id: "desktop-test" });
         await vi.advanceTimersByTimeAsync(4100);
       }
@@ -677,7 +677,7 @@ describe("scene history refresh", () => {
       await vi.advanceTimersByTimeAsync(2000);
       const runs = state.items.filter((i): i is Extract<ChatItem, {kind:"run"}> => i.kind==="run" && i.sceneId==="desktop-test");
       expect(runs).toHaveLength(1);
-      expect(runs[0]).toMatchObject({label:"等待处理中",waitingForReply:true});
+      expect(runs[0]).toMatchObject({label:"等待最终回复",waitingForReply:true});
       expect(runs[0].end).toBeUndefined();
       emit("content_block_delta","desktop-test",{delta:{text:"A response"}});
       emit("message_stop","desktop-test");
@@ -742,10 +742,10 @@ describe("scene history refresh", () => {
       await vi.advanceTimersByTimeAsync(0);
       const runs = state.items.filter(i => i.kind === "run");
       expect(runs).toHaveLength(1);
-      expect(runs[0]).toMatchObject({ label: "等待回复", waitingForReply: true });
+      expect(runs[0]).toMatchObject({ label: "等待最终回复", waitingForReply: true });
       expect(runs[0].end).toBeUndefined();
       await vi.advanceTimersByTimeAsync(300_100);
-      expect(runs[0]).toMatchObject({ label: "等待回复超时", outcome: "error" });
+      expect(runs[0]).toMatchObject({ label: "等待超时，结果待确认", outcome: "timeout" });
       expect(state.items.filter(i => i.kind === "run")).toHaveLength(1);
     } finally { runtime.dispose(); }
   });

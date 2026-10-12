@@ -46,10 +46,10 @@ export type PortalPhase = 'running' | 'stopped' | 'starting' | 'connected' | 're
 export interface PortalState { phase: PortalPhase; pid?: number; managed?: boolean; runtimePath?: string; conflict?: boolean; message: string; logs: string[] }
 export interface BackgroundState { supported: boolean; installed: boolean; enabled: boolean; running: boolean; existing: boolean; label?: string; pid?: number; message: string }
 export interface ChatScene { scene_id: string; scene_meta: { client: string; scene_label: string } }
-export type ChatSceneActivity = 'queued' | 'thinking' | 'replying' | 'working' | 'waiting' | 'done' | 'error' | 'stopped';
+export type ChatSceneActivity = 'queued' | 'thinking' | 'replying' | 'working' | 'waiting' | 'reconnecting' | 'timeout' | 'done' | 'error' | 'stopped';
 export const CHAT_SCENE_ACTIVITY_LABELS: Record<ChatSceneActivity, string> = {
-  queued: '排队中', thinking: '思考中', replying: '回复中', working: '执行中', waiting: '等待回复',
-  done: '已回复', error: '出错了', stopped: '已停止',
+  queued: '排队中', thinking: '思考中', replying: '回复中', working: '执行中', waiting: '等待最终回复',
+  reconnecting: '恢复连接中', timeout: '等待超时', done: '已回复', error: '执行异常', stopped: '已停止',
 };
 export interface SceneTask { id: string; sceneId: string; status: "queued" | "running" | "done" | "failed" | "cancelled" | "interrupted" | "budget_exhausted" | "timeout"; createdAt: number; endedAt?: number; error?: string }
 export interface SceneTaskSnapshot { endpoint: string; tasks: SceneTask[]; subagentReady?: boolean; subagentConfigured?: boolean; subagentEnabled?: boolean }

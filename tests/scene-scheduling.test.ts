@@ -141,7 +141,7 @@ it('keeps independent scene messages unchanged regardless of subagent readiness'
 });
 
 it('does not resurrect a timed-out or stopped reply when the background task is done', () => {
-  for (const outcome of ['error','stopped'] as const) {
+  for (const outcome of ['error','timeout','stopped'] as const) {
     const input:any[]=[{kind:'message',role:'user',id:'user',sceneId:'b',createdAt:10,text:'independent'},
       {kind:'run',id:'run',sceneId:'b',start:11,end:100,entries:[],label:'等待回复超时',outcome}];
     const output:any[]=withScheduling(input,[{id:'sub-b',sceneId:'b',createdAt:20,endedAt:30,status:'done'}]);

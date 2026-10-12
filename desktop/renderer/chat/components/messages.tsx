@@ -1,6 +1,7 @@
 import { SceneScheduling } from './scheduling';
 import { useEffect, useMemo, useState } from "react";
 import type { ChatItem, Message, Run } from "../models/chat";
+import { CHAT_SCENE_ACTIVITY_LABELS } from "../../../shared/types";
 const duration = (seconds: number) =>
   seconds < 60
     ? `${seconds} 秒`
@@ -44,48 +45,54 @@ export function ChatActivity({
   const [open, setOpen] = useState(false),
     [now, setNow] = useState(Date.now);
   const passive = run.waitingForReply && !run.scheduling?.tasks.some(task => task.status === 'running' || task.status === 'queued');
+  const status = run.status || run.outcome || (passive ? "waiting" : "thinking");
   useEffect(() => {
     if (run.end) {
       setOpen(false);
       return;
     }
-    if (passive) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [run.end, passive]);
+  }, [run.end]);
   const tools = run.entries.filter((entry) => entry.type === "tool");
+  const failed = tools.filter(entry => entry.error).length;
+  const unconfirmed = tools.filter(entry => !entry.done && !entry.error).length;
   return (
     <details
       className={`run-activity${run.end || passive ? "" : " running"}`}
       data-outcome={run.outcome}
+      data-status={status}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>
-        <span className="run-icon">
+        <span className="run-icon" role="img" aria-label={CHAT_SCENE_ACTIVITY_LABELS[status]}>
           <Icon
             name={
               run.outcome === "stopped"
                 ? "stop"
                 : run.outcome === "error"
                   ? "error"
-                  : passive ? "wait" : "check"
+                  : status === "timeout" || passive ? "wait"
+                    : run.end ? "check" : status === "working" ? "tool" : "think"
             }
           />
         </span>
         <span className="run-caption">
-          <span className="run-label" title={run.arg}>
+          <span className="run-label" title={run.hint || run.arg}>
             {run.label}
           </span>
           {sceneLabel && <span className="message-scene" title={run.sceneId}>{sceneLabel}</span>}
-          <span className="run-elapsed" hidden={!!passive}>
+          <span className="run-elapsed">
+            总耗时 {" "}
             {duration(
               Math.max(0, Math.floor(((run.end || now) - run.start) / 1000)),
             )}
           </span>
           <span className="run-count">
             {tools.length ? `· ${tools.length} 次工具调用` : ""}
-            {run.end && tools.some((entry) => entry.error) ? " · 含失败项" : ""}
+            {failed > 0 && <span className="run-failures">{` · ${failed} 次失败`}</span>}
+            {unconfirmed > 0 ? ` · ${unconfirmed} 次${run.end ? "结果未确认" : "进行中"}` : ""}
           </span>
           {!run.end && run.context && <span className="run-context">{run.context}</span>}
         </span>
@@ -135,7 +142,7 @@ export function ChatActivity({
                       : entry.done
                         ? "已完成"
                         : run.end
-                          ? "未完成"
+                          ? "结果未确认"
                           : "进行中"}
                   </small>
                 </div>
