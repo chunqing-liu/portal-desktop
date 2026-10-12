@@ -83,9 +83,9 @@ function ChatView({
     media.addEventListener('change', change);
     return () => media.removeEventListener('change', change);
   }, [mobileWeb]);
-  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items, state.sceneTasks), state.historyScope, state.currentScene));
+  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items, state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
   const currentSceneName = sceneName(state.currentScene, state.currentScene);
-  const showActivity = state.historyScope === "all" || inCurrentScene(state.activeScene, state.currentScene);
+  const showActivity = state.historyScope === "all" || ((state.showSbsMessages || !!state.activeScene.sceneId) && inCurrentScene(state.activeScene, state.currentScene));
   const messages = useRef<HTMLDivElement>(null),
     composer = useRef<HTMLTextAreaElement>(null),
     fileInput = useRef<HTMLInputElement>(null);
@@ -197,6 +197,9 @@ function ChatView({
   useEffect(() => {
     bridge.send({ type: "beings:history-scope-state", scope: state.historyScope, sceneId: state.currentScene.sceneId });
   }, [bridge, state.historyScope, state.currentScene.sceneId]);
+  useEffect(() => {
+    bridge.send({ type: "beings:scene-sbs-state", sceneId: state.currentScene.sceneId, show: state.showSbsMessages });
+  }, [bridge, state.currentScene.sceneId, state.showSbsMessages]);
   useEffect(() => {
     if (mobileWeb) bridge.send({ type: 'beings:chat-panel', panel });
   }, [bridge, mobileWeb, panel]);
@@ -485,6 +488,10 @@ function ChatView({
             <input type="checkbox" checked={state.historyScope === "all"} disabled={!state.currentScene.sceneId}
               onChange={event => changeScope(event.target.checked ? "all" : "current")} />
             显示全部场景上下文
+          </label>
+          <label className="chat-scope-switch" title={state.historyScope === "all" ? "显示全部场景时始终显示 SBS 消息" : "仅影响当前场景的显示，包含无场景的全局消息"}>
+            <input type="checkbox" checked={state.historyScope === "all" || state.showSbsMessages} disabled={state.historyScope === "all"} onChange={event => state.setShowSbsMessages(event.target.checked)} />
+            显示 SBS 消息
           </label>
           <span className="chat-scope-caption" title={state.currentScene.sceneId}>
             {state.currentScene.sceneId

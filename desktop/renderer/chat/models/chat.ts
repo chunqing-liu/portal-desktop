@@ -123,6 +123,26 @@ export class ChatState extends Store {
   currentScene: MessageScene = { ...messageScene(Object.fromEntries(new URLSearchParams(location.search))), ...(new URLSearchParams(location.search).get("scene_strict") === "1" ? { strict: true } : {}) };
   activeScene: MessageScene = this.currentScene;
   historyScope: HistoryScope = this.currentScene.sceneId && new URLSearchParams(location.search).get("scene_scope") !== "all" ? "current" : "all";
+  private sbsVisibility = new Map<string, boolean>();
+  private get sbsVisibilityKey() {
+    const endpoint = new URLSearchParams(location.search).get("history_scope") || location.origin;
+    return `beings:scene-sbs:${JSON.stringify([endpoint, this.currentScene.sceneId || ""])}`;
+  }
+  get showSbsMessages(): boolean {
+    const key = this.sbsVisibilityKey;
+    if (!this.sbsVisibility.has(key)) {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem(key); } catch {}
+      this.sbsVisibility.set(key, saved === "true" || (saved !== "false" && !this.currentScene.sceneId));
+    }
+    return this.sbsVisibility.get(key)!;
+  }
+  setShowSbsMessages(show: boolean) {
+    const key = this.sbsVisibilityKey;
+    this.sbsVisibility.set(key, show);
+    try { localStorage.setItem(key, String(show)); } catch {}
+    this.changed();
+  }
   name = new URLSearchParams(location.search).get("name") || "being";
   soul: Soul = {};
   draft = "";

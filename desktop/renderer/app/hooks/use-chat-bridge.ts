@@ -119,6 +119,13 @@ export function useChatBridge(
         if (message.scope === "current" || message.scope === "all") app.setChatHistoryScope(message.scope);
         return;
       }
+      if (message.type === "beings:scene-sbs-state") {
+        if (typeof message.show !== "boolean" || message.sceneId !== app.snapshot?.chatScene?.scene_id) return;
+        app.chatShowSbsMessages = message.show;
+        app.chatSbsSceneId = message.sceneId;
+        app.changed();
+        return;
+      }
       if (message.type === "beings:sbs-state") {
         if (typeof message.enabled === "boolean") app.setSbsEnabled(message.enabled);
         else if (message.known === false) app.setSbsEnabled();

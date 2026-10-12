@@ -45,6 +45,8 @@ export class AppModel extends Store {
   chatLoading = false;
   chatHistoryScope: HistoryScope = "current";
   chatHistoryScopeKnown = false;
+  chatShowSbsMessages = false;
+  chatSbsSceneId?: string;
   chatSessionCreateRequest = 0;
   chatSceneActivity: Record<string, ChatSceneActivity> = {};
   private readSceneReplies = new Set<string>();
@@ -320,6 +322,7 @@ export class AppModel extends Store {
       this.logsLoading = false;
     }
     reload ||= Boolean(this.snapshot && next.settings.endpoint !== this.snapshot.settings.endpoint);
+    if (!sameChat || reload) this.chatSbsSceneId = undefined;
     this.snapshot = next;
     this.workspace.snapshot(next);
     if (next.settings.hasToken && (!this.chatSource || reload)) {
@@ -355,6 +358,7 @@ export class AppModel extends Store {
     this.postCurrentSession();
     this.postAppearance();
     this.post({ type: "beings:sbs-request" });
+    if (this.chatSource) this.post({ type: "beings:scene-sbs-request", revision: new URL(this.chatSource).searchParams.get("revision") });
     if (this.chatSource) this.post({ type: "beings:history-scope-request", revision: new URL(this.chatSource).searchParams.get("revision") });
     this.town.updateLive();
     this.post({ type: "beings:search-request", query: this.searchOpen ? this.search : "" });
@@ -392,6 +396,13 @@ export class AppModel extends Store {
     this.chatHistoryScope = scope;
     if (!this.chatSplitOpen) this.navigate("chat");
     this.post({ type: "beings:history-scope", scope, revision: new URL(this.chatSource).searchParams.get("revision") });
+  }
+  changeChatSbsVisibility(show: boolean) {
+    const sceneId = this.snapshot?.chatScene?.scene_id;
+    if (!this.chatSource || this.chatLoading || !sceneId || this.chatSbsSceneId !== sceneId) return;
+    this.chatShowSbsMessages = show;
+    this.changed();
+    this.post({ type: "beings:scene-sbs", sceneId, show, revision: new URL(this.chatSource).searchParams.get("revision") });
   }
   setChatHistoryScope(scope: HistoryScope) {
     this.chatHistoryScope = scope;

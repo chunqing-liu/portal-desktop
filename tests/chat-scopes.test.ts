@@ -838,6 +838,37 @@ describe("chat scene scopes", () => {
     expect(sceneItems(items,"all",{sceneId:"room-b",strict:true})).toBe(items);
   });
 
+  it("hides SBS activity in the current scene but always includes it in all scenes without removing history", () => {
+    const global = { kind: "message", id: "global", role: "being", text: "自主消息", streaming: false, timestamp: "" } as ChatItem;
+    const local = { ...global, id: "local", sceneId: "room-a" };
+    const other = { ...global, id: "other", sceneId: "room-b" };
+    const user = { ...global, id: "legacy-user", role: "user" } as ChatItem;
+    const marker = { kind: "separator", id: "breath", text: "呼吸", marker: true } as ChatItem;
+    const run = { kind: "run", id: "activity", entries: [], start: 0, label: "", hint: "", arg: "" } as ChatItem;
+    const items = [global, local, other, user, marker, run];
+    const scene = { sceneId: "room-a", strict: true };
+    expect(sceneItems(items, "current", scene, false).map(item => item.id)).toEqual(["local"]);
+    expect(sceneItems(items, "all", scene, false)).toBe(items);
+    expect(sceneItems(items, "all", scene, true)).toBe(items);
+    expect(items).toHaveLength(6);
+  });
+
+  it("remembers SBS visibility per Being and scene across switching and reload", () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
+    vi.stubGlobal("location", new URL("https://fixture.test/?history_scope=being-a&scene_id=room-a"));
+    const state = new ChatState();
+    expect(state.showSbsMessages).toBe(false);
+    state.setShowSbsMessages(true);
+    state.currentScene = { sceneId: "room-b" };
+    expect(state.showSbsMessages).toBe(false);
+    state.currentScene = { sceneId: "room-a" };
+    expect(state.showSbsMessages).toBe(true);
+    expect(new ChatState().showSbsMessages).toBe(true);
+    vi.stubGlobal("location", new URL("https://fixture.test/?history_scope=being-b&scene_id=room-a"));
+    expect(new ChatState().showSbsMessages).toBe(false);
+  });
+
   it("reads only scene identity and display labels from protocol metadata", () => {
     expect(messageScene({ scene_id: "loom-Willow", scene_meta: { scene_label: "Loom", token: "secret" }, trace_id: "trace" }))
       .toEqual({ sceneId: "loom-Willow", sceneLabel: "Loom" });

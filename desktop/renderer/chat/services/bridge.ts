@@ -160,6 +160,7 @@ export function createChatBridge(state: ChatState) {
             ui.scope(data.scope === "all" ? "all" : "current");
             send({ type: "beings:history-scope-state", scope: state.historyScope });
             send({ type: 'beings:session-selected', sceneId: state.currentScene.sceneId });
+            send({ type: 'beings:scene-sbs-state', sceneId: state.currentScene.sceneId, show: state.showSbsMessages });
           });
           return;
         case "beings:history-scope":
@@ -169,6 +170,14 @@ export function createChatBridge(state: ChatState) {
           return;
         case "beings:history-scope-request":
           if (data.revision === revision) send({ type: "beings:history-scope-state", scope: state.historyScope });
+          return;
+        case "beings:scene-sbs":
+          if (data.revision !== revision || data.sceneId !== state.currentScene.sceneId || typeof data.show !== "boolean") return;
+          state.setShowSbsMessages(data.show);
+          send({ type: "beings:scene-sbs-state", sceneId: state.currentScene.sceneId, show: state.showSbsMessages });
+          return;
+        case "beings:scene-sbs-request":
+          if (data.revision === revision) send({ type: "beings:scene-sbs-state", sceneId: state.currentScene.sceneId, show: state.showSbsMessages });
           return;
         case "beings:sbs-toggle":
           void runtime

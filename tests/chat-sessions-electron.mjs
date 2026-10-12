@@ -27,6 +27,9 @@ try {
         <ChatSceneIndicator scene={app.snapshot?.chatScene} sessions={app.snapshot?.chatSessions} connected={true}
           createRequest={app.chatSessionCreateRequest}
           activity={app.chatSceneActivity}
+          showSbsMessages={app.chatShowSbsMessages}
+          sbsReady={!app.chatLoading && !!app.chatSbsSceneId && app.chatSbsSceneId === app.snapshot?.chatScene?.scene_id}
+          onSbsVisibility={show => app.changeChatSbsVisibility(show)}
           scope={app.chatHistoryScope} scopeReady={!app.chatLoading && app.chatHistoryScopeKnown}
           onScope={scope => app.changeChatHistoryScope(scope)} onCopy={() => {}}
           onSession={(operation,value,sceneId) => app.changeChatSession(operation,value,sceneId)} />
@@ -56,7 +59,7 @@ try {
       const original = await loadDesktopScene(${JSON.stringify(directory)}, 'test', '测试设备');
       const sessions = new ChatSessions(${JSON.stringify(directory)}, original); await sessions.load();
       const connection = {endpoint:'https://fixture.test/being',being:'being',token:'fixture',relaySecret:'fixture',link:''};
-      const requests = [], history = []; globalThis.fixture = {requests, history, streams: new Map()};
+      const requests = [], history = [{seq:1,role:"being",content:"SBS 全局测试消息"}]; globalThis.fixture = {requests, history, streams: new Map()};
       const proxy = new ChatProxy(() => connection, async (url, init) => {
         const route = new URL(url).pathname;
         if (route.endsWith('/api/history')) return Response.json({messages:history});
@@ -108,6 +111,12 @@ try {
   await page.getByRole('button',{name:'展开场景列表',exact:true}).click();
   await page.getByLabel('场景列表选项',{exact:true}).click();
   await page.getByRole('button',{name:'保持显示聊天面板',exact:true}).click();
+  const sbsVisibility = page.getByRole('checkbox',{name:'显示 SBS 消息',exact:true});
+  await page.waitForFunction(() => document.querySelector('input[type="checkbox"]') && window.fixtureApp.chatSbsSceneId === window.fixtureApp.snapshot.chatScene.scene_id);
+  assert.equal(await sbsVisibility.isChecked(),false);
+  assert.equal(await chat.getByText('SBS 全局测试消息',{exact:true}).count(),0);
+  await sbsVisibility.check();
+  await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor();
   await page.getByRole('searchbox',{name:'搜索场景'}).fill('不存在的对话');
   await page.getByRole('status').getByText('没有找到匹配的对话').waitFor();
   assert.equal(await page.locator('.chat-session-list [data-scene-id]').count(),0);
@@ -120,6 +129,8 @@ try {
   await chat.locator('#input').fill('方案内容');
   await chat.locator('#send-btn').click();
   await chat.getByText('回复：方案内容',{exact:true}).waitFor();
+  assert.equal(await sbsVisibility.isChecked(),false);
+  assert.equal(await chat.getByText('SBS 全局测试消息',{exact:true}).count(),0);
   const discussion = await page.evaluate(async () => (await window.beings.snapshot()).chatScene.scene_id);
   assert.notEqual(discussion,original);
   await chat.locator('#input').fill('方案草稿');
@@ -127,6 +138,8 @@ try {
   await chat.locator('#input').waitFor();
   await page.waitForFunction(() => document.querySelector('#chat-scene-indicator')?.textContent.includes('桌面·测试设备'));
   assert.equal(await chat.locator('#input').inputValue(),'原会话草稿');
+  await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor();
+  assert.equal(await sbsVisibility.isChecked(),true);
   assert.equal(await chat.getByText('回复：方案内容',{exact:true}).count(),0);
   await page.getByRole('button',{name:'切换到场景：方案讨论'}).click();
   await chat.getByText('回复：方案内容',{exact:true}).waitFor();
@@ -143,6 +156,9 @@ try {
   const composerBeforeAll = await chat.locator('#input-area').boundingBox();
   await page.getByRole('checkbox',{name:'显示全部场景上下文',exact:true}).check();
   await chat.locator('#input:not(:disabled)').waitFor();
+  await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor();
+  assert.equal(await sbsVisibility.isChecked(),true);
+  assert.equal(await sbsVisibility.isDisabled(),true);
   assert.equal(await chat.locator('#send-btn').isDisabled(),false);
   const unselectedItemBox = await page.getByRole('button',{name:'切换到场景：技术方案'}).boundingBox();
   assert.equal(selectedItemBox.height,44);
@@ -155,6 +171,8 @@ try {
   await page.getByRole('button',{name:'切换到场景：技术方案'}).click();
   await chat.locator('#input:not(:disabled)').waitFor();
   assert.equal(await chat.locator('#input').inputValue(),'方案草稿');
+  await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor({state:'hidden'});
+  assert.equal(await sbsVisibility.isChecked(),false, 'All-scenes view must preserve the scene preference');
   assert.equal((await application.evaluate(() => globalThis.fixture.requests))[0].scene_id,discussion);
   await mkdir('test-results',{recursive:true});
   const panel = page.getByRole('complementary',{name:'场景列表'});
@@ -361,6 +379,12 @@ try {
   if (await schedulingRun.getAttribute('open') === null) await schedulingRun.locator('summary').click();
   await chat.locator('.scene-task-list').getByText('模型鉴权失败，请检查 subagent 密钥',{exact:true}).waitFor();
   await page.screenshot({animations:'disabled',path:'test-results/scene-scheduling-failed.png'});
+  await sbsVisibility.check();
+  await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor();
+  await page.evaluate(async () => window.fixtureApp.applySnapshot(await window.beings.snapshot(), true));
+  await chat.getByText('SBS 全局测试消息',{exact:true}).waitFor();
+  await page.waitForFunction(() => !window.fixtureApp.chatLoading && window.fixtureApp.chatSbsSceneId === window.fixtureApp.snapshot.chatScene.scene_id);
+  assert.equal(await sbsVisibility.isChecked(),true, 'Scene SBS visibility survives a fresh chat frame');
   assert.deepEqual(errors,[]);
-  console.log('PASS: same Being, create/switch/rename scenes through the actual UI, isolated history, per-scene drafts, send identity, top scene picker, collapse/reopen, FIFO scene queue, context-menu rename, confirmed deletion, last-scene replacement and reload.');
+  console.log('PASS: same Being, create/switch/rename scenes through the actual UI, isolated history, per-scene SBS visibility and persistence, per-scene drafts, send identity, top scene picker, collapse/reopen, FIFO scene queue, context-menu rename, confirmed deletion, last-scene replacement and reload.');
 } finally { await application?.close(); await rm(directory,{recursive:true,force:true}); }

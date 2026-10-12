@@ -157,6 +157,9 @@ export function Topbar({ model }: { model: AppModel }) {
         activity={app.chatSceneActivity}
         onSession={(operation, value, sceneId) => app.changeChatSession(operation, value, sceneId)}
         connected={hasToken}
+        showSbsMessages={app.chatShowSbsMessages}
+        sbsReady={hasToken && !app.chatLoading && !!app.chatSbsSceneId && app.chatSbsSceneId === app.snapshot?.chatScene?.scene_id}
+        onSbsVisibility={show => app.changeChatSbsVisibility(show)}
         scope={app.chatHistoryScope}
         scopeReady={hasToken && !app.chatLoading && app.chatHistoryScopeKnown}
         onScope={(scope) => app.changeChatHistoryScope(scope)}

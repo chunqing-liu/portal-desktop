@@ -55,7 +55,9 @@ export function isGlobalBeingMessage(item: ChatItem): boolean {
   return !item.sceneId && item.kind === "message" && item.role === "being";
 }
 
-export function sceneItems(items: ChatItem[], scope: HistoryScope, current: MessageScene): ChatItem[] {
+export function sceneItems(items: ChatItem[], scope: HistoryScope, current: MessageScene, showSbsMessages = true): ChatItem[] {
+  if (scope === "all") return items;
+  if (!showSbsMessages) items = items.filter(item => !isGlobalBeingMessage(item) && !(!item.sceneId && (item.kind === "run" || (item.kind === "separator" && item.marker === true))));
   return scope === "current" && current.sceneId
     ? items.filter(item => inCurrentScene(item, current) || isGlobalBeingMessage(item) || (!item.sceneId && item.kind === "separator" && item.marker === true))
     : items;
