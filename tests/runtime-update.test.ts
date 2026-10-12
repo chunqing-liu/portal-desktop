@@ -26,7 +26,10 @@ async function fixture(platform: 'darwin' | 'win32' = 'darwin') {
       if (args[0] === 'print') { if (!loaded) throw new Error('not loaded'); return 'state = running\npid = 1234'; }
       if (args[0] === 'disable') disabled = true;
       if (args[0] === 'enable') disabled = false;
-      if (args[0] === 'bootstrap') loaded = true;
+      if (args[0] === 'bootstrap') {
+        if (disabled) throw new Error('launchctl (5): Bootstrap failed: 5: Input/output error');
+        loaded = true;
+      }
       if (args[0] === 'bootout') loaded = false;
     }
     return '';

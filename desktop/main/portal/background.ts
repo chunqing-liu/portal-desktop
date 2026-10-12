@@ -394,6 +394,14 @@ Register-ScheduledTask -TaskName ${ps(service.label)} -Action $a ${service.login
           try { await this.run('/bin/launchctl', ['bootstrap', this.domain, service.file]); break; }
           catch (error) {
             if (attempt >= 19 || !/\(5\)/.test(String(error))) throw error;
+            // A previous shutdown may leave a persistent disabled override,
+            // even after our initial enable. Error 5 also has other causes:
+            // only repair this exact label when launchd reports it disabled.
+            const disabled = await this.run('/bin/launchctl', ['print-disabled', this.domain]).catch(() => '');
+            const entry = disabled.split('\n').find(line => line.includes(`"${service.label}"`));
+            if (entry && /=>\s*(?:true|disabled)\b/.test(entry)) {
+              await this.run('/bin/launchctl', ['enable', `${this.domain}/${service.label}`]);
+            }
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         }

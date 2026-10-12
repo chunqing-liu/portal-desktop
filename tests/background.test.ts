@@ -17,7 +17,11 @@ async function fixture() {
     calls.push(args);
     if (args[0] === 'print-disabled') return disabled ? `"${service.label}" => disabled` : '';
     if (args[0] === 'print') { if (!loaded) throw new Error('not loaded'); return running ? 'state = running\npid = 12345' : 'state = not running\nlast exit code = 0'; }
-    if (args[0] === 'bootstrap') { if (fail) { fail = false; throw new Error('bootstrap failed'); } loaded = true; }
+    if (args[0] === 'bootstrap') {
+      if (disabled) throw new Error('launchctl (5): Bootstrap failed: 5: Input/output error');
+      if (fail) { fail = false; throw new Error('bootstrap failed'); }
+      loaded = true;
+    }
     if (args[0] === 'bootout') loaded = false;
     if (args[0] === 'disable') disabled = true;
     if (args[0] === 'enable') disabled = false;
@@ -27,6 +31,50 @@ async function fixture() {
   const service = new BackgroundPortal(path.join(root, 'profile'), run, 'darwin', root);
   return { root, settings, connection, service, run, calls, fail: () => { fail = true; }, exited: () => { running = false; } };
 }
+it.each(['disabled', 'true', 'unrelated', 'unavailable'])('recovers bootstrap error 5 with a %s disabled query', async state => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'portal-disabled-')); dirs.push(root);
+  const calls: string[][] = [];
+  let attempts = 0, disabled = false;
+  const background = new BackgroundPortal(root, async (_file, args): Promise<string> => {
+    calls.push(args);
+    if (args[0] === 'print') throw new Error('Could not find service');
+    if (args[0] === 'enable') disabled = false;
+    if (args[0] === 'bootstrap') {
+      if (++attempts === 1) {
+        // Simulate a late shutdown persisting its override after initial enable.
+        disabled = state === 'disabled' || state === 'true';
+        throw new Error('launchctl (5): Bootstrap failed: 5: Input/output error');
+      }
+      if (disabled) throw new Error('disabled override was not cleared');
+    }
+    if (args[0] === 'print-disabled') {
+      if (state === 'unavailable') throw new Error('query failed');
+      return state === 'unrelated' ? `"${background.label}.other" => disabled` : `"${background.label}" => ${state}`;
+    }
+    return '';
+  }, 'darwin', root);
+  await background.load({ label: background.label, root, file: path.join(root, 'service.plist'), existing: false });
+  expect(attempts).toBe(2);
+  const enables = calls.filter(args => args[0] === 'enable');
+  expect(enables).toHaveLength(state === 'disabled' || state === 'true' ? 2 : 1);
+  for (const args of enables) expect(args[1]).toBe(`gui/${process.getuid?.() ?? 0}/${background.label}`);
+  if (enables.length === 2) expect(calls.map(args => args[0])).toEqual(['enable', 'print', 'bootstrap', 'print-disabled', 'enable', 'bootstrap']);
+});
+
+it('preserves bootstrap failures other than error 5 without retrying', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'portal-bootstrap-')); dirs.push(root);
+  const calls: string[] = [];
+  const failure = new Error('launchctl (13): Permission denied');
+  const background = new BackgroundPortal(root, async (_file, args) => {
+    calls.push(args[0]);
+    if (args[0] === 'print') throw new Error('Could not find service');
+    if (args[0] === 'bootstrap') throw failure;
+    return '';
+  }, 'darwin', root);
+  await expect(background.load({ label: background.label, root, file: path.join(root, 'service.plist'), existing: false })).rejects.toBe(failure);
+  expect(calls).toEqual(['enable', 'print', 'bootstrap']);
+});
+
 it.skipIf(process.platform === 'win32')('installs an independent runtime with restricted credentials, preserves it across client instances, and disables login recovery explicitly', async () => {
   const f = await fixture();
   await f.service.enable(f.settings, f.connection);
