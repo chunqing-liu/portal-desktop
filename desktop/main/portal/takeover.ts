@@ -23,7 +23,11 @@ export class PortalTakeover {
     try { saved = JSON.parse(await readFile(this.file, 'utf8')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Portal 切换记录无法读取，请保留记录并检查后重试。'); }
     if (saved && (saved.schema !== 1 || !['cancelled', 'stopping', 'starting', 'blocked'].includes(saved.phase))) throw new Error('Portal 切换记录无效，已暂停自动启动。');
-    if (intent === 'automatic' && saved?.identity === identity && saved.phase !== 'cancelled') {
+    // Old clients treated a recycled supervisor PID as a permanent stop failure.
+    // Retry only that known failure through the full discovery/stop checks.
+    const staleSupervisor = saved?.phase === 'blocked' && saved.message?.split('\n')[0].endsWith(
+      'Portal supervisor identity changed; refusing to stop an unrelated process');
+    if (intent === 'automatic' && saved?.identity === identity && saved.phase !== 'cancelled' && !staleSupervisor) {
       this.holdMessage = saved.message || '上次 Portal 切换未完成，请点击启动按钮重试。';
       return false;
     }

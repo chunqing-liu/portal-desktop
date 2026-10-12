@@ -1,4 +1,6 @@
 import { expect, it, vi } from 'vitest';
+import { spawn } from 'node:child_process';
+import { windowsExecutable, windowsEnvironment } from '../desktop/main/portal/windows';
 import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -129,3 +131,51 @@ it.skipIf(process.env.PORTAL_DESKTOP_NATIVE_UPGRADE_TESTS !== '1' || process.pla
     await rm(root, { recursive: true, force: true });
   }
 }, 45_000);
+
+it.skipIf(process.platform !== 'win32')('discards a recycled supervisor PID without stopping the unrelated process', async () => {
+  // The current test runner stands in for WeChat occupying an old Portal PID.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'portal-recycled-pid-'));
+  const background = new BackgroundPortal(root);
+  const service = { label: background.label, root, file: '', existing: false };
+  try {
+    await writeFile(path.join(root, 'supervisor.pid'), String(process.pid));
+    await background.unload(service);
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
+    await expect(readFile(path.join(root, 'supervisor.pid'))).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
+}, 35_000);
+
+it.skipIf(process.platform !== 'win32')('stops the actual runner with a stale PID hint and preserves a similarly named script', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'portal runner [fixture]-'));
+  const background = new BackgroundPortal(root);
+  const children: ReturnType<typeof spawn>[] = [];
+  const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+  try {
+    for (const name of ['run.ps1', 'run.ps1.other.ps1']) {
+      const file = path.join(root, name), ready = file + '.ready';
+      await writeFile(file, `$PID | Set-Content -LiteralPath ${quote(ready)}; while ($true) { Start-Sleep -Seconds 1 }`);
+      const child = spawn(windowsExecutable('powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file],
+        { windowsHide: true, stdio: 'ignore', env: windowsEnvironment(process.env) });
+      children.push(child);
+      let launchError: Error | undefined;
+      child.on('error', error => { launchError = error; });
+      await vi.waitFor(async () => {
+        if (launchError) throw launchError;
+        expect(Number((await readFile(ready, 'utf8')).trim())).toBe(child.pid);
+      }, { timeout: 10_000, interval: 100 });
+    }
+    await writeFile(path.join(root, 'supervisor.pid'), String(process.pid));
+    await background.unload({ label: background.label, root, file: '', existing: false });
+    await vi.waitFor(() => expect(children[0].exitCode).not.toBeNull());
+    expect(children[1].exitCode).toBeNull();
+    expect(() => process.kill(children[1].pid!, 0)).not.toThrow();
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
+  } finally {
+    for (const child of children) {
+      if (child.pid && child.exitCode === null && child.signalCode === null) {
+        await new Promise<void>(resolve => { child.once('exit', () => resolve()); child.kill(); });
+      }
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);

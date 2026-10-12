@@ -463,28 +463,32 @@ else { [string]$t.State }`);
       }
     } else await this.powershell(`$task=Find-PortalTask ${ps(service.label)};
 if ($task) { Disable-ScheduledTask -TaskName ${ps(service.label)} | Out-Null; Stop-ScheduledTask -TaskName ${ps(service.label)}; }
-# Stopping a scheduled task can terminate the native launcher without killing
-# its PowerShell child. Verify the persisted supervisor identity, then stop its
-# exact process tree before the recovery loop can launch another engine.
+# A PID file is only a hint: Windows may already have reused that PID.
+# Discover this installation's runners even if the hint is missing or stale.
 $runner=${ps(path.join(service.root, 'run.ps1'))};
 $supervisorFile=${ps(path.join(service.root, 'supervisor.pid'))};
-$supervisorId=0;
-if (Test-Path -LiteralPath $supervisorFile) { [void][int]::TryParse((Get-Content -LiteralPath $supervisorFile -Raw).Trim(), [ref]$supervisorId) }
-if ($supervisorId -gt 0) {
-  $supervisor=Get-CimInstance Win32_Process -Filter "ProcessId=$supervisorId" -ErrorAction SilentlyContinue;
-  if ($supervisor) {
-    if ($supervisor.Name -ine 'powershell.exe' -or $supervisor.CommandLine -notlike ('*' + $runner + '*')) { throw 'Portal supervisor identity changed; refusing to stop an unrelated process' }
-    & taskkill.exe /PID $supervisorId /T /F | Out-Null;
-    $deadline=[DateTime]::UtcNow.AddSeconds(15);
-    do {
-      $remaining=Get-CimInstance Win32_Process -Filter "ProcessId=$supervisorId" -ErrorAction SilentlyContinue;
-      $sameSupervisor=$remaining -and $remaining.Name -ieq 'powershell.exe' -and $remaining.CommandLine -like ('*' + $runner + '*');
-      if (-not $sameSupervisor) { break }
-      if ([DateTime]::UtcNow -ge $deadline) { throw 'Portal supervisor is still running' }
-      Start-Sleep -Milliseconds 200;
-    } while ($true)
-  }
+$runnerPattern='(?i)(?:^|\\s)-File\\s+(?:"' + [regex]::Escape($runner) + '"|' + [regex]::Escape($runner) + ')(?:\\s|$)';
+function Test-PortalRunner($item) {
+  return $item -and $item.Name -ieq 'powershell.exe' -and $item.CommandLine -match $runnerPattern
 }
+function Test-SamePortalProcess($item, $expected) {
+  return $item -and $item.CreationDate -eq $expected.CreationDate -and $item.ExecutablePath -eq $expected.ExecutablePath -and $item.CommandLine -eq $expected.CommandLine
+}
+$supervisors=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { Test-PortalRunner $_ });
+foreach ($supervisor in $supervisors) {
+  $supervisorId=$supervisor.ProcessId;
+  $current=Get-CimInstance Win32_Process -Filter "ProcessId=$supervisorId";
+  if (-not (Test-SamePortalProcess $current $supervisor)) { continue }
+  & taskkill.exe /PID $supervisorId /T /F | Out-Null;
+  $deadline=[DateTime]::UtcNow.AddSeconds(15);
+  do {
+    $remaining=Get-CimInstance Win32_Process -Filter "ProcessId=$supervisorId";
+    if (-not (Test-SamePortalProcess $remaining $supervisor)) { break }
+    if ([DateTime]::UtcNow -ge $deadline) { throw 'Portal supervisor is still running' }
+    Start-Sleep -Milliseconds 200;
+  } while ($true)
+}
+if (@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { Test-PortalRunner $_ }).Count) { throw 'Portal supervisor is still running' }
 # The runner may have started the engine before its PID file was written.
 # Select only this installation's executable, never a global process name kill.
 $engine=${ps(path.join(service.root, 'heart-portal.exe'))};
@@ -501,7 +505,8 @@ $deadline=[DateTime]::UtcNow.AddSeconds(15);
 while (($task=Find-PortalTask ${ps(service.label)}) -and $task.State -eq 'Running') {
   if ([DateTime]::UtcNow -ge $deadline) { throw 'Portal supervisor task is still running' }
   Start-Sleep -Milliseconds 200;
-}`);
+}
+Remove-Item -LiteralPath $supervisorFile -Force -ErrorAction SilentlyContinue;`);
   }
   get installedService(): Service | null { return this.service; }
   async forget() {

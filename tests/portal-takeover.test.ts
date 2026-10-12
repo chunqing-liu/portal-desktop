@@ -92,3 +92,21 @@ it('uses the force discovery and stop path only after a manual action and valida
   expect(await f.takeover.run(connection, 'manual', f.start, false, true)).toBe(true);
   expect(f.events).toEqual(['validate', 'start:true']);
 });
+it('rechecks a legacy recycled-PID failure automatically without bypassing stop verification', async () => {
+  const f = await fixture();
+  await writeFile(f.takeover.file, JSON.stringify({ schema: 1, identity: 'example.org/alice', phase: 'blocked', replacing: true,
+    message: 'powershell.exe (1): Portal supervisor identity changed; refusing to stop an unrelated process\n已暂停自动切换和重试，请处理后点击启动按钮。' }));
+  expect(await f.takeover.run(connection, 'automatic', f.start)).toBe(true);
+  expect(f.events).toEqual(['validate', 'stop:a', 'stop:b', 'start:true']);
+  await expect(readFile(f.takeover.file)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('keeps a new stop failure blocked after retrying a legacy recycled PID', async () => {
+  const f = await fixture();
+  await writeFile(f.takeover.file, JSON.stringify({ schema: 1, identity: 'example.org/alice', phase: 'blocked',
+    message: 'Portal supervisor identity changed; refusing to stop an unrelated process' }));
+  f.options.stop.mockRejectedValue(new Error('Portal supervisor is still running'));
+  await expect(f.takeover.run(connection, 'automatic', f.start)).rejects.toThrow('still running');
+  expect(await f.takeover.run(connection, 'automatic', f.start)).toBe(false);
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.options.stop).toHaveBeenCalledTimes(1);
+});
