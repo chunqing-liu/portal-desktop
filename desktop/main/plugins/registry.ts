@@ -13,7 +13,7 @@ const MAX_HTML = 8 * 1024 * 1024;
 const MAX_DATA = 1024 * 1024;
 export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
 interface Package extends InstalledPlugin { html: string }
-interface Session { id: string; view: string; command?: string; slot?: string; html: string; calls: number; since: number; key: string; controller: AbortController; subscriptions: Map<number, PluginEventTopic> }
+interface Session { id: string; view: string; command?: string; slot?: string; html: string; csp: string; calls: number; since: number; key: string; controller: AbortController; subscriptions: Map<number, PluginEventTopic> }
 async function boundedRead(file: string, limit: number) {
   const info = await lstat(file);
   if (!info.isFile() || info.isSymbolicLink() || info.size > limit) throw new Error('插件文件超出大小限制或不是普通文件。');
@@ -109,7 +109,8 @@ export class PluginRegistry {
       if (slot !== undefined && !value.manifest.contributes.slots?.some(c => c.id === slot && c.view === view)) throw new Error('插件插槽不存在。');
       if (this.sessions.size >= 16) throw new Error('打开的插件页面过多。');
       const token = randomUUID();
-      this.sessions.set(token, { id, view, command, slot, html: value.html, calls: 0, since: Date.now(), key: this.services?.contextKey() || '', controller: new AbortController(), subscriptions: new Map() });
+      this.sessions.set(token, { id, view, command, slot, html: value.html, csp: value.manifest.capabilities.includes('network')
+        ? PLUGIN_CSP.replace("connect-src 'none'", "connect-src https: http: wss: ws:") : PLUGIN_CSP, calls: 0, since: Date.now(), key: this.services?.contextKey() || '', controller: new AbortController(), subscriptions: new Map() });
       return { token, url: `beings://plugins/${token}.html` };
     });
   }
@@ -118,7 +119,7 @@ export class PluginRegistry {
     const session = token && this.sessions.get(token);
     if (!session || url.search || url.hash) return new Response('Plugin session closed', { status: 404 });
     const bootstrap = `<script data-channel="${token}" data-view="${session.view}" data-command="${session.command || ''}" data-slot="${session.slot || ''}">${PLUGIN_SDK}</script>`;
-    return new Response(`<!doctype html>${bootstrap}${session.html.replace(/<!doctype[^>]*>/i, '')}`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': PLUGIN_CSP } });
+    return new Response(`<!doctype html>${bootstrap}${session.html.replace(/<!doctype[^>]*>/i, '')}`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': session.csp, 'Referrer-Policy': 'no-referrer' } });
   }
   /** Notifications carry no private content. Subscriptions were capability-checked at registration. */
   publish(topic: PluginEventTopic, plugin?: string) {

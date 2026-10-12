@@ -8,7 +8,7 @@
 | 读取小镇内容、收发消息或发布资源 | [Town API](#town-api) | 公开读取可匿名，其余操作按身份授权 |
 | 添加客户端页面、命令、设置或侧栏 | [Grove 插件 SDK](#grove-插件-sdk) | 使用客户端当前连接，无需管理 token |
 
-**插件版本：** Plugin API v1 · Grove SDK 1.4.0。完整类型见 [index.d.ts](plugins/sdk/index.d.ts)。
+**插件版本：** Plugin API v1 · Grove SDK 1.5.0。完整类型见 [index.d.ts](plugins/sdk/index.d.ts)。
 
 ## Heart API
 
@@ -343,9 +343,38 @@ declare global {
 | `workspace.read` | `workspace.getContext()`、`workspace.onContextChange(callback)` | 读取当前页面和资源上下文，监听变化 |
 | `being.tasks.read` | `being.tasks.list()`、`being.tasks.onChange(callback)` | 读取当前场景任务状态，监听变化 |
 | `ui` | `ui.notice(text)`、`ui.navigate(view, id?)` | 显示通知、打开客户端页面或资源 |
+| `external.open` | `ui.openExternal(url)`、点击普通 HTTP/HTTPS 链接 | 在系统浏览器打开原文 |
+| `network` | 浏览器 `fetch` / WebSocket、`network.fetch(url, init?)` | 任意 HTTP/HTTPS API，无域名白名单 |
 | 无 | `onTheme(callback)`、`onUnload(callback)` | 监听主题或页面卸载 |
 
 `grove.apiVersion` 和 `grove.sdkVersion` 为只读版本信息。`ui.navigate` 支持 `chat`、`town`、`bonfire`、`firesides`、`mail`、`seeds`、`embers`、`scrolls`、`kits`、`announcements`、`contacts`；可选 `id` 为资源标识，不接受 URL 或文件路径。
+
+### 外链与外网 API（SDK 1.5）
+
+清单设置 `"minSdkVersion": "1.5.0"`，并在 `capabilities` 中按需添加 `"external.open"`、`"network"`。不需要域名白名单。旧客户端会明确提示 SDK 版本不支持；已安装的插件需更新清单并重新导入。
+
+声明 `external.open` 后，普通 `<a href="https://example.com/article" target="_blank">阅读原文</a>` 的点击会在系统浏览器打开，插件面板保持原位。也可在按钮处理器中调用：
+
+```js
+await grove.ui.openExternal('https://example.com/article');
+```
+
+声明 `network` 后，页面可直接 `fetch` 任意 HTTP/HTTPS 地址，也可使用 WebSocket。浏览器直连仍遵守 CORS；不支持 CORS 的 API 使用宿主转发接口：
+
+```js
+const response = await grove.network.fetch('https://jsonplaceholder.typicode.com/todos/1');
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
+const data = await response.json();
+
+// 支持方法、请求头和字符串正文，也支持开发者自己提供的 API 凭据。
+const result = await grove.network.fetch('https://api.example.com/items', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+  body: JSON.stringify({ title: '新内容' }),
+});
+```
+
+返回标准 `Response`，可读取 `status`、`ok`、`headers`、`url`、`redirected`，并调用 `.json()` / `.text()`。宿主转发跟随重定向，不依赖目标的 CORS 配置，不自动附带客户端 Cookie、Being 或 Town 凭据。HTTP 非 2xx 保留原状态和响应正文；网络失败会 reject。此接口用于文本/JSON API，正文按 UTF-8 解码，单次响应最多 8 MiB，请求超时 25 秒；插件关闭或会话失效会取消请求。图片、二进制或流式读取请使用支持 CORS 的浏览器 `fetch`。
 
 ### 常用示例
 
@@ -499,7 +528,7 @@ Being 使用现有 Portal `portal_exec` 调用客户端命令（不是 shell 命
 
 ### 运行约束
 
-插件运行在隔离页面中，JS/CSS 必须内联，图片和字体使用 data URL。宿主不安装依赖，也不提供网络直连、Node.js、文件系统、shell 或宿主 DOM 访问。
+插件运行在隔离页面中，JS/CSS 必须内联，图片和字体使用 data URL。宿主不安装依赖，提供声明 `network` 能力后的外网访问；不提供 Node.js、文件系统、shell 或宿主 DOM 访问。
 
 插件复用当前 Being、场景和 Town 配对身份；身份或场景变化后需重新打开视图。当前 SDK 支持 Town 读取和经确认的 Being 文本对话，不提供 Town 写入、任务创建/取消或后台常驻能力。
 

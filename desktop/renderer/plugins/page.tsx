@@ -141,13 +141,13 @@ export function PluginFrame({ api, model, id, view, command, slot, theme, title 
       if (message.type !== 'grove:request' || !Number.isSafeInteger(message.id) || message.id < 1 || inflight >= 8) return;
       inflight++;
       try {
-        if (!['agent.snapshot', 'agent.mutate', 'storage.load', 'storage.save', 'storage.patch', 'town.query', 'being.context', 'being.history', 'being.compose', 'being.chat', 'ui.notice', 'ui.navigate', 'workspace.context', 'being.tasks.list', 'events.subscribe', 'events.unsubscribe'].includes(message.method)) throw new Error('插件操作未开放。');
+        if (!['agent.snapshot', 'agent.mutate', 'storage.load', 'storage.save', 'storage.patch', 'town.query', 'being.context', 'being.history', 'being.compose', 'being.chat', 'ui.notice', 'ui.navigate', 'ui.openExternal', 'network.fetch', 'workspace.context', 'being.tasks.list', 'events.subscribe', 'events.unsubscribe'].includes(message.method)) throw new Error('插件操作未开放。');
         if (message.value !== undefined && (JSON.stringify(message.value)?.length ?? Infinity) > 1024 * 1024) throw new Error('插件数据超过 1 MB。');
         const value = await api.call(session.token, message.method, message.value);
         if (!active) return;
         const result = message.method === 'being.compose' ? await model.compose(value as { text: string; sceneId: string }) : value;
         respond({ type: 'grove:response', channel: session.token, id: message.id, value: message.method.startsWith('ui.') ? undefined : result });
-        if (message.method.startsWith('ui.')) setTimeout(() => { if (active) model.applyUI(message.method, value); }, 0);
+        if (['ui.notice', 'ui.navigate'].includes(message.method)) setTimeout(() => { if (active) model.applyUI(message.method, value); }, 0);
       } catch (e) { respond({ type: 'grove:response', channel: session.token, id: message.id, error: errorText(e) }); }
       finally { inflight--; }
     };

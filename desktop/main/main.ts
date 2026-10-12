@@ -263,6 +263,8 @@ async function ready() {
   let pluginWindows: PluginWindows | undefined;
   const plugins = new PluginRegistry(path.join(directory, 'plugins'), createPluginServices({
     contextKey: pluginContextKey,
+    openExternal: url => shell.openExternal(url, { activate: true }),
+    fetcher: globalThis.fetch,
     workspace: manifest => pluginWorkspace.read(manifest),
     tasks: () => taskSnapshotFromObserver(),
     being: () => ({ connected: Boolean(store.connection), name: store.settings.being, sceneId: currentPluginScene()?.scene_id || '', sceneLabel: currentPluginScene()?.scene_meta.scene_label || '' }),

@@ -21,6 +21,7 @@ export function capabilityFor(method: string, value?: unknown): PluginCapability
   if (method === 'workspace.context') return 'workspace.read';
   if (method === 'agent.snapshot') return 'agent.read';
   if (method === 'agent.mutate') return 'agent.write';
+  if (method === 'network.fetch') return 'network';
   if (method === 'being.tasks.list') return 'being.tasks.read';
   if (method.startsWith('storage.') && ['storage.load', 'storage.save', 'storage.patch'].includes(method)) return 'storage';
   if (method === 'town.query') {
@@ -28,7 +29,7 @@ export function capabilityFor(method: string, value?: unknown): PluginCapability
     // Validate with a placeholder identity; the real client still owns authentication.
     return townRoute(query, 'plugin-reader').private ? 'town.private.read' : 'town.public.read';
   }
-  const methods: Record<string, PluginCapability> = { 'being.context': 'being.read', 'being.history': 'being.read', 'being.compose': 'being.compose', 'being.chat': 'being.chat', 'ui.notice': 'ui', 'ui.navigate': 'ui' };
+  const methods: Record<string, PluginCapability> = { 'being.context': 'being.read', 'being.history': 'being.read', 'being.compose': 'being.compose', 'being.chat': 'being.chat', 'ui.notice': 'ui', 'ui.navigate': 'ui', 'ui.openExternal': 'external.open' };
   if (!Object.hasOwn(methods, method)) throw new Error('插件请求了尚未开放的操作。');
   return methods[method];
 }
@@ -52,6 +53,8 @@ export function createPluginServices(options: {
   confirmChat: (name: string, being: PluginBeingContext, text: string) => Promise<boolean>;
   workspace?: (manifest: PluginManifest) => PluginWorkspaceContext;
   tasks?: () => Promise<SceneTaskSnapshot>;
+  openExternal?: (url: string) => Promise<void>;
+  fetcher?: typeof fetch;
 }): PluginServices {
   let chatting = false;
   return { contextKey: options.contextKey, endpoint: options.endpoint, async call(method, value, context) {
@@ -61,6 +64,42 @@ export function createPluginServices(options: {
     if (method === 'workspace.context') {
       if (!options.workspace) throw new Error('工作区服务不可用。');
       return options.workspace(context.manifest);
+    }
+    if (method === 'network.fetch') {
+      const input = value as { url?: unknown; method?: string; headers?: Record<string, string>; body?: string };
+      let url: URL;
+      try { url = new URL(boundedText(input?.url, 8192)); } catch { throw new Error('API URL 无效。'); }
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('API 请求仅支持 HTTP/HTTPS。');
+      if (!options.fetcher) throw new Error('插件网络服务不可用。');
+      if (input.body !== undefined && typeof input.body !== 'string') throw new Error('请求正文须为字符串。');
+      const signal = AbortSignal.any([context.signal, AbortSignal.timeout(25000)]);
+      const response = await options.fetcher(url.href, { method: input.method || 'GET', headers: input.headers,
+        body: input.body, signal, credentials: 'omit', redirect: 'follow' });
+      const reader = response.body?.getReader();
+      let body = '', bytes = 0;
+      const decoder = new TextDecoder();
+      try {
+        if (reader) while (true) {
+          const item = await reader.read();
+          if (item.done) break;
+          context.check();
+          if ((bytes += item.value.byteLength) > 8 * 1024 * 1024) throw new Error('API 返回内容超过 8 MB。');
+          body += decoder.decode(item.value, { stream: true });
+        }
+        body += decoder.decode();
+      } finally { await reader?.cancel().catch(() => {}); }
+      context.check();
+      return { status: response.status, statusText: response.statusText, headers: Object.fromEntries(response.headers), body,
+        url: response.url || url.href, redirected: response.redirected };
+    }
+    if (method === 'ui.openExternal') {
+      let url: URL;
+      try { url = new URL(boundedText(value, 8192)); } catch { throw new Error('外链 URL 无效。'); }
+      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('外链仅支持不含凭据的 HTTP/HTTPS URL。');
+      if (!options.openExternal) throw new Error('外链服务不可用。');
+      context.check();
+      await options.openExternal(url.href);
+      return;
     }
     if (method === 'ui.notice') return { text: boundedText(value, 300), plugin: context.manifest.name };
     if (method === 'ui.navigate') {

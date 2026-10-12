@@ -14,6 +14,7 @@ Windows 强制接管由 `tests/windows-force.test.ts` 验证：真实临时引�
 
 | 测试层 | 自动验证内容 | 命令 |
 | --- | --- | --- |
+| 插件外链与网络 | 真实沙箱、SDK/IPC、系统浏览器打开接口、直连 fetch、无 CORS API 转发、POST/headers/body、重定向 | `npm run test:plugin-network` |
 | 类型检查 | 桌面 IPC、设置、渲染器与后台服务的类型契约 | `npm run typecheck` |
 | 私信名称与小镇入口 | 真实 React/导航组件，本地 fixture：隐藏 ID、精确回复地址、横向入口展开/收起、键盘、窄屏、草稿保留 | `npm run test:town-names` |
 | Seed Garden / 弹窗切换 | 公开阅读、筛选、派生关系、经验墙、卷轴一致的链接栏；弹窗内切换、每次刷新、旧响应隔离、窄屏深色排版 | `npm run test:seed-garden` |
@@ -127,3 +128,5 @@ macOS arm64：类型检查通过；单元测试 179 项通过、9 项按平台�
 及 `chat-react` 再次通过。重新构建客户端包，验证 `town-sdk`、`town-ui` 和
 `client-lifecycle`，覆盖三类消息回复提交、聊天初始化后的菜单操作及再次启动恢复窗口。
 这些 Electron 回归沿用上述隔离与模拟设置。
+
+`test:plugin-network` 使用独立 Electron profile 和本地 HTTP API，无需插件外部仓库。外链测试记录系统浏览器打开接口的参数，不弹出真实浏览器。`PLUGIN_NETWORK_PUBLIC_TEST=1 npm run test:plugin-network` 额外从真实插件面板读取 JSONPlaceholder 公共 HTTPS API，并验证 HTTP 200 与 JSON 内容。

@@ -24,6 +24,26 @@ export const PLUGIN_SDK = String.raw`
       parent.postMessage({ type: 'grove:request', channel, id, method, value }, '*');
     });
   }
+  // Delegate links without giving the sandbox popup or top-navigation privileges.
+  // Author handlers can preventDefault() to retain in-panel navigation.
+  const openLink = event => {
+    if (!event.isTrusted || event.defaultPrevented || (event.type === 'click' ? event.button !== 0 : event.button !== 1)) return;
+    const link = event.composedPath().find(node => node instanceof HTMLAnchorElement && node.hasAttribute('href'));
+    if (!link || link.hasAttribute('download')) return;
+    const href = link.getAttribute('href');
+    if (!href || href.startsWith('#')) return;
+    let url; try { url = new URL(href); } catch { return; }
+    event.preventDefault();
+    if (!['http:', 'https:'].includes(url.protocol)) return;
+    void request('ui.openExternal', url.href).catch(error => {
+      // A rejected link must not tear down the entire plugin session.
+      let status = document.getElementById('grove-link-error');
+      if (!status) { status = document.createElement('div'); status.id = 'grove-link-error'; status.setAttribute('role', 'alert'); document.body.append(status); }
+      status.textContent = error.message;
+    });
+  };
+  addEventListener('click', openLink);
+  addEventListener('auxclick', openLink);
   async function listen(topic, callback) {
     if (typeof callback !== 'function') throw new Error('Expected a callback');
     const id = ++sequence; subscriptions.set(id, callback);
@@ -54,12 +74,19 @@ export const PLUGIN_SDK = String.raw`
     message.error ? item.reject(new Error(message.error)) : item.resolve(message.value);
   });
   Object.defineProperty(window, 'grove', { value: Object.freeze({
-    apiVersion: 1, sdkVersion: '1.4.0', view, command, slot,
+    apiVersion: 1, sdkVersion: '1.5.0', view, command, slot,
     loadData: () => request('storage.load'),
     saveData: value => request('storage.save', value),
     updateData: value => request('storage.patch', value),
     onTheme: callback => subscribe(themes, callback),
     onUnload: callback => subscribe(unloads, callback),
+    network: Object.freeze({ fetch: async (url, init = {}) => {
+      const result = await request('network.fetch', { url, method: init.method, headers: init.headers ? Object.fromEntries(new Headers(init.headers)) : undefined, body: init.body });
+      const response = new Response([204, 205, 304].includes(result.status) || init.method?.toUpperCase() === 'HEAD' ? null : result.body,
+        { status: result.status, statusText: result.statusText, headers: result.headers });
+      Object.defineProperties(response, { url: { value: result.url }, redirected: { value: result.redirected } });
+      return response;
+    } }),
     agent: Object.freeze({ snapshot: () => request('agent.snapshot'), mutate: input => request('agent.mutate', input), onChange: callback => listen('agent.changed', callback) }),
     workspace: Object.freeze({ getContext: () => request('workspace.context'), onContextChange: callback => listen('workspace.changed', callback) }),
     events: Object.freeze({ subscribe: listen }),
@@ -72,7 +99,7 @@ export const PLUGIN_SDK = String.raw`
       onDelta: callback => subscribe(deltas, callback),
       tasks: Object.freeze({ list: () => request('being.tasks.list'), onChange: callback => listen('tasks.changed', callback) })
     }),
-    ui: Object.freeze({ notice: text => request('ui.notice', text), navigate: (view, id) => request('ui.navigate', { view, id }) })
+    ui: Object.freeze({ openExternal: url => request('ui.openExternal', url), notice: text => request('ui.notice', text), navigate: (view, id) => request('ui.navigate', { view, id }) })
   }) });
   addEventListener('pagehide', () => {
     for (const callback of unloads) { try { callback(); } catch {} }

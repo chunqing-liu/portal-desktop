@@ -15,7 +15,7 @@ export interface PluginTask { id: string; status: PluginTaskStatus; createdAt: n
 export interface PluginTaskSnapshot { scopeId: string; sceneId: string; tasks: PluginTask[]; ready: boolean; configured: boolean; enabled: boolean }
 export interface GroveSDK {
   readonly apiVersion: 1;
-  readonly sdkVersion: '1.4.0';
+  readonly sdkVersion: '1.5.0';
   readonly view: string;
   readonly command?: string;
   readonly slot?: string;
@@ -25,6 +25,8 @@ export interface GroveSDK {
   updateData(patch: Record<string, unknown>): Promise<void>;
   onTheme(callback: (theme: 'light' | 'dark') => void): () => void;
   onUnload(callback: () => void): () => void;
+  /** Host HTTP(S) requests without browser CORS restrictions; response bodies are UTF-8 text (up to 8 MiB). */
+  network: { fetch(url: string, init?: { method?: string; headers?: HeadersInit; body?: string }): Promise<Response> };
   agent: import('./agent').PluginAgentAPI;
   workspace: { getContext(): Promise<PluginWorkspaceContext>; onContextChange(callback: (event: PluginChangeEvent) => void): Promise<() => void> };
   events: { subscribe(topic: PluginEventTopic, callback: (event: PluginChangeEvent) => void): Promise<() => void> };
@@ -37,5 +39,5 @@ export interface GroveSDK {
     onDelta(callback: (data: { text: string }) => void): () => void;
     tasks: { list(): Promise<PluginTaskSnapshot>; onChange(callback: (event: PluginChangeEvent) => void): Promise<() => void> };
   };
-  ui: { notice(text: string): Promise<void>; navigate(view: string, id?: string): Promise<void> };
+  ui: { openExternal(url: string): Promise<void>; notice(text: string): Promise<void>; navigate(view: string, id?: string): Promise<void> };
 }

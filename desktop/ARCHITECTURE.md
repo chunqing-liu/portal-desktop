@@ -190,3 +190,7 @@ Portal 自身按 60 秒周期刷新 Kit；用户还可以从客户端重启识�
 ### 插件行为扩展（SDK 1.4）
 
 `contributes.agent` 声明插件范围内的行为指导和类型字段；`grove.agent` 与认证 Portal `@plugins` 客户端命令共用 `PluginRegistry` 队列和 `PluginAgentStore`。数据按插件 ID 与 Being endpoint 隔离，版本冲突拒绝、请求去重、原子落盘；`agent.changed` 仅通知对应插件。目标等业务源码位于独立插件仓库，宿主不含目标语义。插件指导仅在用户显式调用插件时返回；不修改 Being 主提示词、普通聊天 payload 或工具循环。窗口关闭不影响主进程命令通道，客户端退出后不可用。
+
+### 插件外链与外网（SDK 1.5）
+
+插件声明 `external.open` 后，注入 SDK 将普通 HTTP/HTTPS 链接点击交给主进程打开系统浏览器，按钮可调用 `grove.ui.openExternal()`。不开放 iframe 顶层导航或弹窗。声明 `network` 后，CSP 允许任意 HTTP(S) 及 WS(S) 连接，无域名白名单；`grove.network.fetch()` 经现有会话鉴权和 IPC 使用主进程 Fetch 转发 HTTP(S) 请求，解决第三方 API 的 CORS 限制。方法、显式请求头及字符串正文透传，不自动注入客户端凭据；响应保留 HTTP 状态、头、最终 URL 和 UTF-8 正文。关闭会话取消宿主请求，单次超时 25 秒、响应上限 8 MiB。

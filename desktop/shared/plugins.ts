@@ -4,6 +4,8 @@ export type { GroveSDK, PluginBeingContext } from '../../plugins/sdk';
 import type { PluginChangeEvent, PluginResourceKind, PluginWorkspaceContext } from '../../plugins/sdk';
 export const PLUGIN_CAPABILITIES = {
   storage: '插件私有存储（1 MB）',
+  'external.open': '在系统浏览器中打开 HTTP/HTTPS 链接',
+  network: '访问任意 HTTP/HTTPS API',
   'agent.read': '读取当前 Being 下本插件的协作数据与变更记录',
   'agent.write': '管理本插件的协作数据，并允许 Being 通过 Portal 插件命令按插件契约读写',
   'town.public.read': '读取 Town 公开目录、种子、公告和故事',
@@ -27,7 +29,7 @@ export type PluginEvent = { token: string; type: 'being.delta'; data: { text: st
 export interface PluginManifest {
   schemaVersion: 1;
   apiVersion: 1;
-  minSdkVersion?: '1.0.0' | '1.1.0' | '1.2.0' | '1.3.0' | '1.4.0';
+  minSdkVersion?: '1.0.0' | '1.1.0' | '1.2.0' | '1.3.0' | '1.4.0' | '1.5.0';
   id: string;
   name: string;
   version: string;
@@ -105,17 +107,18 @@ export function parsePluginManifest(raw: unknown): PluginManifest {
   const m = raw as PluginManifest;
   pluginId(m.id);
   if (m.schemaVersion !== 1 || m.apiVersion !== 1) throw new Error('插件需要不受支持的 Plugin API 版本（当前为 1）。');
-  if (m.minSdkVersion !== undefined && !['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0'].includes(m.minSdkVersion)) throw new Error('插件需要更新版本的客户端 SDK。');
+  if (m.minSdkVersion !== undefined && !['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0'].includes(m.minSdkVersion)) throw new Error('插件需要更新版本的客户端 SDK。');
   for (const key of ['name', 'description', 'author'] as const) {
     if (typeof m[key] !== 'string' || !m[key].trim() || m[key].length > 1000) throw new Error(`插件 ${key} 无效。`);
   }
   if (typeof m.version !== 'string' || !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(m.version) || m.version.length > 80) throw new Error('插件版本必须是 semver。');
   if (typeof m.entry !== 'string' || !/^[a-zA-Z0-9_-]+\.html$/.test(m.entry)) throw new Error('插件入口必须是根目录中的独立 HTML 文件。');
   if (!Array.isArray(m.capabilities) || new Set(m.capabilities).size !== m.capabilities.length || m.capabilities.some(c => !Object.hasOwn(PLUGIN_CAPABILITIES, c))) throw new Error('插件请求了尚未开放的能力。');
-  if (m.capabilities.some(c => c.startsWith('agent.')) && m.minSdkVersion !== '1.4.0') throw new Error('插件协作能力需要 minSdkVersion 1.4.0。');
+  if (m.capabilities.some(c => c.startsWith('agent.')) && !['1.4.0', '1.5.0'].includes(m.minSdkVersion || '')) throw new Error('插件协作能力需要 minSdkVersion 1.4.0。');
+  if (m.capabilities.some(c => c === 'network' || c === 'external.open') && m.minSdkVersion !== '1.5.0') throw new Error('外链和网络能力需要 minSdkVersion 1.5.0。');
   const agent = m.contributes?.agent === undefined ? undefined : parseAgentContract(m.contributes.agent);
   if (m.capabilities.some(c => c.startsWith('agent.')) && !agent) throw new Error('插件协作能力需要声明行为契约。');
-  if (agent && (!m.capabilities.includes('agent.read') || m.minSdkVersion !== '1.4.0')) throw new Error('行为契约需要 agent.read 和 SDK 1.4.0。');
+  if (agent && (!m.capabilities.includes('agent.read') || !['1.4.0', '1.5.0'].includes(m.minSdkVersion || ''))) throw new Error('行为契约需要 agent.read 和 SDK 1.4.0。');
   if (!Array.isArray(m.contributes?.views) || !m.contributes.views.length || m.contributes.views.length > 8) throw new Error('插件需要声明 1–8 个页面入口。');
   const ids = new Set<string>();
   for (const view of m.contributes.views) {
