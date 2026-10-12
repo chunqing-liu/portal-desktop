@@ -565,10 +565,11 @@ body[data-view=chat].has-topic .scene-ribbon{display:flex!important;min-height:0
 .chat-session-current{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:12px;height:18px;color:var(--green);font-size:16px;line-height:1}
 .chat-session-activity{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;white-space:nowrap;font-size:10px;font-weight:400;color:var(--secondary)}
 .chat-session-activity-icon{display:inline-block;box-sizing:border-box;width:11px;height:11px;flex-shrink:0}
-.chat-session-activity:is([data-status=thinking],[data-status=replying],[data-status=working]){color:var(--accent)}
-.chat-session-activity:is([data-status=thinking],[data-status=replying],[data-status=working]) .chat-session-activity-icon{border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:session-activity-spin .85s linear infinite}
-.chat-session-activity[data-status=waiting] .chat-session-activity-icon{border:1px solid currentColor;border-radius:50%;position:relative}
-.chat-session-activity[data-status=waiting] .chat-session-activity-icon::after{content:"";position:absolute;left:4px;top:2px;width:3px;height:4px;border-left:1px solid currentColor;border-bottom:1px solid currentColor}
+.chat-session-activity:is([data-status=thinking],[data-status=replying],[data-status=working],[data-status=reconnecting]){color:var(--accent)}
+.chat-session-activity:is([data-status=thinking],[data-status=replying],[data-status=working],[data-status=reconnecting]) .chat-session-activity-icon{border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:session-activity-spin .85s linear infinite}
+.chat-session-activity:is([data-status=queued],[data-status=waiting],[data-status=timeout]) .chat-session-activity-icon{border:1px solid currentColor;border-radius:50%;position:relative}
+.chat-session-activity:is([data-status=queued],[data-status=waiting],[data-status=timeout]) .chat-session-activity-icon::after{content:"";position:absolute;left:4px;top:2px;width:3px;height:4px;border-left:1px solid currentColor;border-bottom:1px solid currentColor}
+.chat-session-activity[data-status=timeout]{color:var(--warning,#a86b08)}
 .chat-session-activity[data-status=done]{color:var(--green)}
 .chat-session-activity[data-status=done] .chat-session-activity-icon::after{content:"✓"}
 .chat-session-activity[data-status=error]{color:var(--danger,#b34b43)}

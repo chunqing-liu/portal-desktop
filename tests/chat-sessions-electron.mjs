@@ -238,8 +238,8 @@ try {
     assert.ok(i < 300, 'C must dispatch after B finishes'); await new Promise(resolve => setTimeout(resolve,20));
   }
   await page.locator(`[data-scene-id="${discussion}"] [data-status="done"]`).waitFor();
-  await chat.getByText('已排队，等待回复',{exact:true}).waitFor();
-  await page.locator(`[data-scene-id="${queuedScene}"] [data-status="waiting"]`).waitFor();
+  await chat.getByText('已排队，等待执行',{exact:true}).waitFor();
+  await page.locator(`[data-scene-id="${queuedScene}"] [data-status="queued"]`).waitFor();
   await application.evaluate((_,sceneId) => {
     const history = globalThis.fixture.history;
     history.push({seq:history.length+1,role:'being',content:'C 排队回复完成',scene_id:sceneId,at:new Date().toISOString()});

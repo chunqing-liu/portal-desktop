@@ -66,7 +66,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     });
   }
   const busy = (session: any) => session.runtime?.isBusy?.() ||
-    ["thinking", "replying", "working", "waiting"].includes(sceneStatus(session));
+    ["thinking", "replying", "working", "waiting", "reconnecting"].includes(sceneStatus(session));
   function scheduleDrain() {
     if (disposed || !queueReady || drainTimer || drainScheduled || dispatching || !sendQueue.length) return;
     drainScheduled = true;
@@ -114,7 +114,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     const status = session.runtime?.sceneActivity();
     const tasks = (state.sceneTasks || []).filter((t: any) => t.sceneId === session.local.currentScene.sceneId);
     if (tasks.some((t: any) => t.status === 'running' || t.status === 'queued')) return 'working';
-    if (status === 'error' || status === 'stopped') return session.local.queued ? 'queued' : status;
+    if (status === 'error' || status === 'timeout' || status === 'stopped') return session.local.queued ? 'queued' : status;
     // Creation order is not completion order: an earlier slow task can finish
     // after a stage reply for a later fast task. Inspect every pending result.
     const currentTasks = tasks.filter((t: any) => !session.submittedAt || t.createdAt >= session.submittedAt);
@@ -124,7 +124,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       if (currentTasks.some((t: any) => ['failed','interrupted','budget_exhausted','timeout'].includes(t.status) &&
           (!t.endedAt || t.endedAt > repliedAt))) return 'error';
     }
-    return status && ["thinking", "replying", "working", "waiting"].includes(status) ? status :
+    return status && ["queued", "thinking", "replying", "working", "waiting", "reconnecting"].includes(status) ? status :
       session.local.queued ? "queued" : status;
   };
   function publish() {

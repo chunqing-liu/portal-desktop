@@ -56,13 +56,15 @@ export function withScheduling(items: ChatItem[], tasks: SceneTask[]): ChatItem[
       run.label = '后台执行中';
       run.waitingForReply = true;
       run.outcome = undefined;
-    } else if (waiting && run.outcome !== 'error' && run.outcome !== 'stopped') {
+      run.status = 'working';
+    } else if (waiting && run.outcome !== 'error' && run.outcome !== 'timeout' && run.outcome !== 'stopped') {
       run.end = undefined;
       run.label = '后台已完成，尚未收到回复';
       run.waitingForReply = true;
       run.outcome = undefined;
+      run.status = 'waiting';
     } else if (failed && (run.end || run.synthetic)) {
-      run.label = '后台任务异常'; run.outcome = 'error';
+      run.label = '后台任务异常'; run.outcome = 'error'; run.status = 'error';
     }
     if (group.run) replacements.set(group.run.id, run);
     else insertions.set(user.id, run);

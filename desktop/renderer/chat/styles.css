@@ -1035,12 +1035,15 @@ body{-webkit-font-smoothing:antialiased;background:var(--bg)}
 .run-label{font-size:13px;font-weight:500;overflow-wrap:anywhere}
 .run-elapsed,.run-count{font-size:12px;line-height:20px;color:var(--text-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .run-count:empty{display:none}
+.run-count{white-space:normal;overflow-wrap:anywhere}
 .run-context{flex-basis:100%;font-size:11px;line-height:18px;color:var(--text-muted);opacity:.72;overflow-wrap:anywhere}
 .run-chevron{width:14px;height:14px;flex-basis:14px;color:var(--text-muted);transition:transform .18s ease}
 .run-activity[open] .run-chevron{transform:rotate(90deg)}
 .run-activity.running .run-icon svg{display:none}
 .run-activity.running .run-icon:before{content:'';width:12px;height:12px;box-sizing:border-box;border:1.5px solid var(--border);border-top-color:var(--text-dim);border-right-color:var(--text-dim);border-radius:50%;animation:run-spin 1s linear infinite}
 .run-activity[data-outcome=error] .run-icon,.run-entry-icon.error{color:var(--red)}
+.run-activity[data-status=timeout] .run-icon,.run-activity[data-status=timeout] .run-label{color:var(--yellow)}
+.run-failures{color:var(--red)}
 .run-list{position:relative;margin:8px 0 0;padding:0 8px 0 0;max-height:320px;overflow:auto;overscroll-behavior:contain}
 .run-entry{position:relative;padding:0 0 18px;margin:0}
 .run-entry:last-child{padding-bottom:4px}
