@@ -11,10 +11,11 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
   import { createRoot } from 'react-dom/client';
   import { AppModel } from './desktop/renderer/app/models/app';
   import { useModel } from './desktop/renderer/shared/hooks/use-model';
+  import { BeingInfo } from './desktop/renderer/app/components/workspace-navigation';
   import { Topbar } from './desktop/renderer/app/components/topbar';
   import { ClientSettings } from './desktop/renderer/app/components/settings';
   const app = new AppModel({ copyText: async text => { window.copiedScene = text; }, appearance: async theme => theme,
-    changeChatSession: async () => snapshot });
+    beingModelConfig: async () => ({ model: 'fixture' }), changeChatSession: async () => snapshot });
   window.sbsApp = app;
   window.sbsStates = [];
   window.scopeStates = [];
@@ -40,10 +41,12 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
   });
   function Fixture() {
     useModel(app);
-    return <><Topbar model={app} /><ClientSettings model={app} /><iframe id="chat-frame" title="Loom fixture"
-      src={'/loom' + new URL(app.chatSource).search} onLoad={() => app.frameLoaded()} /></>;
+    return <><ClientSettings model={app} /><div className="workspace-body"><div className="workspace-stage"><Topbar model={app} /><div className="workspace-content"><section id="chat-view" className="view"><iframe id="chat-frame" title="Loom fixture"
+      src={'/loom' + new URL(app.chatSource).search} onLoad={() => app.frameLoaded()} /></section></div></div><BeingInfo app={app} /></div></>;
   }
+  localStorage.setItem('beings:scenes-pinned', 'true');
   app.applySnapshot(snapshot);
+  app.beingInfoOpen = true;
   createRoot(document.getElementById('root')).render(<Fixture />);
 ` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'import.meta.env.DEV': 'false' } });
 const css = await readShellStyles();
@@ -115,10 +118,10 @@ try {
     if (route.request().url().startsWith(origin + '/')) return route.continue();
     external.push(route.request().url()); return route.abort();
   });
-  const button = page.getByRole('button', { name: '切换 SBS 自主醒来', exact: true });
+  const button = page.getByRole('switch', { name: '自主醒来', exact: true });
   const confirmed = value => page.waitForFunction(value => {
-    const button = document.querySelector('.sbs-header-switch');
-    return button?.getAttribute('aria-pressed') === String(value) && !button.disabled;
+    const button = document.querySelector('[role="switch"][aria-label="自主醒来"]');
+    return button?.getAttribute('aria-checked') === String(value) && !button.disabled;
   }, value);
   const frame = () => page.frames().find(frame => frame.url().startsWith(origin + '/loom'));
   const request = () => page.evaluate(() => window.sbsApp.post({ type: 'beings:sbs-request' }));
@@ -140,7 +143,7 @@ try {
     throw new Error(`Initial Loom config request missing: ${JSON.stringify({ frames: page.frames().map(frame => frame.url()), frameState, errors, external })}`, { cause: error });
   }
   assert.equal(await button.isDisabled(), true);
-  assert.equal(await button.getAttribute('aria-pressed'), null, 'Initial default is not confirmed state');
+  assert.equal(await button.getAttribute('aria-checked'), 'false', 'Initial default is not confirmed state');
   assert.equal(await page.evaluate(() => window.sbsStates.length), 0);
   holdReads = false; release(pendingReads);
   await confirmed(false);
@@ -151,6 +154,7 @@ try {
   const contextToggle = page.getByRole('checkbox', { name: '显示全部场景上下文', exact: true });
   const currentSceneButton = page.getByRole('button', { name: '切换到场景：桌面·测试电脑', exact: true });
   const chat = page.frameLocator('#chat-frame');
+  await sceneButton.click();
   await scenePanel.waitFor();
   await chat.getByText('当前桌面的对话', { exact: true }).waitFor();
   assert.equal(await chat.locator('.chat-history-scope').count(), 0, 'Embedded chat has no duplicate scope toolbar');
@@ -190,12 +194,14 @@ try {
   await page.waitForFunction(() => document.querySelector('#chat-scene-indicator .chat-scene-label').textContent === '桌面·测试电脑');
   assert.equal(await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '切换时保留的草稿');
   assert.equal(await chat.locator('#input').isDisabled(), false, '全部场景上下文仍向当前场景发送');
-  await sceneButton.click();
+  await page.getByLabel('场景列表选项', { exact: true }).click();
+  await page.getByRole('button', { name: '关闭场景列表', exact: true }).click();
   assert.equal(await scenePanel.count(), 0);
   assert.equal(await sceneButton.evaluate(el => el === document.activeElement), true);
   await sceneButton.click();
   assert.equal(await contextToggle.isChecked(), true);
   assert.equal(await currentSceneButton.getAttribute('aria-current'), 'true');
+  await page.getByLabel('场景列表选项', { exact: true }).click();
   await page.getByRole('button', { name: '场景详情', exact: true }).click();
   await page.locator('#chat-scene-dialog[open]').waitFor();
   await page.getByRole('button', { name: '复制场景 ID', exact: true }).click();
@@ -250,7 +256,7 @@ try {
   const beforeRefresh = reads.length;
   await page.getByRole('button', { name: '刷新 Being 对话', exact: true }).click();
   await until(() => reads.length > beforeRefresh);
-  assert.equal(await button.getAttribute('aria-pressed'), null);
+  assert.equal(await button.getAttribute('aria-checked'), 'false');
   holdReads = false; release(pendingReads);
   await confirmed(true);
   assert.equal(await page.evaluate(() => window.sbsApp.chatHistoryScope), 'current');
@@ -299,10 +305,10 @@ try {
   await page.getByRole('button', { name: '刷新 Being 对话', exact: true }).click();
   await page.waitForFunction(() => window.sbsStates.at(-1)?.known === false);
   assert.equal(await button.isDisabled(), true);
-  assert.equal(await button.getAttribute('aria-pressed'), null);
+  assert.equal(await button.getAttribute('aria-checked'), 'false');
   status = 200; malformed = true;
   await requestFreshRead();
-  assert.equal(await button.getAttribute('aria-pressed'), null);
+  assert.equal(await button.getAttribute('aria-checked'), 'false');
   malformed = false; enabled = true;
   await page.getByRole('button', { name: '刷新 Being 对话', exact: true }).click();
   await confirmed(true);
