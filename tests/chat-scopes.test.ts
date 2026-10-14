@@ -592,7 +592,7 @@ describe("scene history refresh", () => {
       await runtime.send("C 输入");
       expect(requests.map(r => r.message)).toEqual(["B 输入"]);
       expect(state.items.find(i => i.kind === "run" && i.sceneId === "desktop-b"))
-        .toMatchObject({ label: "已排队，等待执行" });
+        .toMatchObject({ label: "消息已接收，正在切换到当前对话…" });
       expect(state.items.find(i => i.kind === "message" && i.text === "C 输入"))
         .toMatchObject({ queued: true });
       history.push({ seq: 1, role: "user", content: "B 输入", scene_id: "desktop-b" },
@@ -605,7 +605,7 @@ describe("scene history refresh", () => {
       expect(state.items.filter(i => i.kind === "message" && i.text === "B 排队回复")).toHaveLength(1);
       expect(state.items.find(i => i.kind === "run" && i.sceneId === "desktop-b")).toMatchObject({ outcome: "done" });
       expect(state.items.find(i => i.kind === "run" && i.sceneId === "desktop-c"))
-        .toMatchObject({ label: "已排队，等待执行" });
+        .toMatchObject({ label: "消息已接收，正在切换到当前对话…" });
     } finally { runtime.dispose(); }
   });
 
@@ -641,7 +641,7 @@ describe("scene history refresh", () => {
       expect(state.items.some(item => item.kind === "message" && item.text === "A 旧格式回复")).toBe(true);
       if (strict) {
         expect(requests.map(r => r.message)).toEqual(["A 输入"]);
-        expect(state.items.find(item => item.kind === "run" && item.sceneId === "desktop-test")).toMatchObject({ label: "已排队，等待执行", waitingForReply: true });
+        expect(state.items.find(item => item.kind === "run" && item.sceneId === "desktop-test")).toMatchObject({ label: "消息已接收，正在切换到当前对话…", waitingForReply: true });
         history.push({ seq: 2, role: "being", content: "A 场景回复", scene_id: "desktop-test" });
         await vi.advanceTimersByTimeAsync(4100);
       }

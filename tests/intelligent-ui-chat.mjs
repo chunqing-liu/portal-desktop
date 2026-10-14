@@ -40,7 +40,7 @@ try {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/loom.html?scene_id=desktop-fixture`);
   await page.getByRole('button', { name: 'Intelligent UI Beta 设置' }).click();
-  const toggle = page.getByRole('switch', { name: '启用智能 UI' });
+  const toggle = page.getByRole('checkbox', { name: '启用智能 UI' });
   assert.equal(await toggle.isChecked(), false);
   await toggle.check();
   await page.reload();

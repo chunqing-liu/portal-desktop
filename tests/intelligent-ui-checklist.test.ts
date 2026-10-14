@@ -25,3 +25,16 @@ it('renders a streamed checklist without model-generated state declarations',()=
  expect(result.error).toBe('');
  expect(Object.keys(result.doc!.state)).toHaveLength(2);
 });
+it('validates grouped quantities and retains check bindings across quantity changes',()=>{
+ const first=compileUI(JSON.stringify({version:1,title:'装备',state:{people:3},body:[{id:'gear',type:'checklist',copyable:true,items:[{id:'water',label:'饮用水',group:'补给',value:{op:'mul',args:[{state:'people'},2]}}]}]}));
+ const bind=first.body[0].items![0].bind!;
+ const next=structuredClone(first);next.state.people=5;
+ expect(reconcileState(compileUI(JSON.stringify(next)),{...first.state,[bind]:true})[bind]).toBe(true);
+ next.body[0].items![0].value={state:'missing'};
+ expect(()=>compileUI(JSON.stringify(next))).toThrow();
+});
+it('bounds polished component options and metadata',()=>{
+ const parse=(node:unknown)=>compileUI(JSON.stringify({version:1,title:'内容',state:{n:2},body:[node]}));
+ for(const node of [{id:'a',type:'slider',bind:'n',min:1,max:4,range:true},{id:'a',type:'text',copyable:true},{id:'a',type:'hero',meta:{}},{id:'a',type:'button',action:'copy',variant:'unknown'},{id:'a',type:'checklist',items:[{id:'x',label:'x',group:42}]}]) expect(()=>parse(node)).toThrow();
+ expect(parse({id:'a',type:'hero',label:'标题',value:'简介',meta:'周末'}).body[0].type).toBe('hero');
+});

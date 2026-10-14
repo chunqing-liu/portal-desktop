@@ -49,9 +49,20 @@ ui.onEvent(({key,value})=>{if(key==='monthly')monthly=value;if(key==='years')yea
 export const gdp: UIDocument = {
   version: 1, title: 'GDP · 看懂支出构成', state: { c: 60, i: 20, g: 25, x: 15, m: 20 }, body: [
     { id: 'intro', type: 'text', value: '支出法示意：GDP = 消费 + 投资 + 政府支出 + 出口 − 进口。以下是虚构经济体的单位数值，调整后观察各项贡献。' },
-    { id: 'total', type: 'metric', label: '示例 GDP', value: e('sub', e('add', s('c'), s('i'), s('g'), s('x')), s('m')) },
-    { id: 'chart', type: 'chart', label: '各项支出贡献', columns: ['项目', '值'], rows: [['消费', s('c')], ['投资', s('i')], ['政府支出', s('g')], ['出口', s('x')], ['减去进口', e('mul', s('m'), -1)]] },
-    ...(['c', 'i', 'g', 'x', 'm'] as const).map((key, i) => ({ id: key, type: 'slider' as const, label: ['消费', '投资', '政府支出', '出口', '进口'][i], bind: key, min: 0, max: 100 })),
+    { id: 'workspace', type: 'split', appearance: { ratio: 'wide-left', gap: 'large' }, children: [
+      { id: 'results', type: 'box', appearance: { gap: 'large' }, children: [
+        { id: 'tag', type: 'badge', value: '支出法 · 实时计算' },
+        { id: 'total', type: 'metric', label: '示例 GDP', appearance: { surface: 'plain', size: 'large', emphasis: 'strong' }, value: e('sub', e('add', s('c'), s('i'), s('g'), s('x')), s('m')) },
+        { id: 'chart', type: 'chart', label: '各项支出贡献', columns: ['项目', '值'], rows: [['消费', s('c')], ['投资', s('i')], ['政府支出', s('g')], ['出口', s('x')], ['减去进口', e('mul', s('m'), -1)]] },
+        { id: 'imports', type: 'text', when: e('gt', s('m'), s('x')), appearance: { surface: 'soft', size: 'small' }, value: '当前进口大于出口：净出口为负，但总量仍取决于所有支出项。' },
+      ] },
+      { id: 'controls', type: 'box', appearance: { surface: 'soft', density: 'normal', gap: 'medium' }, children: [
+        { id: 'controls-title', type: 'heading', label: '调整支出' },
+        ...(['c', 'i', 'g', 'x', 'm'] as const).map((key, i) => ({ id: key, type: 'slider' as const, label: ['消费', '投资', '政府支出', '出口', '进口'][i], bind: key, min: 0, max: 100 })),
+        { id: 'balanced', type: 'button', label: '试试进出口平衡', action: 'set', changes: { m: s('x') } },
+        { id: 'reset', type: 'button', label: '恢复示例', action: 'reset' },
+      ] },
+    ] },
     { id: 'why', type: 'text', value: '减去进口，是为了排除其他支出项目里包含的国外生产。这个恒等式本身不说明某项政策的因果效果，也不直接衡量幸福或分配。' },
   ],
 };

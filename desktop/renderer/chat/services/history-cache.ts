@@ -1,7 +1,8 @@
 import type { SceneSummary } from "./client-commands";
 import { messageScene } from "../models/scenes";
 
-// Store all scenes together; changing the visible scope never changes the cache cursor.
+// Store and restore all scenes together; only network pages have a display preference.
+// Changing the visible scope never changes the cache cursor.
 // Only server-confirmed history is stored; stream/tool state is not a backup.
 export interface HistoryMessage {
   seq: number;
@@ -77,7 +78,7 @@ export class HistoryCache {
     return this.opening;
   }
 
-  async read(limit = 300): Promise<{ messages: HistoryMessage[]; lastSeq: number } | null> {
+  async read(limit = Infinity): Promise<{ messages: HistoryMessage[]; lastSeq: number } | null> {
     try {
       const db = await this.open();
       if (!db || this.closed) return null;
@@ -97,12 +98,12 @@ export class HistoryCache {
       };
       await done;
       if (!messages.length) return null;
-      return { messages: messages.reverse(), lastSeq: Math.max(lastSeq, ...messages.map(m => m.seq)) };
+      return { messages: messages.reverse(), lastSeq: messages.reduce((seq, message) => Math.max(seq, message.seq), lastSeq) };
     } catch { return null; }
   }
 
-  /** Read a room independently of the global visible window and sync cursor. */
-  async readScene(sceneId: string, limit = 300): Promise<HistoryMessage[]> {
+  /** Read every cached row in a room without changing the global sync cursor. */
+  async readScene(sceneId: string, limit = Infinity): Promise<HistoryMessage[]> {
     try {
       const db = await this.open();
       if (!db || this.closed || !sceneId) return [];

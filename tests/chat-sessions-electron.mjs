@@ -229,8 +229,10 @@ try {
   await chat.locator('#input').fill('排队 C');
   await chat.locator('#send-btn').click();
   const queuedScene = await page.evaluate(async () => (await window.beings.snapshot()).chatScene.scene_id);
-  const localQueueStatus = chat.locator('.local-queue-status').filter({hasText:'排队中 · 等待其他场景完成，尚未发送'});
+  const localQueueStatus = chat.locator('.composer-queue-item').filter({hasText:'排队 C'});
   await localQueueStatus.waitFor();
+  assert.equal(await localQueueStatus.getByRole('button',{name:'调整方向',exact:true}).isDisabled(),true,'Cannot interrupt another scene');
+  assert.equal(await chat.locator('#messages .message.user').filter({hasText:'排队 C'}).count(),0,'Unsent queue stays beside the composer');
   await page.locator(`[data-scene-id="${queuedScene}"] [data-status="queued"]`).waitFor();
   await page.screenshot({animations:'disabled',path:'test-results/chat-sessions-activity.png'});
   assert.equal(await chat.getByText('已结束',{exact:true}).count(),0);
@@ -256,7 +258,7 @@ try {
     assert.ok(i < 300, 'C must dispatch after B finishes'); await new Promise(resolve => setTimeout(resolve,20));
   }
   await page.locator(`[data-scene-id="${discussion}"] [data-status="done"]`).waitFor();
-  await chat.getByText('已排队，等待执行',{exact:true}).waitFor();
+  await chat.getByText('消息已接收，正在切换到当前对话…',{exact:true}).waitFor();
   await page.locator(`[data-scene-id="${queuedScene}"] [data-status="queued"]`).waitFor();
   await application.evaluate((_,sceneId) => {
     const history = globalThis.fixture.history;

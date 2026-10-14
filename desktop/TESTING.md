@@ -10,6 +10,12 @@
 
 聊天等待计时由 `tests/chat-reply-wait.test.ts` 覆盖：HTTP 202 排队后收到实时或回放进展时取消等待计时，持续工具调用超过 11 分钟不误报超时，取消已在查询历史的旧计时器，空流及跨场景事件隔离。连续等待 5 分钟仍未确认回复时显示独立的 `timeout` 状态，不发送后台停止指令；工具缺少结果时保持“结果未确认”，与明确失败计数分开。
 
+`tests/chat-activity-recovery.test.ts` 覆盖空闲时发现 SBS、SBS 中接受场景插入并按场景接续、短自主回复自动同步、服务端已结束但本地读取器仍打开时释放队列、旧巡检不得覆盖新发送、失败及无效快照不得清理活动任务，以及无回复时等待超时后恢复发送。接口诊断另验证不包含消息正文。
+
+另覆盖 HTTP 202 后连续空闲 60 秒的等待释放（包括无流和 finished:true 快照）、带路径前缀的 Being API 请求保护、巡检不可用时重置空闲观察窗口，以及可见 SBS 回复后不得插入旧场景时间分隔线。该空闲保护只终止客户端等待，不代表服务端取消或消息执行成功。
+
+刷新恢复另覆盖：重放回复完成后，较早发起的重连探测才返回 finished，不得重新打开同一流或复制过程卡片；普通重放结束应仅保留一条过程记录。恢复探测用请求代次、读取器代次、流 ID 和游标确认结果仍属于当前工作。
+
 Windows 强制接管由 `tests/windows-force.test.ts` 验证：真实临时引擎/守护进程、旧进程反复拉起、另一 Being 保留、旧版本无状态命令；计划任务分支在原生 PowerShell 中使用隔离的注册 fixture，不修改真实任务。`test:portal-e2e` 通过打包客户端的强制启动按钮验证新 PID、Relay 重连及工具调用。
 
 | 测试层 | 自动验证内容 | 命令 |
@@ -130,3 +136,11 @@ macOS arm64：类型检查通过；单元测试 179 项通过、9 项按平台�
 这些 Electron 回归沿用上述隔离与模拟设置。
 
 `test:plugin-network` 使用独立 Electron profile 和本地 HTTP API，无需插件外部仓库。外链测试记录系统浏览器打开接口的参数，不弹出真实浏览器。`PLUGIN_NETWORK_PUBLIC_TEST=1 npm run test:plugin-network` 额外从真实插件面板读取 JSONPlaceholder 公共 HTTPS API，并验证 HTTP 200 与 JSON 内容。
+
+## 智能 UI 跨轮更新
+
+`npm run test:intelligent-ui-surfaces` 使用真实 Chromium 与本地服务验证：逐条选择携带智能 UI 上下文、发送当前交互界面的完整快照、原位增量更新、用户输入与草稿保留、旧版预览、刷新后重建版本，以及隔离 app 与外层表单状态一起回传。已接入 `test:all`。`tests/intelligent-ui-surfaces.test.ts` 覆盖版本冲突、非法/未完成更新不覆盖原界面、场景隔离与子树增删；`tests/intelligent-ui-queue.test.ts` 覆盖选择快照冻结、出站队列持久化及重启后发送。
+
+同场景发送队列：`npm run test:chat-send-queue` 使用独立 HTTP fixture 和 Chrome 验证输入框上方排队列表、取消、立即打断、单次回显、草稿保留及移动端宽度；`tests/chat-send-queue.test.ts` 验证同场景 FIFO 自动续发、优先发送、附件保留及跨场景禁止打断。现有 `intelligent-ui-queue.test.ts` 继续覆盖持久化恢复与界面状态快照。
+
+发送快捷键：Enter 立即发送（同场景执行中插入新指令）；Ctrl+Enter 排队，macOS 也支持 Command+Enter；Shift+Enter 换行。`test:chat-send-queue` 同时验证快捷键、中文输入法确认不误发送，以及打断后保留其他待发送消息。

@@ -1,8 +1,8 @@
-import { stripIntelligentUIContext, withIntelligentUIContext } from "../../shared/intelligent-ui/context";
+import { stripIntelligentUIContext, withIntelligentUIContext, validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import { createSceneRuntime } from "./scene-runtime";
 import { HistoryCache } from "./history-cache";
 import { chatHistoryLimit } from '../../../shared/chat-history';
-import { inCurrentScene, messageScene, sceneTransitionNotice, stripSceneTransition, type MessageScene } from "../models/scenes";
+import { inCurrentScene, messageScene, sceneItems, sceneTransitionNotice, stripSceneTransition, type MessageScene } from "../models/scenes";
 import type { ChatRuntime, ChatState, RuntimeOptions } from "../models/chat";
 
 /**
@@ -93,6 +93,11 @@ function createStreamRuntime(state: any, options: any): any {
   function apiUrl(path: any) {
     return `${API_URL}${path}${LOOM_TOKEN ? (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(LOOM_TOKEN) : ""}`;
   }
+  let chatRequestRevision = 0, chatRequestsInFlight = 0;
+  function traceNetwork(event: string, details: Record<string, unknown>) {
+    // Metadata only: never log URLs with credentials, message bodies or tool arguments.
+    console.info('[chat-network]', JSON.stringify({event, at: new Date().toISOString(), sceneId: state.currentScene.sceneId || null, ...details}));
+  }
   const fetch = async (input: any, init: any = {}) => {
     lifetime.signal.throwIfAborted();
     const signal = init.signal
@@ -113,13 +118,23 @@ function createStreamRuntime(state: any, options: any): any {
         headers.set("X-Portal-Scene-Id", requestScene);
       init = { ...init, headers };
     }
+    const path = new URL(input, location.href).pathname;
+    const chatSend = path.endsWith('/api/chat/stream') && init.method === 'POST';
+    const traced = chatSend || path.endsWith('/api/stream/active');
+    const startedAt = Date.now();
+    if (chatSend) { chatRequestRevision++; chatRequestsInFlight++; }
+    if (traced) traceNetwork('request', {path, method: init.method || 'GET', after: new URL(input, location.href).searchParams.get('after')});
     try {
       const response = await globalThis.fetch(input, { ...init, signal });
+      if (traced) traceNetwork('response', {path, status: response.status, durationMs: Date.now() - startedAt});
       report?.(response.ok);
       return response;
     } catch (error: any) {
+      if (traced) traceNetwork('network-error', {path, kind: error?.name});
       report?.(false);
       throw error;
+    } finally {
+      if (chatSend) chatRequestsInFlight--;
     }
   };
   const prefetch: Record<string, any> = {};
@@ -212,10 +227,12 @@ function createStreamRuntime(state: any, options: any): any {
     }
   }
   let currentRun: any = null;
-  type PendingReply = { baseline: Set<any>; phase: "queued" | "processing" | "reply" };
+  type PendingReply = { baseline: Set<any>; submittedAt: number; phase: "queued" | "processing" | "reply"; autonomousOrigin?: string; interrupted?: boolean; idleSince?: number; idleObservedAt?: number };
   let pendingReply: PendingReply | null = null;
   let replyRunSettled = false;
   let replayTransportOnly = false;
+  let autonomousStream = false;
+  let autonomousOrigin: string | undefined;
   function setStreamScene(scene: any) {
     state.activeScene = {
       ...scene,
@@ -326,7 +343,9 @@ function createStreamRuntime(state: any, options: any): any {
         ? pendingReply ? pendingReply.phase === "queued" ? "queued" : "waiting" : "reconnecting"
         : livePhase === "tool" && lastTool ? "working" : livePhase === "text" ? "replying" : "thinking";
       run.label = waiting
-        ? pendingReply ? pendingReply.phase === "queued" ? "已排队，等待执行" : "等待最终回复" : "正在恢复连接"
+        ? pendingReply ? pendingReply.phase === "queued"
+          ? pendingReply.interrupted && !pendingReply.autonomousOrigin ? '消息已接收，正在调整回复方向…' : `${pendingReply.autonomousOrigin === 'callback' ? 'SBS 自主回调进行中；' : pendingReply.autonomousOrigin ? 'SBS 自主处理进行中；' : ''}消息已接收，正在切换到当前对话…`
+          : "等待最终回复" : "正在恢复连接"
         : livePhase === "tool" && lastTool
           ? `正在运行 ${lastTool.name || "工具"}`
           : livePhase === "text"
@@ -766,6 +785,7 @@ function createStreamRuntime(state: any, options: any): any {
     isoTime: any = null,
     scene: any = role === "being" ? state.activeScene : state.currentScene,
   ) {
+    if (disposed) return null;
     if (!streaming && role !== "system") text = cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(text)) : text);
     if (!text && !streaming) return null; // skip empty after cleaning
 
@@ -778,13 +798,17 @@ function createStreamRuntime(state: any, options: any): any {
       : timestamp
         ? null
         : Date.now();
-    const prevMessageTime = lastMessageTime;
+    // A global SBS reply may have been added by a different runtime. Include
+    // the visible timeline so its newer timestamp breaks an old scene gap.
+    const prevMessageTime = sceneItems(state.items, state.historyScope, state.currentScene, state.showSbsMessages)
+      .reduce((latest: number, item: any) => item.kind === 'message' && Number.isFinite(item.createdAt)
+        ? Math.max(latest, item.createdAt) : latest, lastMessageTime || 0);
 
     // Time gap if >5min since last message — applies to both live and history
     let hasTimeGap = false;
     let breaksRoleGroup = false;
     if (prevMessageTime && msgTime) {
-      const gap = Math.abs(msgTime - prevMessageTime);
+      const gap = msgTime - prevMessageTime;
       breaksRoleGroup = gap > 60000;
       if (gap > 300000) {
         hasTimeGap = true;
@@ -792,7 +816,7 @@ function createStreamRuntime(state: any, options: any): any {
         addTimeGap(formatMessageTime(prev), scene);
       }
     }
-    if (msgTime) lastMessageTime = msgTime;
+    if (msgTime) lastMessageTime = Math.max(lastMessageTime || 0, msgTime);
 
     // Break consecutive grouping if there's a time gap (being's moments should be separate)
     const consecutive =
@@ -847,14 +871,47 @@ function createStreamRuntime(state: any, options: any): any {
       if (re.test(raw)) return label;
     return raw.replace(/^\[|\]$/g, "");
   }
+  function mergeContinuationMarker(text: any, scene: any) {
+    if (!/^\[breath yielded/i.test(text || "") || !Number.isFinite(scene.createdAt)) return false;
+    const marker = state.items.find((item: any) => item.continuationMarker && !item.historySeq &&
+      echoScenesMatch(item, scene) && scene.createdAt >= item.interruptStartedAt &&
+      scene.createdAt <= item.createdAt);
+    if (!marker) return false;
+    Object.assign(marker, scene);
+    changed();
+    return true;
+  }
+  function showContinuationMarker(data: any) {
+    if (data?.continuation !== true) return;
+    const scene = Object.prototype.hasOwnProperty.call(data, "scene_id") ? messageScene(data) : state.activeScene;
+    const user = [...state.items].reverse().find((item: any) =>
+      item.kind === "message" && item.role === "user" && echoScenesMatch(item, scene));
+    // A continuation can be replayed after refresh. Anchor it to the user turn,
+    // rather than requiring the ephemeral pendingReply to survive the reload.
+    if (!user) return;
+    const key = user.id;
+    if (state.items.some((item: any) => item.continuationTurn === key ||
+      (item.marker && item.historySeq && item.text.includes("转向你") &&
+       echoScenesMatch(item, scene) && item.createdAt >= user.createdAt))) return;
+    const now = Date.now();
+    state.items.push({ ...scene, kind: "separator", id: `marker-${options.nextId()}`,
+      marker: true, continuationMarker: true, continuationTurn: key,
+      interruptStartedAt: user.createdAt, createdAt: now,
+      text: `· 放下手头的事，转向你 · ${formatTime()} ·` });
+    changed();
+  }
   function addBreathMarker(text: any, timestamp: any = null, scene: any = {}) {
-    state.items.push({
+    if (mergeContinuationMarker(text, scene)) return;
+    const marker = {
       ...scene,
       kind: "separator",
       id: `marker-${options.nextId()}`,
       marker: true,
       text: `· ${breathMarkerLabel(text)} · ${timestamp || formatTime()} ·`,
-    });
+    };
+    const index = Number.isFinite(scene.createdAt) ? state.items.findIndex((item: any) =>
+      (item.createdAt ?? item.start ?? -Infinity) > scene.createdAt) : -1;
+    state.items.splice(index < 0 ? state.items.length : index, 0, marker);
     lastRole = "system";
     changed();
   }
@@ -1218,6 +1275,7 @@ function createStreamRuntime(state: any, options: any): any {
   }
 
   function markProgress(type: any, data: any) {
+    if (type === "meta") showContinuationMarker(data);
     if (!PROGRESS_EVENTS.has(type)) return;
     const active = type !== "message_stop" && type !== "error";
     if (active) {
@@ -1383,7 +1441,13 @@ function createStreamRuntime(state: any, options: any): any {
       clearTimeout(activeStreamPollTimer);
       activeStreamPollTimer = null;
     }
-    writerEpoch++; // F2: 作废所有在途写者，别让残存的 reader 往新屏幕上写
+    const recoveryEpoch = ++writerEpoch; // Invalidate every older reader.
+    const recoveryRequest = chatRequestRevision;
+    const reader = currentAbortController;
+    if (reader && !reader.signal.aborted) {
+      externalCutover = { streamId: currentStreamId, localSeq: liveSeq };
+      reader.abort();
+    }
     const partialMessage = streamMessage;
     const partialText = streamText;
     streamMessage = null;
@@ -1391,6 +1455,7 @@ function createStreamRuntime(state: any, options: any): any {
     streamReplyPrefix = "";
     progressBubbles = [];
     isStreaming = false;
+    routedStreaming = false;
     if (currentStreamId) lastStreamId = currentStreamId;
     currentStreamId = null;
     currentAbortController = null;
@@ -1399,6 +1464,7 @@ function createStreamRuntime(state: any, options: any): any {
 
     const previousItems = new Set(state.items);
     await reconcileHistory();
+    if (disposed || writerEpoch !== recoveryEpoch || chatRequestRevision !== recoveryRequest) return false;
     const recovered = state.items.some((item: any) => item.kind === "message" && item.role === "being"
       && !previousItems.has(item) && inCurrentScene(item, partialMessage || state.activeScene));
     if (recovered) {
@@ -1415,6 +1481,7 @@ function createStreamRuntime(state: any, options: any): any {
     tuiDone();
     clearTuiHint();
     lastSendFailed = false;
+    settleReplyBoundary();
     updateSendButton();
     scheduleFlushQueue();
     return recovered;
@@ -1456,7 +1523,9 @@ function createStreamRuntime(state: any, options: any): any {
   async function runPendingRecovery() {
     const r = pendingRecovery;
     if (!r) return "idle";
+    const epoch = writerEpoch, request = chatRequestRevision;
     const p = await probeStream(r.streamId, r.localSeq);
+    if (disposed || pendingRecovery !== r || writerEpoch !== epoch || chatRequestRevision !== request) return "idle";
     if (p.verdict === "unreachable") {
       setConnState(navigator.onLine === false ? "offline" : "reconnecting");
       return "unreachable"; // 保留 pendingRecovery，等 checkHealth 恢复后再试
@@ -1478,6 +1547,7 @@ function createStreamRuntime(state: any, options: any): any {
     let watchdogAborted = false;
     streamWatchdogAborted = false;
     userStoppedStream = false;
+    let readerEpoch = writerEpoch;
     let sawServerError = false;
     let sawSceneEvent = false;
     let cutoverRequest: any = null; // probe 判定 progressing/finished → 热切换到 replay
@@ -1551,6 +1621,7 @@ function createStreamRuntime(state: any, options: any): any {
       const decoder = new TextDecoder();
       let buffer = "";
       const myEpoch = ++writerEpoch; // F2: 我是当前唯一合法写者
+      readerEpoch = myEpoch;
       streamMessage = null;
       streamText = "";
       streamReplyPrefix = "";
@@ -1610,6 +1681,7 @@ function createStreamRuntime(state: any, options: any): any {
             }
 
             if (myEpoch !== writerEpoch) continue;
+            traceStreamEvent('sse', eventType, data, liveSeq);
             if (options.routeEvent?.(eventType, data)) continue;
             splitStreamProgress(eventType, data);
             markProgress(eventType, data);
@@ -1819,6 +1891,7 @@ function createStreamRuntime(state: any, options: any): any {
         localSeq: liveSeq,
       };
     } catch (e: any) {
+      if (readerEpoch !== writerEpoch) return {outcome: 'done', handled: true, empty: false};
       // F1: cutoverToReplay 从外部（重连 probe / 超时按钮）把我 abort 掉了。
       // 那边已经起好 poller 并把 isStreaming 置 true，这里只需要安静退场：
       // handled:true 让 driveChatStream 跳过 finalizeSendCleanup。
@@ -1894,13 +1967,15 @@ function createStreamRuntime(state: any, options: any): any {
 
   async function spliceSend(text: any, files = pendingFiles, sendOptions: any = {}) {
     const replyBaseline = new Set(state.items);
+    const submittedAt = Date.now();
+    const interruptedOrigin = options.activeAutonomousOrigin?.();
     let spliceMsg = (text || "").trim();
     if (!spliceMsg && !files.length) return;
     spliceMsg = options.prepareMessage?.(spliceMsg || `[${files.length} file(s)]`) ?? spliceMsg;
-    const requestMessage = withIntelligentUIContext(spliceMsg || `[${files.length} file(s)]`, !!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage), state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global']);
-    const localMessage = addMessage("user", spliceMsg || `[${files.length} file(s)]`);
+    const requestMessage = withIntelligentUIContext(spliceMsg || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
+    const localMessage = sendOptions.queuedMessage || addMessage("user", spliceMsg || `[${files.length} file(s)]`);
     noteLocalEcho("user", requestMessage, state.currentScene, localMessage, [spliceMsg]);
-    clearComposer();
+    if (!sendOptions.uiAction && !sendOptions.queuedMessage) clearComposer();
     let res;
     try {
       res = await fetch(apiUrl("/api/chat/stream"), {
@@ -1928,7 +2003,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (res.status === 202) {
       // Heart accepted this input for splice/yield. The Being decides whether
       // to resume, switch scene or delegate; 202 is not task completion.
-      pendingReply = { baseline: replyBaseline, phase: "queued" };
+      pendingReply = { baseline: replyBaseline, submittedAt, phase: "queued", autonomousOrigin: interruptedOrigin, interrupted: true };
       updateSendButton();
       startCatchUpWatcher();
       return;
@@ -1942,7 +2017,7 @@ function createStreamRuntime(state: any, options: any): any {
       showThinkingIndicator();
       isStreaming = true;
       updateSendButton();
-      await driveChatStream(res, spliceMsg, [], replyBaseline, requestMessage);
+      await driveChatStream(res, spliceMsg, [], replyBaseline, requestMessage, submittedAt);
       return;
     }
     // 非 200/202：主动排空 body，别让连接挂着
@@ -1952,6 +2027,9 @@ function createStreamRuntime(state: any, options: any): any {
 
   async function send(text: any, filesOverride: any = null, sendOptions: any = {}) {
     if (disposed || preparingSend) return;
+    try { validateIntelligentUIContext(!!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction); }
+    catch (error) { addMessage('system', error instanceof Error ? error.message : '智能 UI 上下文无效，未发送'); return; }
+
     if (!Array.isArray(filesOverride) && pendingFileReads.size) {
       preparingSend = true;
       try {
@@ -1970,7 +2048,9 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
     const replyBaseline = new Set(state.items);
+    const submittedAt = Date.now();
     const sendingScene = { ...state.currentScene };
+    const interruptedOrigin = options.activeAutonomousOrigin?.();
     userStoppedStream = false;
     const { isManualRetry = false } = sendOptions;
     let msg = (text || "").trim();
@@ -1981,10 +2061,12 @@ function createStreamRuntime(state: any, options: any): any {
     if (!msg && !filesToSend.length) return;
     if (!isManualRetry) msg = options.prepareMessage?.(msg || `[${filesToSend.length} file(s)]`) ?? msg;
     const requestMessage = isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withIntelligentUIContext(sendOptions.requestMessage ??
-      options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage), state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global']);
+      options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
     turnContext = sceneTransitionNotice(requestMessage);
     replyRunSettled = false;
-    pendingReply = { baseline: replyBaseline, phase: "processing" };
+    pendingReply = { baseline: replyBaseline, submittedAt, phase: "processing" };
+    autonomousStream = false;
+    autonomousOrigin = undefined;
     replayTransportOnly = false;
     setStreamScene(state.currentScene);
 
@@ -1999,7 +2081,6 @@ function createStreamRuntime(state: any, options: any): any {
     tuiSet("thinking");
     showThinkingIndicator();
     isStreaming = true;
-    stopAutonomousWatch();
     updateSendButton();
 
     const body: any = { message: requestMessage || `[Sent ${filesToSend.length} file(s)]`, ...browserScenePayload(sendingScene) };
@@ -2045,7 +2126,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (res.status === 202) {
       try { await res.json(); } catch (_: any) {}
       // Accepted is not completed: release the POST reader, retain this scene's run.
-      pendingReply = { baseline: replyBaseline, phase: "queued" };
+      pendingReply = { baseline: replyBaseline, submittedAt, phase: "queued", autonomousOrigin: interruptedOrigin };
       removeThinkingIndicator();
       tuiClear();
       finalizeSendCleanup();
@@ -2065,18 +2146,18 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
 
-    await driveChatStream(res, msg, filesToSend, replyBaseline, requestMessage);
+    await driveChatStream(res, msg, filesToSend, replyBaseline, requestMessage, submittedAt);
   }
 
   // 读取循环 + 统一的异常处理 + 统一的收尾。
   // send() 和 spliceSend() 都走这里，保证 isStreaming / 队列 / 按钮在任何路径上都能复位。
-  async function driveChatStream(res: any, msg: any, filesToSend: any, replyBaseline = new Set(state.items), requestMessage = msg) {
+  async function driveChatStream(res: any, msg: any, filesToSend: any, replyBaseline = new Set(state.items), requestMessage = msg, submittedAt = Date.now()) {
     let handedOff = false;
     try {
       const result = await consumeChatStream(res, msg, filesToSend);
       if (result.outcome === "done" && result.empty && !result.handled) {
         // EOF without any scene response is not evidence that the request completed.
-        pendingReply = { baseline: replyBaseline, phase: "reply" };
+        pendingReply = { baseline: replyBaseline, submittedAt, phase: "reply" };
         removeThinkingIndicator();
         startCatchUpWatcher();
       }
@@ -2264,8 +2345,14 @@ function createStreamRuntime(state: any, options: any): any {
 
     const sid = currentStreamId || lastStreamId;
     if (isStreaming && sid) {
-      const p = await probeStream(sid, liveSeq);
-      await applyProbeVerdict(p, sid, liveSeq);
+      const epoch = writerEpoch, seq = liveSeq, request = chatRequestRevision;
+      const p = await probeStream(sid, seq);
+      // Replay may finish or a newer reader may take over while this query is
+      // in flight. A late "finished" verdict must not reopen the old run with
+      // its already completed tool entries.
+      if (disposed || !isStreaming || writerEpoch !== epoch || liveSeq !== seq ||
+          chatRequestRevision !== request || (currentStreamId || lastStreamId) !== sid) return;
+      await applyProbeVerdict(p, sid, seq);
       return;
     }
 
@@ -2406,7 +2493,6 @@ function createStreamRuntime(state: any, options: any): any {
   // 滚动位置跳变、正在流的 streamMessage 被抹掉、移动端每次切 tab 回来都闪一下。
   // /api/history 的 HistoryMessage 是带 seq 的（http.rs:419-425），有 seq 就能增量对账。
   let lastHistorySeq = 0;
-  let historyWindowStart = 0;
   let lastReconcileSawBeing = false;
   let lastHistoryReplyScenes: any[] = [];
   let reconcileInFlight: any = null;
@@ -2610,6 +2696,7 @@ function createStreamRuntime(state: any, options: any): any {
   function applyHistoryIdentity(message: any, history: any) {
     if (!message || !history) return;
     if (history.historySeq) message.historySeq = history.historySeq;
+    if (history.interim) message.interim = true;
     if (history.timestamp) message.timestamp = history.timestamp;
     if (Number.isFinite(history.createdAt)) message.createdAt = history.createdAt;
     // Keep the live canonical scene when the server row uses its known legacy
@@ -2652,6 +2739,7 @@ function createStreamRuntime(state: any, options: any): any {
     const time = message.at ? new Date(message.at).getTime() : undefined;
     return {
       ...scene,
+      interim: message.from === "partial" || message.from === "act_talk",
       historySeq: Number(message.seq) || undefined,
       timestamp: formatHistoryTime(message.at),
       createdAt: Number.isFinite(time) ? time : undefined,
@@ -2675,21 +2763,24 @@ function createStreamRuntime(state: any, options: any): any {
   async function restoreSceneHistory(scene: MessageScene) {
     if (!scene.sceneId || !historyCacheSeeded || disposed) return;
     const ids = [scene.sceneId, ...(!scene.strict && scene.legacySceneId ? [scene.legacySceneId] : [])];
-    const cached = (await Promise.all(ids.map(id => historyCache.readScene(id, Math.max(300, chatHistoryLimit(state.historyLimit)))))).flat().sort((a, b) => a.seq - b.seq);
+    const cached = (await Promise.all(ids.map(id => historyCache.readScene(id)))).flat().sort((a, b) => a.seq - b.seq);
     if (disposed) return;
     insertCachedHistory(cached);
   }
 
-  function insertCachedHistory(cached: any[], beforeWindowOnly = true) {
+  function insertCachedHistory(cached: any[]) {
     const present = new Set(state.items.map((item: any) => item.historySeq).filter(Boolean));
     let added = false;
     for (const message of cached) {
-      // Only backfill rows preceding the initial history window. Newer cached
-      // rows may belong to a live reply deliberately skipped by reconciliation.
-      // Reading an older room must never advance or rewind the global cursor.
-      if ((beforeWindowOnly && message.seq >= historyWindowStart) || present.has(message.seq)) continue;
+      // Cache rows can fill gaps anywhere in the timeline. Preserve live bubbles
+      // using the same identity/echo reconciliation as network history.
+      if (present.has(message.seq)) continue;
       const identity = historyIdentity(message);
+      if (isHistoryMarker(message) && mergeContinuationMarker(message.content, identity)) continue;
       const role = message.role === "user" ? "user" : "being";
+      if (!isHistoryMarker(message) && (mergePersistedHistory(message) ||
+          consumeLocalEcho(role, message.content, messageScene(message), identity) ||
+          (role === "being" && options.isLiveScene?.(messageScene(message))))) continue;
       const text = isHistoryMarker(message)
         ? `· ${breathMarkerLabel(message.content)} · ${identity.timestamp} ·`
         : cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(message.content)) : message.content);
@@ -2806,13 +2897,12 @@ function createStreamRuntime(state: any, options: any): any {
     try {
       let hydrated = false;
       if (!preserve && (full || lastHistorySeq === 0)) {
-        const cached = await historyCache.read(Math.max(300, chatHistoryLimit(state.historyLimit)));
+        const cached = await historyCache.read();
         if (disposed) return 0;
         if (cached) {
           resetMessages();
           localEchoes = [];
           await renderHistoryBatched(cached.messages);
-          historyWindowStart = Math.min(...cached.messages.map(m => m.seq));
           lastHistorySeq = Math.max(lastHistorySeq, cached.lastSeq);
           historyCacheSeeded = true;
           hydrated = true;
@@ -2827,7 +2917,7 @@ function createStreamRuntime(state: any, options: any): any {
                 Number.isSafeInteger(m?.seq) && m.seq > 0 && m.seq <= cached.lastSeq) : [];
               if (older.length) {
                 await historyCache.write(older, cached.lastSeq);
-                if (!disposed) insertCachedHistory(older.sort((a: any, b: any) => a.seq - b.seq), false);
+                if (!disposed) insertCachedHistory(older.sort((a: any, b: any) => a.seq - b.seq));
               }
             } else await recent?.body?.cancel();
           } catch { /* A failed recent-page read must not hide cached history. */ }
@@ -2854,7 +2944,6 @@ function createStreamRuntime(state: any, options: any): any {
         toCache = msgs;
         lastHistoryReplyScenes = msgs.filter(m => !isHistoryMarker(m) && m.role !== "user").map(messageScene);
         await renderHistoryBatched(toCache);
-        historyWindowStart = toCache.length ? Math.min(...toCache.map(m => Number(m.seq) || 0)) : 0;
         added = toCache.length;
         lastReconcileSawBeing = toCache.some(
           (m) => !isHistoryMarker(m) && m.role !== "user" && inCurrentScene(messageScene(m), state.currentScene),
@@ -2971,7 +3060,7 @@ function createStreamRuntime(state: any, options: any): any {
     startCatchUpWatcher();
     updateSendButton();
   }
-  function finishPendingReply(failed = false) {
+  function finishPendingReply(failed = false, idle = false) {
     if (!pendingReply) return;
     logReplyWait(failed ? "timeout" : "replied");
     pendingReply = null;
@@ -2984,7 +3073,7 @@ function createStreamRuntime(state: any, options: any): any {
       currentRun.outcome = failed ? "timeout" : "done";
       currentRun.status = currentRun.outcome;
       currentRun.label = failed ? "等待超时，结果待确认" : "已回复";
-      currentRun.hint = failed ? "连续等待 5 分钟仍未确认最终回复。后台任务可能仍在运行，本次等待超时未发送停止指令；可刷新查看最新结果。" : "";
+      currentRun.hint = idle ? "服务端持续空闲 60 秒，仍未收到这条已接收消息的回复。已释放本地等待状态，可重试；未自动重发或停止后台任务。" : failed ? "连续等待 5 分钟仍未确认最终回复。后台任务可能仍在运行，本次等待超时未发送停止指令；可刷新查看最新结果。" : "";
     }
     replyRunSettled = true;
     changed();
@@ -2993,7 +3082,8 @@ function createStreamRuntime(state: any, options: any): any {
     const reply = pendingReply;
     return reply && state.items.some((item: any) => item.kind === "message" && item.role === "being"
       && inCurrentScene(item, state.currentScene) && !item.streaming && !item.interim && !reply.baseline.has(item)
-      && !options.restoredHistory?.has(item));
+      && !options.restoredHistory?.has(item)
+      && (!Number.isFinite(item.createdAt) || item.createdAt >= Math.floor(reply.submittedAt / 1000) * 1000));
   }
   function startCatchUpWatcher() {
     stopCatchUpWatcher();
@@ -3010,6 +3100,8 @@ function createStreamRuntime(state: any, options: any): any {
       // Progress, cancellation, or a new wait may arrive while history loads.
       if (generation !== catchUpGeneration || pendingReply !== reply) return;
       if (pendingReplyArrived()) { finishPendingReply(); return; }
+      await checkActiveStream();
+      if (generation !== catchUpGeneration || pendingReply !== reply) return;
       if (!pendingReply || catchUpTimer) return;
       if (Date.now() >= deadline) { finishPendingReply(true); return; }
       // A live stream may belong to an earlier turn; keep watching queued work.
@@ -3017,86 +3109,10 @@ function createStreamRuntime(state: any, options: any): any {
       catchUpTimer = setTimeout(tick, Math.min(delay, Math.max(0, deadline - Date.now())));
     };
     catchUpTimer = setTimeout(tick, delay);
-    checkActiveStream({ autonomousOnly: true });
+    void checkActiveStream();
   }
 
-  const AUTONOMOUS_ORIGIN_LABELS: Record<string, string> = {
-    beating: "being 正在自己想事情…",
-    callback: "being 正在处理一条回调…",
-    leftover: "being 正在回答排队的消息…",
-  };
-  let autonomousWatch: any = null;
-  function stopAutonomousWatch() {
-    if (!autonomousWatch) return;
-    if (autonomousWatch.timer) clearTimeout(autonomousWatch.timer);
-    autonomousWatch = null;
-    clearTuiHint();
-  }
-  function watchAutonomousStream(data: any) {
-    if (isStreaming || !data?.stream_id) return;
-    if (autonomousWatch?.streamId === data.stream_id) return;
-    stopAutonomousWatch();
-    const watch: any = { streamId: data.stream_id, timer: null };
-    autonomousWatch = watch;
-    let interval = 2000;
-    const deadline = Date.now() + POLL_ABSOLUTE_MAX_MS;
-    setStatus("thinking");
-    setTuiHint(AUTONOMOUS_ORIGIN_LABELS[data.origin] || "being 正在呼吸…");
-    const release = () => {
-      if (autonomousWatch !== watch) return false;
-      autonomousWatch = null;
-      clearTuiHint();
-      if (!isStreaming) setStatus("connected");
-      return true;
-    };
-    const finish = async () => {
-      if (!release()) return;
-      await reconcileHistory();
-      if (pendingReplyArrived()) finishPendingReply();
-    };
-    const poll = async () => {
-      watch.timer = null;
-      if (autonomousWatch !== watch) return;
-      if (isStreaming) {
-        release();
-        return;
-      }
-      if (Date.now() > deadline) {
-        await finish();
-        return;
-      }
-      try {
-        const r = await fetch(apiUrl("/api/stream/active"), {
-          cache: "no-store",
-          signal: timeoutSignal(8000),
-        });
-        if (r.status === 204) {
-          await finish();
-          return;
-        }
-        if (r.ok) {
-          const next = await r.json();
-          if (next.stream_id !== watch.streamId) {
-            await finish();
-            if (next.origin && next.origin !== "human" && !next.finished)
-              watchAutonomousStream(next);
-            return;
-          }
-          if (next.finished) {
-            await finish();
-            return;
-          }
-        }
-      } catch (e: any) {
-        console.warn("autonomous stream watch failed:", e);
-      }
-      interval = Math.min(interval * 1.5, 5000);
-      if (autonomousWatch === watch) watch.timer = setTimeout(poll, interval);
-    };
-    watch.timer = setTimeout(poll, interval);
-  }
-
-  async function checkActiveStream({ autonomousOnly = false } = {}) {
+  async function checkActiveStream() {
     const epoch = writerEpoch;
     try {
       const res =
@@ -3109,32 +3125,70 @@ function createStreamRuntime(state: any, options: any): any {
       const data = await res.json();
       // A local send or another recovery may have taken ownership while the
       // discovery request was in flight. Do not replace that newer transport.
-      if (disposed || epoch !== writerEpoch) return;
-      if (data.origin && data.origin !== "human") {
-        if (messageScene(data).sceneId && messageScene(data).sceneId !== state.currentScene.sceneId) return;
-        if (isStreaming) return;
-        if (data.finished) {
-          reconcileHistory();
-          return;
-        }
-        watchAutonomousStream(data);
-        return;
-      }
-      if (autonomousOnly) return;
-      replayStream(data);
+      if (disposed || epoch !== writerEpoch || isStreaming) return;
+      discoverActiveStream(data);
     } catch (e: any) {
       console.warn("checkActiveStream failed:", e);
     }
   }
 
+  function discoverActiveStream(data: any) {
+    if (disposed || isStreaming || chatRequestsInFlight || !data?.stream_id) return;
+    traceNetwork('active', {streamId: data.stream_id, origin: data.origin, activeSceneId: data.scene_id ?? null,
+      finished: data.finished, nextSeq: data.next_seq, eventCount: data.events?.length || 0});
+    if (data.finished) return;
+    // Autonomous events without a scene stay global even when a room is selected.
+    const replay = data.origin && data.origin !== 'human' && !Object.hasOwn(data, 'scene_id')
+      ? {...data, scene_id: null} : data;
+    replayStream(replay);
+  }
+
+  function captureActivity() {
+    return {epoch: writerEpoch, request: chatRequestRevision, reply: pendingReply, seq: liveSeq,
+      progress: lastProgressTime, streamId: currentStreamId, busy: chatRequestsInFlight > 0};
+  }
+  async function reconcileActivity(data: any, snapshot: ReturnType<typeof captureActivity>) {
+    // An old idle response must never reset a newer POST, reader or live event.
+    if (disposed || snapshot.busy || chatRequestsInFlight || snapshot.epoch !== writerEpoch ||
+        snapshot.request !== chatRequestRevision || snapshot.reply !== pendingReply ||
+        snapshot.streamId !== currentStreamId || snapshot.seq !== liveSeq || snapshot.progress !== lastProgressTime) return;
+    const id = currentStreamId || pendingRecovery?.streamId;
+    const terminal = !data || data.finished === true || (id && data.stream_id !== id);
+    if (terminal && (isStreaming || pendingRecovery) &&
+        (id || (routedStreaming && Date.now() - lastProgressTime >= 30000))) {
+      traceNetwork('reset-stale-stream', {streamId: id || null, reason: !data ? 'gone' : data.finished ? 'finished' : 'superseded'});
+      await recoverViaHistory();
+    } else if (pendingReplyArrived()) {
+      finishPendingReply();
+    }
+    const reply = pendingReply;
+    if (!reply || reply.phase !== 'queued' || isStreaming || pendingRecovery) return;
+    if (data && data.finished !== true) { reply.idleSince = reply.idleObservedAt = undefined; return; }
+    const now = Date.now();
+    // Only consecutive, successful idle observations count. A failed poll or
+    // any active stream must not turn a legitimate queue into a timeout.
+    if (!reply.idleObservedAt || now - reply.idleObservedAt > 20000) reply.idleSince = now;
+    reply.idleObservedAt = now;
+    if (now - (reply.idleSince ?? now) < 60000) return;
+    await reconcileHistory({preserve: true});
+    if (disposed || pendingReply !== reply || writerEpoch !== snapshot.epoch ||
+        chatRequestRevision !== snapshot.request || isStreaming || chatRequestsInFlight) return;
+    if (pendingReplyArrived()) { finishPendingReply(); return; }
+    traceNetwork('reset-orphaned-wait', {reason: 'server-idle-without-reply', idleMs: now - reply.idleSince!});
+    finishPendingReply(true, true);
+    updateSendButton();
+  }
+
   function replayStream(data: any) {
     if (options.routeReplay?.(data)) return;
-    if (isStreaming && currentStreamId === data.stream_id) return;
+    if (disposed || chatRequestsInFlight || isStreaming) return;
     // If the stream already finished, its content is in history — skip replay to avoid duplicates
     if (data.finished) return;
     // This runtime may only own the replay transport. Event scene IDs, not
     // the selected desktop scene, determine which runtime has actual work.
     replayTransportOnly = true;
+    autonomousStream = !!data.origin && data.origin !== 'human';
+    autonomousOrigin = autonomousStream ? data.origin : undefined;
     if (Object.hasOwn(data, "scene_id")) setStreamScene(messageScene(data));
 
     if (activeStreamPollTimer) {
@@ -3143,7 +3197,6 @@ function createStreamRuntime(state: any, options: any): any {
     }
 
     isStreaming = true;
-    stopAutonomousWatch();
     currentStreamId = data.stream_id || null;
     if (currentStreamId) lastStreamId = currentStreamId;
     writerEpoch++; // F2: 接管写权
@@ -3158,7 +3211,7 @@ function createStreamRuntime(state: any, options: any): any {
     updateSendButton();
 
     const events = Array.isArray(data.events) ? data.events : [];
-    for (const item of events) processReplayEvent(item.event, item.data || {});
+    for (const item of events) processReplayEvent(item.event, item.data || {}, Number(item.seq) || undefined);
 
     if (data.finished) {
       // 先渲染已累积的文字，再 finalize
@@ -3230,6 +3283,7 @@ function createStreamRuntime(state: any, options: any): any {
           cache: "no-store",
           signal: timeoutSignal(15000),
         });
+        if (disposed || !isStreaming || myEpoch !== writerEpoch) return;
         sawResponse = true;
         netFails = 0;
         if (connState === "reconnecting" || connState === "offline")
@@ -3247,6 +3301,10 @@ function createStreamRuntime(state: any, options: any): any {
         }
 
         const data = await res.json();
+        if (disposed || !isStreaming || myEpoch !== writerEpoch) return;
+        traceNetwork('active-poll', {streamId: data.stream_id, origin: data.origin,
+          activeSceneId: data.scene_id ?? null, finished: data.finished,
+          nextSeq: data.next_seq, after: cursor, eventCount: data.events?.length || 0});
         if (data.stream_id !== streamId) {
           // 别的 tab 起了新流 → 对齐内容而不是静默 finalize
           await recoverViaHistory();
@@ -3257,7 +3315,7 @@ function createStreamRuntime(state: any, options: any): any {
         for (const item of events) {
           const seq = Number(item.seq);
           if (Number.isFinite(seq) && seq <= cursor) continue;
-          processReplayEvent(item.event, item.data || {});
+          processReplayEvent(item.event, item.data || {}, Number(item.seq) || undefined);
           if (Number.isFinite(seq)) {
             cursor = Math.max(cursor, seq);
             liveSeq = cursor;
@@ -3270,6 +3328,7 @@ function createStreamRuntime(state: any, options: any): any {
           return;
         }
       } catch (e: any) {
+        if (disposed || !isStreaming || myEpoch !== writerEpoch) return;
         netFails++;
         console.warn("pollActiveStream error:", e);
         if (netFails >= 2) {
@@ -3319,7 +3378,15 @@ function createStreamRuntime(state: any, options: any): any {
     activeStreamPollTimer = setTimeout(poll, interval);
   }
 
-  function processReplayEvent(eventType: any, eventData: any) {
+  function traceStreamEvent(transport: string, type: string, data: any, seq?: number) {
+    if (!['meta', 'message_stop', 'error', 'tool_use', 'tool_result', 'content_block_delta'].includes(type)) return;
+    traceNetwork('stream-event', {transport, type, streamId: data.stream_id || currentStreamId,
+      eventSceneId: data.scene_id ?? null, seq, persistedSeq: data.persisted?.seq,
+      persistedFrom: data.persisted?.from, continuation: data.continuation === true,
+      ...(type === 'content_block_delta' ? {textLength: typeof data.delta?.text === 'string' ? data.delta.text.length : 0} : {})});
+  }
+  function processReplayEvent(eventType: any, eventData: any, seq?: number) {
+    traceStreamEvent(seq === undefined ? 'routed' : 'replay', eventType, eventData, seq);
     if (options.routeEvent?.(eventType, eventData)) return;
     splitStreamProgress(eventType, eventData);
     markProgress(eventType, eventData);
@@ -3566,20 +3633,32 @@ function createStreamRuntime(state: any, options: any): any {
     waitForPendingFiles,
     captureSendSnapshot: () => ({ draft: state.draft, files: [...pendingFiles] }),
     prepareSend,
-    isBusy: () => isStreaming || !!pendingReply || !!pendingRecovery || preparingSend,
-    stageQueuedSend(text: any, filesOverride = null) {
+    isBusy: () => (isStreaming && !replayTransportOnly && !autonomousStream) || !!pendingReply || !!pendingRecovery || preparingSend,
+    activeAutonomousOrigin: () => isStreaming ? autonomousOrigin : undefined,
+    settleHistoryReply: () => { if (pendingReplyArrived()) finishPendingReply(); },
+    captureActivity,
+    reconcileActivity,
+    discoverActiveStream,
+    stageQueuedSend(text: any, filesOverride = null, sendOptions: any = {}) {
+    try { validateIntelligentUIContext(!!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction); }
+    catch (error) { addMessage('system', error instanceof Error ? error.message : '智能 UI 上下文无效，未发送'); return null; }
+
       const msg = (text || "").trim();
       const files = Array.isArray(filesOverride) ? [...filesOverride] : [...pendingFiles];
       if (!msg && !files.length) return null;
-      const message = addMessage("user", msg || `[发送了 ${files.length} 个文件: ${files.map(f => f.name).join(", ")}]`);
-      message.queued = true;
+      // An unsent draft must not change the active turn's grouping or run position.
+      const message = { ...state.currentScene, kind: "message", id: `message-${options.nextId()}`,
+        turnId: `turn-${options.nextId()}`, role: "user", text: msg || `[发送了 ${files.length} 个文件: ${files.map(f => f.name).join(", ")}]`,
+        streaming: false, timestamp: formatTime(), createdAt: Date.now(), label: "you", consecutive: false, queued: true };
+      state.items.push(message);
+      const entry = { text: msg, files, message, sendOptions: { intelligentUI: sendOptions.intelligentUI ?? (state.intelligentUIEnabled && state.intelligentUIForMessage), uiAction: sendOptions.uiAction, uiSnapshot: sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'] } };
       if (!Array.isArray(filesOverride)) clearComposer();
-      return { text: msg, files, message };
+      return entry;
     },
     noteLocalEcho,
     bindPersisted,
     registerPersistedGroup,
-    revealHistory: (rows: any[]) => insertCachedHistory(rows, false),
+    revealHistory: (rows: any[]) => insertCachedHistory(rows),
     restoreSceneHistory,
     reconcileHistory,
     syncHistoryCursor,

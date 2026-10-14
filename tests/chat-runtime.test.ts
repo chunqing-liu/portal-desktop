@@ -220,7 +220,7 @@ describe("React chat runtime lifecycle", () => {
       await vi.advanceTimersByTimeAsync(1000);
       expect(sent).toHaveLength(3);
       state.historyScope = initialScope;
-      await runtime.send("再补充一点", [{ name: "notes.txt", type: "text/plain", size: 3, base64: "YWJj" }]);
+      await runtime.send("再补充一点", [{ name: "notes.txt", type: "text/plain", size: 3, base64: "YWJj" }], { mode: 'interrupt' });
       await flush();
       expect(sent).toEqual([
         { message: "第一条", ...scene },

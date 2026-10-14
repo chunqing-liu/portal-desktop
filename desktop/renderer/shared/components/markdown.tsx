@@ -1,6 +1,6 @@
 import { IntelligentUI } from "../intelligent-ui/view";
 import hljs, { type Emitter } from "highlight.js";
-import { Fragment, createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { detectStructuredText, formatJSON } from './structured-text';
 import { marked, type Token, type Tokens } from "marked";
 import {
@@ -41,7 +41,8 @@ const terms: Record<string, PlaceView> = {
 const termPattern =
   /镇公所公告|公告板|镇民通讯录|镇通讯录|通讯录|篝火|围炉|私信|邮局|收件箱|书架|卷轴|工具库|本机连接|种子花园|\b(?:announcements|contacts|seed garden|seeds|bonfire|fireside|embers|scrolls|kits?|portal)\b/gi;
 const markdownLanguages = new Set(["markdown", "md", "mkdown", "mkd"]);
-export const CodeClipboard = createContext<(text: string) => Promise<void>>(text => navigator.clipboard.writeText(text));
+export { CodeClipboard } from './clipboard';
+import { CodeClipboard } from './clipboard';
 export function safeLink(value: string): string | undefined {
   try {
     const url = new URL(value);

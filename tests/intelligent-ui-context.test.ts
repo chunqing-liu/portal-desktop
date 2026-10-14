@@ -70,12 +70,12 @@ it('injects on normal and live follow-up sends while keeping local and restored 
     expect(sends[0]).toBe('帮我做预算' + intelligentUIContext);
     expect(state.intelligentUIForMessage).toBe(false);
     state.setIntelligentUIForMessage(true);
-    await runtime.send('增加一个滑块');
+    await runtime.send('增加一个滑块', [], {mode:'interrupt'});
     await vi.advanceTimersByTimeAsync(20);
     expect(sends[1]).toBe('增加一个滑块' + intelligentUIContext);
     expect(state.intelligentUIForMessage).toBe(false);
     // Beta remains enabled, but the next message is ordinary.
-    await runtime.send('现在普通回复');
+    await runtime.send('现在普通回复', [], {mode:'interrupt'});
     await vi.advanceTimersByTimeAsync(20);
     expect(sends[2]).toBe('现在普通回复');
     history.push({ seq: 10, role: 'user', content: '历史输入' + intelligentUIContext, scene_id: 'desktop-test' });

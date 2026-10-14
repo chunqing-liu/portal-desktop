@@ -94,6 +94,8 @@ try {
   await npm('chat-scroll', ['run', 'test:chat-scroll']);
   await npm('chat-context-menu', ['run', 'test:chat-context-menu']);
   await npm('chat-history', ['run', 'test:chat-history']);
+  await npm('intelligent-ui-surfaces', ['run', 'test:intelligent-ui-surfaces']);
+  await npm('chat-send-queue', ['run', 'test:chat-send-queue']);
   await npm('chat-sessions', ['run', 'test:chat-sessions']);
   await npm('client-context', ['run', 'test:client-context']);
   await npm('client-lifecycle', ['run', 'test:client-lifecycle']);

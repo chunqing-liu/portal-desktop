@@ -231,3 +231,21 @@ it('rolls a sending transition back and clears activity when disposal wins the d
     vi.useRealTimers();
   }
 });
+
+it.each(['running', 'done'] as const)('does not block a new scene on a %s ledger row without runtime ownership', async status => {
+  const state:any = {items:[],currentScene:{sceneId:'a'},draft:'',files:[],sceneTasks:[],changed:vi.fn()};
+  const sent = vi.fn();
+  const runtime = createSceneRuntime(state, {}, (_state:any, options:any) => ({
+    sceneActivity:()=> 'done', isBusy:()=>false, syncConnection:()=>{},
+    waitForPendingFiles:async()=>{}, refreshHistory:async()=>{}, dispose:()=>{},
+    send:(text:string)=>sent(options.prepareMessage(text)),
+    stageQueuedSend:()=>{throw new Error('Idle runtime must not queue');},
+  }));
+  try {
+    await runtime.send('A');
+    runtime.updateSceneTasks([{id:'old',sceneId:'a',createdAt:Date.now(),endedAt:Date.now()+100,status}]);
+    await runtime.selectScene({sceneId:'b'});
+    await runtime.send('B');
+    expect(sent.mock.calls.map(call=>call[0])).toEqual(['A','B']);
+  } finally { runtime.dispose(); }
+});

@@ -1,3 +1,4 @@
+import { UISnapshotStore } from '../../shared/intelligent-ui/snapshots';
 import { readIntelligentUIPreference, saveIntelligentUIPreference } from "../../shared/intelligent-ui/context";
 import { Store } from "../../shared/models/store";
 import { messageScene, type HistoryScope, type MessageScene } from "./scenes";
@@ -39,6 +40,8 @@ export interface Message extends MessageScene {
   queued?: boolean;
   queueNotice?: string;
   cancelQueued?: () => void;
+  canInterruptQueued?: boolean;
+  interruptQueued?: () => void | Promise<void>;
 }
 export interface ActivityEntry {
   type: string;
@@ -114,7 +117,13 @@ export interface Soul {
   [key: string]: unknown;
 }
 export class ChatState extends Store {
+  historyRefreshing = false;
   intelligentUISnapshots: Record<string, string> = {};
+  private uiSnapshotStore = new UISnapshotStore();
+  recordIntelligentUISnapshot(scene: string, text: string, active = false) {
+    const selected = this.uiSnapshotStore.record(scene, text, active);
+    if (selected !== undefined) this.intelligentUISnapshots[scene] = selected;
+  }
   intelligentUIEnabled = readIntelligentUIPreference();
   intelligentUIForMessage = false;
   setIntelligentUIForMessage(enabled: boolean) {
@@ -162,6 +171,8 @@ export class ChatState extends Store {
   draft = "";
   files: Attachment[] = [];
   queued = 0;
+  sendWillQueue = false;
+  canInterruptQueue = false;
   thinking = false;
   streaming = false;
   stopping = false;
@@ -181,7 +192,7 @@ export interface ChatRuntime {
   start(): Promise<void>;
   selectScene(scene: MessageScene): Promise<void>;
   dispose(): void;
-  send(text: string, files?: Attachment[] | null): Promise<void>;
+  send(text: string, files?: Attachment[] | null, options?: { mode?: "interrupt"; intelligentUI?: boolean; uiAction?: import('../../shared/intelligent-ui/surfaces').UIInteraction }): Promise<void>;
   stopCurrentTurn(): Promise<void>;
   handleFiles(files: Iterable<File>): void;
   removePending(index: number): void;

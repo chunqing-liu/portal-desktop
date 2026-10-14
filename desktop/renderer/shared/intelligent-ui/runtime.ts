@@ -1,3 +1,4 @@
+import { designTokens, type Appearance } from './design';
 import { bicycleAsset } from './bicycle-asset';
 import { catalog, operationArity } from "./catalog";
 /** A bounded JSON interpreter. Model output never becomes executable JavaScript. */
@@ -7,6 +8,11 @@ export interface UINode {
   id: string;
   type: keyof typeof catalog;
   label?: string;
+  description?: string;
+  unit?: string;
+  meta?: string;
+  range?: boolean;
+  copyable?: boolean;
   value?: Expr;
   bind?: string;
   min?: number;
@@ -16,15 +22,18 @@ export interface UINode {
   children?: UINode[];
   columns?: string[];
   rows?: Expr[][];
-  action?: 'reset' | 'copy' | 'continue' | 'event';
-  variant?: 'bar' | 'line' | 'two' | 'three' | 'collage';
+  action?: 'reset' | 'copy' | 'continue' | 'event' | 'set';
+  changes?: Record<string, Expr>;
+  when?: Expr;
+  appearance?: Appearance;
+  variant?: 'bar' | 'line' | 'two' | 'three' | 'collage' | 'primary' | 'quiet';
   level?: 2 | 3 | 4;
   width?: number;
   height?: number;
   shapes?: Shape[];
   parts?: { id: string; label: string; description: string }[];
   checkable?: boolean;
-  items?: { id: string; label: string; description?: string; time?: string; bind?: string }[];
+  items?: { id: string; label: string; description?: string; time?: string; bind?: string; group?: string; value?: Expr }[];
   code?: string;
   src?: string;
   asset?: 'bicycle';
@@ -65,10 +74,35 @@ export function compileUI(source: string): UIDocument {
   function node(n: any, depth: number) {
     if (!object(n) || depth > 12 || ids.size >= 200 || typeof n.id !== 'string' || !keyOK(n.id) || ids.has(n.id) || !types.has(n.type)) fail('组件类型、层级或 id 无效');
     ids.add(n.id);
-    const allowed = new Set(['id', 'type', 'label', 'value', 'bind', 'min', 'max', 'step', 'options', 'children', 'columns', 'rows', 'action', 'variant', 'width', 'height', 'shapes', 'parts', 'items', 'code', 'asset', 'explodeBind', 'src', 'checkable', 'level']);
-    if (Object.keys(n).some(key => !allowed.has(key))) fail('组件包含未知属性');
+    const allowed = new Set(['id', 'type', 'label', 'value', 'bind', 'min', 'max', 'step', 'options', 'children', 'columns', 'rows', 'action', 'variant', 'width', 'height', 'shapes', 'parts', 'items', 'code', 'asset', 'explodeBind', 'src', 'checkable', 'level', 'changes', 'when', 'appearance', 'description', 'unit', 'meta', 'range', 'copyable']);
+    const unknown = Object.keys(n).filter(key => !allowed.has(key));
+    if (unknown.length) fail(`组件「${n.id}」（${n.type}）包含未知属性：${unknown.map(key => JSON.stringify(key).slice(0, 100)).join('、').slice(0, 400)}。${unknown.includes('parent') ? 'parent 是 node 事件的外层字段，须与 op、node 同级，不能放在 node 对象内。' : '请按组件目录检查字段名称和所在层级。'}`);
     if (n.label !== undefined && (typeof n.label !== 'string' || n.label.length > 500)) fail('组件标签无效');
+    for (const field of ['description', 'unit', 'meta']) if (n[field] !== undefined && (typeof n[field] !== 'string' || n[field].length > 2000)) fail('说明字段无效');
+    if (n.range !== undefined && (n.type !== 'stepper' || typeof n.range !== 'boolean')) fail('range仅适用于stepper');
+    if (n.copyable !== undefined && (n.type !== 'checklist' || typeof n.copyable !== 'boolean')) fail('copyable仅适用于checklist');
     if (n.value !== undefined) expr(n.value);
+    if (n.when !== undefined) { expr(n.when); if (typeof evaluate(n.when, doc.state) !== 'boolean') fail('when需要布尔表达式'); }
+    if (n.appearance !== undefined) {
+      if (!object(n.appearance)) fail('appearance需要设计属性对象');
+      for (const [key, value] of Object.entries(n.appearance)) {
+        if (key === 'span') { if (![1,2,3].includes(value as number)) fail('span必须为1到3'); }
+        else if (!owns(designTokens, key) || !(designTokens[key as keyof typeof designTokens] as readonly unknown[]).includes(value)) fail(`不支持的设计属性：${key}`);
+      }
+    }
+    if (n.changes !== undefined) {
+      if (n.type !== 'button' || n.action !== 'set' || !object(n.changes) || !Object.keys(n.changes).length || Object.keys(n.changes).length > 20) fail('changes仅用于set按钮，包含1到20个状态更新');
+      for (const [key, value] of Object.entries(n.changes)) {
+        if (!owns(doc.state, key)) fail('set必须引用已声明状态');
+        expr(value);
+        const result = evaluate(value as Expr, doc.state);
+        if (!scalar(result) || typeof result !== typeof doc.state[key]) fail('set不能改变状态类型');
+      }
+    }
+    if (n.type === 'progress' && (!Number.isFinite(n.min) || !Number.isFinite(n.max) || n.min >= n.max || n.value === undefined || typeof evaluate(n.value, doc.state) !== 'number')) fail('progress需要数值表达式及有效min/max');
+    if (n.type === 'choice') {
+      if (typeof n.bind !== 'string' || !owns(doc.state,n.bind) || typeof doc.state[n.bind] !== 'string' || !Array.isArray(n.items) || !n.items.length || n.items.length > 30 || !n.items.some((item:any) => item?.id === doc.state[n.bind])) fail('choice需要文本选择及有效items');
+    }
     if (['stepper', 'slider', 'number', 'input', 'select', 'segmented', 'toggle'].includes(n.type)) {
       if (typeof n.bind !== 'string' || !owns(doc.state, n.bind)) fail('输入组件需要有效的 bind');
       const initial = doc.state[n.bind];
@@ -77,10 +111,10 @@ export function compileUI(source: string): UIDocument {
       if (['input', 'select', 'segmented'].includes(n.type) && typeof initial !== 'string') fail('输入需要文本状态');
       if (['select', 'segmented'].includes(n.type) && (!Array.isArray(n.options) || !n.options.length || n.options.length > 100 || n.options.some((v: unknown) => typeof v !== 'string' || v.length > 500) || !n.options.includes(initial))) fail('选项无效');
     }
-    if (n.type === 'button' && !['reset', 'copy', 'continue', 'event'].includes(n.action)) fail('不支持的动作');
+    if (n.type === 'button' && (!['reset', 'copy', 'continue', 'event', 'set'].includes(n.action) || n.action === 'set' && n.changes === undefined)) fail('不支持的动作');
     if ((['image', 'media'].includes(n.type) && (n.type === 'image' || n.src !== undefined)) && (typeof n.src !== 'string' || !(/^https:\/\/[^\s]+$/.test(n.src) || /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(n.src)))) fail('图片 src 仅支持 HTTPS 地址或 PNG/JPEG/WebP 的 Base64 位图；SVG 请使用 diagram 图元');
     if (n.type === 'app' && (typeof n.code !== 'string' || !n.code.trim() || n.code.length > 20000)) fail('应用代码无效或过长');
-    if (n.variant !== undefined && !(n.type === 'chart' ? ['bar', 'line'] : n.type === 'gallery' ? ['collage', 'two', 'three'] : n.type === 'grid' ? ['two', 'three'] : []).includes(n.variant)) fail('组件样式类型无效');
+    if (n.variant !== undefined && !(n.type === 'chart' ? ['bar', 'line'] : n.type === 'gallery' ? ['collage', 'two', 'three'] : n.type === 'grid' ? ['two', 'three'] : n.type === 'button' ? ['primary', 'quiet'] : n.type === 'segmented' ? ['quiet'] : []).includes(n.variant)) fail('组件样式类型无效');
     if (n.level !== undefined && (n.type !== 'heading' || ![2, 3, 4].includes(n.level))) fail('标题层级无效');
     if (n.type === 'heading' && !n.label) fail('标题需要 label');
     if (n.type === 'facts' || n.type === 'breakdown') {
@@ -91,14 +125,16 @@ export function compileUI(source: string): UIDocument {
       }
     }
     if (n.checkable !== undefined && (!['timeline', 'checklist'].includes(n.type) || typeof n.checkable !== 'boolean')) fail('勾选配置无效');
-    if (['timeline', 'checklist', 'list'].includes(n.type)) {
+    if (['timeline', 'checklist', 'list', 'choice'].includes(n.type)) {
       if (!Array.isArray(n.items) || n.items.length > 100) fail('时间线无效');
       const keys = new Set();
       for (const item of n.items) {
         if (!object(item) || typeof item.id !== 'string' || !keyOK(item.id) || keys.has(item.id) || typeof item.label !== 'string' || item.label.length > 200 || item.description !== undefined && (typeof item.description !== 'string' || item.description.length > 2000) || item.bind !== undefined && (!owns(doc.state, item.bind) || typeof doc.state[item.bind] !== 'boolean')) fail('时间线项目无效');
-        if (Object.keys(item).some(key => !['id', 'label', 'description', 'time', 'bind'].includes(key)) || item.time !== undefined && (typeof item.time !== 'string' || item.time.length > 80)) fail('清单项目属性无效');
+        if (Object.keys(item).some(key => !['id', 'label', 'description', 'time', 'bind', 'group', 'value'].includes(key)) || item.time !== undefined && (typeof item.time !== 'string' || item.time.length > 80)) fail('清单项目属性无效');
+        if (item.group !== undefined && (n.type !== 'checklist' || typeof item.group !== 'string' || item.group.length > 100)) fail('分组需要简短文本');
+        if (item.value !== undefined) { if (n.type !== 'checklist') fail('行数值仅适用于checklist'); expr(item.value); }
         keys.add(item.id);
-        if (n.type !== 'list' && n.checkable !== false && item.bind === undefined) {
+        if (!['list', 'choice'].includes(n.type) && n.checkable !== false && item.bind === undefined) {
           // Stable across reordering and stream updates; no keyword-specific rendering.
           let hash = 14695981039346656037n;
           for (const c of `${n.id}\0${item.id}`) hash = BigInt.asUintN(64, (hash ^ BigInt(c.codePointAt(0)!)) * 1099511628211n);
@@ -153,7 +189,8 @@ export function compileUI(source: string): UIDocument {
       }
     }
     if (n.children !== undefined) {
-      if (!['stack', 'row', 'card', 'section', 'grid', 'gallery', 'tabs'].includes(n.type) || !Array.isArray(n.children)) fail('仅容器支持 children');
+      if (!['stack', 'row', 'card', 'section', 'grid', 'gallery', 'tabs', 'box', 'split'].includes(n.type) || !Array.isArray(n.children)) fail('仅容器支持 children');
+      if (n.type === 'split' && n.children.length > 2) fail('split最多容纳两项内容');
       if (n.type === 'gallery' && (n.children.length > 6 || n.children.some((child: any) => child?.type !== 'image'))) fail('图库最多支持6张图片');
       if (n.type === 'tabs' && (n.children.length > 12 || n.children.some((child: any) => child?.type !== 'section' || !child.label) || n.children.length && !n.children.some((child: any) => child.id === doc.state[n.bind]))) fail('标签页需要带标题的section，选择值为子节点id');
       n.children.forEach((child: unknown) => node(child, depth + 1));
@@ -168,6 +205,9 @@ export function evaluate(expr: Expr | undefined, state: Record<string, Value>): 
   if ('state' in expr) return owns(state, expr.state) ? state[expr.state] : null;
   const args = expr.args.map(arg => evaluate(arg, state));
   if (expr.op === 'concat') return args.map(v => v ?? '').join('').slice(0, 10000);
+  if (expr.op === 'not') return !args[0];
+  if (expr.op === 'and') return args.every(Boolean);
+  if (expr.op === 'or') return args.some(Boolean);
   if (expr.op === 'eq') return args[0] === args[1];
   if (expr.op === 'if') return args[0] ? args[1] : args[2];
   if (!args.every(v => typeof v === 'number' && Number.isFinite(v))) return null;
@@ -186,12 +226,19 @@ export function reconcileState(doc: UIDocument, previous: Record<string, Value>)
       if (['stepper', 'slider', 'number'].includes(n.type)) next[n.bind!] = Math.max(n.min!, Math.min(n.max!, Number(next[n.bind!])));
       if (['select', 'segmented'].includes(n.type) && !n.options!.includes(String(next[n.bind!]))) next[n.bind!] = doc.state[n.bind!];
       if (n.type === 'tabs' && n.children?.length && !n.children.some(child => child.id === next[n.bind!])) next[n.bind!] = doc.state[n.bind!];
+      if (n.type === 'choice' && !n.items!.some(item => item.id === next[n.bind!])) next[n.bind!] = doc.state[n.bind!];
       if (n.explodeBind) next[n.explodeBind] = Math.max(0, Math.min(1, Number(next[n.explodeBind])));
       if (n.children) visit(n.children);
     }
   }
   visit(doc.body);
   return next;
+}
+
+/** New model defaults may change computed data; retain only actual user choices. */
+export function reconcileUpdatedState(doc: UIDocument, previousDoc: UIDocument, previous: Record<string, Value>, touched: ReadonlySet<string>): Record<string, Value> {
+  const edited = Object.fromEntries(Object.entries(previous).filter(([key, value]) => touched.has(key) || value !== previousDoc.state[key]));
+  return reconcileState(doc, edited);
 }
 
 /** Render only complete body components from a partial JSON stream. Never invent expression values. */
@@ -228,4 +275,15 @@ export function compileStreamingUI(source: string): UIDocument {
     if (candidates.length) return compileUI(source.slice(0, candidates.at(-1)) + ']}');
     throw error;
   }
+}
+
+/** Evaluate all changes against the same prior snapshot, then clamp inputs. */
+export function applyUIChanges(doc: UIDocument, values: Record<string, Value>, changes: Record<string, Expr>): Record<string, Value> {
+  const patch: Record<string, Value> = {};
+  for (const [key, expression] of Object.entries(changes)) {
+    const result = evaluate(expression, values);
+    if (!owns(doc.state, key) || !scalar(result) || typeof result !== typeof doc.state[key]) throw new Error('操作结果无效，已保留当前选择');
+    patch[key] = result;
+  }
+  return reconcileState(doc, { ...values, ...patch });
 }

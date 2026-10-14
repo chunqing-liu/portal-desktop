@@ -66,7 +66,7 @@ export function ChatActivity({
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>
-        <span className="run-icon" role="img" aria-label={CHAT_SCENE_ACTIVITY_LABELS[status]}>
+        <span className="run-icon" role="img" aria-label={status === "queued" && run.waitingForReply ? "消息已接收" : CHAT_SCENE_ACTIVITY_LABELS[status]}>
           <Icon
             name={
               run.outcome === "stopped"

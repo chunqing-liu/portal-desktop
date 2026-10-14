@@ -8,6 +8,7 @@ export interface SavedSceneSend {
   files: Attachment[];
   createdAt: number;
   phase: 'queued' | 'sending';
+  sendOptions?: { intelligentUI?: boolean; uiAction?: import('../../shared/intelligent-ui/surfaces').UIInteraction; uiSnapshot?: string };
 }
 
 /** Separate from history: these messages have not been acknowledged by Heart. */

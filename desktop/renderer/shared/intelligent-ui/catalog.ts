@@ -1,7 +1,15 @@
+import { appearanceDescription } from './design';
 /** One catalog supplies both validation and the model-facing contract. */
 export const catalog = {
+  hero: 'label主标题、value简介、meta辅助信息；用作内容标题，放在根节点第一项时替代默认文档标题',
+  callout: 'label提示标题、value正文，轻背景提示块',
+  box: 'children：自由组合容器，无默认卡片；appearance控制表面、间距、密度',
+  split: 'children：两项内容，appearance.ratio为equal/wide-left/wide-right；窄屏自动纵排',
+  badge: 'label或value：简短状态标签',
+  progress: 'label、value：当前数值表达式，min/max：范围，显示数值和进度',
+  choice: 'label、bind：文本状态，items：{id,label,description?}，按id选择；用于带说明的选项卡片',
   stack: 'children：垂直布局', row: 'children：可换行多列布局',
-  tabs: 'label、bind：文本状态，children：带id和label的section；状态值等于当前子section的id，仅显示选中内容',
+  tabs: 'label、bind：文本状态，children：带id和label的section（可带value说明）；状态值等于当前子section的id，仅显示选中内容',
   breakdown: 'label、rows：[[名称,非负数值表达式],...]，最多8项，显示组成比例和数值',
   section: 'label：章节标题、value：导语、children：正文内容；默认无卡片边框',
   heading: 'label：标题、level：2/3/4（默认3）',
@@ -11,15 +19,15 @@ export const catalog = {
   media: 'label：标题、value：说明、src：可选的已有图片地址；没有图片时自动使用纯文字行',
   list: 'items：{id,label,description?}数组，用于要点列表',
   facts: 'label：可选标题、rows：[[名称,值表达式],...]，用于采购数量/摘要，避免为每个值放一个大指标卡',
-  stepper: 'label、bind、min、max、step（默认1），可选value格式化展示值；用于人数等小整数，加减即时联动',
-  checklist: 'label、items：{id,label,description?,time?,bind?}数组；自动保存勾选、显示进度，bind可指定布尔状态',
+  stepper: 'label、bind、min、max、step（默认1），可选value格式化展示值；用于人数等小整数，加减即时联动；range:true在同一控件下显示共享数值的滑条',
+  checklist: 'label、description、copyable；items:{id,label,description?,group?,value?,bind?}，value为右侧数量表达式；按group分组，共享完成计数，copyable:true复制当前数量与勾选状态；bind可指定布尔状态',
   image: 'src：已有的HTTPS图片地址或data:image/png|jpeg|webp;base64位图，label：替代文字，value：图片说明；不要编造图片地址',
   card: 'label（卡片标题）、value（简介，可选）、children：内容；用于菜单、方案摘要等有层次的内容，不要把所有任务都做成表格',
-  text: 'label（可选）、value：说明', metric: 'label、value：重要结果',
+  text: 'label（可选）、value：说明', metric: 'label、value：重要结果；unit单位、description补充说明',
   slider: 'label、bind、min、max、step：数值滑块；可选value表达式格式化当前值（如百分比、金额、年份）', number: 'label、bind、min、max、step：数值输入',
   input: 'label、bind：文本输入', select: 'label、bind、options：下拉选择',
-  segmented: 'label、bind、options：分段选择', toggle: 'label、bind：布尔开关',
-  button: 'label、action: reset/copy/continue/event（event仅app内，点击事件key为id），value：复制或继续对话的文本',
+  segmented: 'label、bind、options：分段选择；variant:quiet等宽轻量选择', toggle: 'label、bind：布尔开关',
+  button: 'label、action: reset/copy/continue/event/set（event仅app内，点击事件key为id）；set用changes:{状态键:表达式}原子更新本地状态，其余用value传文本；variant:primary通栏主按钮/quiet弱操作',
   table: 'label、columns、rows：二维表达式数组，支持分页',
   chart: 'label、columns（2项）、rows（标签/值）、variant: bar/line',
   diagram: 'label、bind（选择状态）、width、height、shapes：SVG图元数组；parts：{id,label,description}数组。可选 asset: bicycle 使用内置精细自行车SVG（可省略width/height/shapes/parts），explodeBind绑定0..1数值状态显示拆解滑块。图元支持strokeWidth、fill:none/text/surface、dx/dy拆解偏移。图元为 line/circle/rect/path/text，可用 part 对应部件 id。用图解释结构，不要用参数表代替图',
@@ -29,6 +37,6 @@ export const catalog = {
 export const operationArity: Record<string, readonly [number, number]> = {
   add: [2, 20], mul: [2, 20], sub: [2, 2], div: [2, 2], round: [1, 1],
   concat: [1, 20], eq: [2, 2], if: [3, 3], pow: [2, 2], min: [1, 20], max: [1, 20],
-  lt: [2, 2], gt: [2, 2], fixed: [2, 2],
+  lt: [2, 2], gt: [2, 2], fixed: [2, 2], not: [1, 1], and: [2, 20], or: [2, 20],
 };
-export const catalogDescription = Object.entries(catalog).map(([name, description]) => `${name}: ${description}`).join('\n');
+export const catalogDescription = Object.entries(catalog).map(([name, description]) => `${name}: ${description}`).join('\n') + `\n通用属性：when为布尔表达式，false时隐藏但保留状态；appearance:{${appearanceDescription}}。不支持任意CSS。`;

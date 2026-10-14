@@ -8,40 +8,44 @@ export const bicycle: UIDocument = {
     { id: 'follow', type: 'button', label: '继续了解这个部件', action: 'continue', value: '请进一步解释我选中的自行车部件，并举一个骑行中的例子。' },
   ],
 };
+const mealFactor = op('if', op('eq', state('appetite'), '轻食'), .8, op('if', op('eq', state('appetite'), '丰盛'), 1.25, 1));
+const mealAmount = (grams: number) => op('concat', op('round', op('mul', state('guests'), grams, mealFactor)), ' 克');
 export const meal: UIDocument = {
-  version: 1, title: '把周末，留给一桌好菜', state: { guests: 6, prep: false, shop: false, cook: false }, body: [
-    { id: 'intro', type: 'text', value: '柠檬香草的清香、刚出炉的金黄土豆，再来一盘清爽时蔬。把费时的准备留在开席前，把周末留给朋友。' },
-    { id: 'overview', type: 'facts', rows: [['这一餐', '家常分享 · 烤箱料理'], ['安排', '提前备料，上桌前集中烹饪'], ['适合', '朋友小聚，可按人数调整采购量']] },
-    { id: 'menu', type: 'section', label: '01 · 今天吃什么', value: '一道主菜、两道配菜，加一份轻盈的收尾。', children: [
+  version: 1, title: '把周末，留给一桌好菜', state: { guests: 6, appetite: '标准' }, body: [
+    { id: 'intro', type: 'hero', label: '把周末，留给一桌好菜', meta: 'WEEKEND TABLE · 18:00 开席', value: '柠檬香草烤鸡、金黄土豆和清爽时蔬。提前做好准备，留出和朋友聊天的时间。' },
+    { id: 'summary', type: 'grid', variant: 'three', children: [
+      { id: 'people', type: 'metric', label: '聚餐人数', value: state('guests'), unit: '人', appearance: { surface: 'soft', size: 'small' } },
+      { id: 'meat', type: 'metric', label: '鸡肉采购量', value: op('fixed', op('mul', state('guests'), .25, mealFactor), 2), unit: 'kg', appearance: { surface: 'soft', size: 'small' } },
+      { id: 'duration', type: 'metric', label: '预留聚餐时间', value: 2, unit: '小时', appearance: { surface: 'soft', size: 'small' } },
+    ] },
+    { id: 'controls', type: 'card', label: '定制这一餐', children: [
+      { id: 'guests', type: 'stepper', label: '用餐人数', bind: 'guests', min: 1, max: 20, range: true },
+      { id: 'appetite', type: 'segmented', label: '大家的食量', bind: 'appetite', options: ['轻食', '标准', '丰盛'], variant: 'quiet' },
+      { id: 'control-note', type: 'text', value: '人数与食量改变后，下方采购量会同步更新。数量为准备食材的示例估算。', appearance: { size: 'small', emphasis: 'muted' } },
+    ] },
+    { id: 'menu', type: 'section', label: '今晚的招牌菜单', children: [
       { id: 'menu-grid', type: 'grid', children: [
-        { id: 'main', type: 'media', label: '柠檬香草烤鸡', value: '主菜 / 迷迭香、烤蒜与肉汁。整盘上桌，一起分享。' },
-        { id: 'side', type: 'media', label: '迷迭香烤土豆', value: '配菜 / 边缘金黄酥脆，内里绵软，搭配主菜肉汁。' },
-        { id: 'veg', type: 'media', label: '时蔬与绿叶沙拉', value: '配菜 / 选当季蔬菜，临上桌拌入柠檬汁和橄榄油。' },
-        { id: 'dessert', type: 'media', label: '水果与热茶', value: '收尾 / 一盘时令水果，配一壶茶，慢慢聊到晚。' },
+        { id: 'main', type: 'media', label: '柠檬香草烤鸡', value: '主菜 · 迷迭香、烤蒜与肉汁，整盘上桌分享。' },
+        { id: 'side', type: 'media', label: '迷迭香烤土豆', value: '配菜 · 金黄酥脆，搭配主菜肉汁。' },
+        { id: 'veg', type: 'media', label: '时蔬与绿叶沙拉', value: '配菜 · 当季蔬菜，临上桌再拌汁。' },
+        { id: 'dessert', type: 'media', label: '水果与热茶', value: '收尾 · 一盘时令水果，配一壶茶。' },
       ] },
     ] },
-    { id: 'shopping', type: 'card', label: '02 · 按人数准备', value: '采购量为示例估算，可根据食量和其他菜品调整。', children: [
-      { id: 'guests', type: 'stepper', label: '用餐人数', bind: 'guests', min: 1, max: 20, value: op('concat', state('guests'), ' 人') },
-      { id: 'quantities', type: 'facts', rows: [
-        ['鸡肉', op('concat', op('mul', state('guests'), 250), ' 克')],
-        ['土豆', op('concat', op('mul', state('guests'), 200), ' 克')],
-        ['蔬菜', op('concat', op('mul', state('guests'), 150), ' 克')],
-        ['时令水果', op('concat', op('mul', state('guests'), 100), ' 克')],
-      ] },
-      { id: 'pantry', type: 'text', value: '厨房常备：柠檬、蒜、迷迭香、橄榄油、盐和黑胡椒。' },
-      { id: 'copy', type: 'button', label: '复制采购清单', action: 'copy', value: op('concat', '人数：', state('guests'), '\n鸡肉：', op('mul', state('guests'), 250), '克\n土豆：', op('mul', state('guests'), 200), '克\n蔬菜：', op('mul', state('guests'), 150), '克\n水果：', op('mul', state('guests'), 100), '克\n另备：柠檬、蒜、迷迭香、橄榄油、盐、黑胡椒') },
+    { id: 'shopping', type: 'checklist', label: '采购清单', description: '数量随人数和食量联动 · 点击勾选已购买', copyable: true, appearance: { surface: 'outline' }, items: [
+      { id: 'chicken', label: '鸡肉', group: '主菜', description: '柠檬香草烤鸡', value: mealAmount(250) },
+      { id: 'potatoes', label: '土豆', group: '配菜与水果', description: '迷迭香烤土豆', value: mealAmount(200) },
+      { id: 'vegetables', label: '当季蔬菜', group: '配菜与水果', value: mealAmount(150) },
+      { id: 'fruit', label: '时令水果', group: '配菜与水果', value: mealAmount(100) },
+      { id: 'pantry', label: '调味与香料', group: '厨房常备', description: '柠檬、蒜、迷迭香、橄榄油、盐和黑胡椒', value: '按库存补齐' },
     ] },
-    { id: 'steps', type: 'checklist', label: '03 · 从容上桌', items: [
-      { id: 'shop', time: '前一天', label: '确认与采购', description: '确认人数、忌口与过敏食材，采购食材与饮品。', bind: 'shop' },
-      { id: 'prep', time: '当天 · 提前准备', label: '备料与布置', description: '处理鸡肉并冷藏腌制；土豆切块，蔬菜洗净沥干，备好餐具。', bind: 'prep' },
-      { id: 'cook', time: '开席前', label: '烹饪与摆盘', description: '按食谱与肉块大小安排烘烤，确认鸡肉熟透；临上桌再拌沙拉。', bind: 'cook' },
+    { id: 'steps', type: 'timeline', label: '从容上桌的时间表', checkable: false, appearance: { surface: 'outline' }, items: [
+      { id: 'shop', time: '前一天', label: '确认与采购', description: '确认人数、忌口与过敏食材，采购食材与饮品。' },
+      { id: 'prep', time: '下午', label: '备料与布置', description: '处理鸡肉并冷藏腌制，洗切配菜，备好餐具。' },
+      { id: 'cook', time: '开席前', label: '烹饪与摆盘', description: '按食谱安排烘烤，确认鸡肉熟透；临上桌再拌沙拉。' },
+      { id: 'serve', time: '18:00', label: '一起开席', description: '分享式上桌，饮品放在大家可以自取的位置。' },
     ] },
-    { id: 'hosting', type: 'section', label: '让主人也能好好吃饭', children: [
-      { id: 'tips', type: 'list', items: [
-        { id: 'space', label: '提前安排烤箱', description: '确认主菜和配菜的烘烤顺序，避免临上桌时争用烤箱。' },
-        { id: 'serve', label: '分享式上桌', description: '用大盘盛菜，把饮品放在客人可以自取的位置。' },
-      ] },
-    ] },
+    { id: 'tips', type: 'callout', label: '让主人也能好好吃饭', value: '先安排主菜和配菜的烤箱顺序，避免临上桌时争用。生熟食材分开处理，易腐食材及时冷藏。' },
+    { id: 'follow', type: 'button', variant: 'primary', action: 'continue', label: '继续细化食谱与预算 →', value: '请按当前人数和食量细化食谱与采购预算。' },
   ],
 };
 export const bill: UIDocument = {

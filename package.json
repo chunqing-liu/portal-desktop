@@ -48,8 +48,10 @@
     "test:chat-layout": "npm run build:chat && node tests/chat-layout.mjs",
     "test:chat-scroll": "npm run build:chat && node tests/chat-scroll.mjs",
     "test:chat-context-menu": "npm run build:chat && node tests/chat-context-menu.mjs",
+    "test:chat-send-queue": "npm run build:chat && node tests/chat-send-queue.mjs",
     "test:chat-sessions": "npm run build:chat && node tests/chat-sessions-electron.mjs",
     "test:client-context": "npm run build:chat && node tests/client-context-electron.mjs",
+    "test:intelligent-ui-surfaces": "npm run build:chat && node tests/intelligent-ui-surfaces.mjs",
     "test:chat-history": "npm run build:chat && node tests/chat-history.mjs",
     "test:plugins-packaged": "npm run build:chat && node tests/plugins-electron.mjs --packaged"
   },

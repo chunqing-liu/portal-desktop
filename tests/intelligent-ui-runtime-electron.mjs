@@ -41,7 +41,7 @@ app.whenReady().then(()=>{
   window.on('pageerror',error=>console.error(error.message));
   const page=await (await window.locator('#chat').elementHandle()).contentFrame();
   await page.getByRole('button',{name:'Intelligent UI Beta 设置'}).click();
-  await page.getByRole('switch',{name:'启用智能 UI'}).check();
+  await page.getByRole('checkbox',{name:'启用智能 UI'}).check();
   await page.getByText('体验本地交互示例',{exact:true}).click();
   await page.getByLabel('选择交互示例').selectOption('simulation');
   await page.locator('.iui-app svg').waitFor().catch(async error=>{console.error(await page.locator('.iui-app').innerText());throw error;});

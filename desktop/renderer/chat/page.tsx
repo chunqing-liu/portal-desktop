@@ -1,3 +1,5 @@
+import { SurfaceContext } from '../shared/intelligent-ui/surface-view';
+import { SurfaceTimeline } from '../shared/intelligent-ui/surfaces';
 import { templates, toUIStream } from "../shared/intelligent-ui/templates";
 import { useMessageScroll } from "./hooks/use-message-scroll";
 import { IntelligentUI } from "../shared/intelligent-ui/view";
@@ -87,7 +89,13 @@ function ChatView({
     media.addEventListener('change', change);
     return () => media.removeEventListener('change', change);
   }, [mobileWeb]);
-  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items, state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
+  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
+  const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId);
+  const surfaceTimeline = useRef(new SurfaceTimeline());
+  const surfaceScope = (sceneId?: string) => JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, sceneId || 'global']);
+  const surfaceBlocks = surfaceTimeline.current.build(visibleItems.filter((item): item is Message => item.kind === 'message' && item.role === 'being').map(item => ({
+    id: item.id, identity: String(item.historySeq ?? item.id), scope: surfaceScope(item.sceneId), text: splitSchedulingHint(item.text).text, streaming: item.streaming,
+  })));
   const currentSceneName = sceneName(state.currentScene, state.currentScene);
   const showActivity = state.historyScope === "all" || ((state.showSbsMessages || !!state.activeScene.sceneId) && inCurrentScene(state.activeScene, state.currentScene));
   const messages = useRef<HTMLDivElement>(null),
@@ -97,11 +105,15 @@ function ChatView({
   const reader = useMessageScroll(visibleItems, messages, messageElements);
   const { scrollLock, releaseAnchor } = reader;
   const scopeScroll = useRef<Partial<Record<HistoryScope, { top: number; locked: boolean }>>>({});
+  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  const queueShortcut = isMac ? "⌘ Enter / Ctrl Enter" : "Ctrl Enter";
+  const sendLabel = state.sendWillQueue ? (state.canInterruptQueue ? "立即打断并发送" : "加入队列") : "发送消息";
   const showStop = state.streaming && !state.draft.trim() && state.files.length === 0;
-  function sendDraft() {
+  function sendDraft(mode?: "interrupt") {
+    if (state.stopping) return;
     releaseAnchor();
     scrollLock.current = true;
-    void runtime.send(state.draft);
+    void runtime.send(state.draft, null, { mode });
   }
   function changeScope(scope: HistoryScope) {
     if (scope === state.historyScope || (scope === "current" && !state.currentScene.sceneId)) return;
@@ -316,6 +328,7 @@ function ChatView({
         ? `${(bytes / 1024).toFixed(1)}KB`
         : `${(bytes / 1048576).toFixed(1)}MB`;
   return (
+    <SurfaceContext.Provider value={{ blocks: surfaceBlocks }}>
     <CodeClipboard.Provider value={bridge.copyText}>
     <div
       className={`chat-root${parent === window ? " standalone-chat" : ""}`}
@@ -436,11 +449,13 @@ function ChatView({
           ref={messages}
           tabIndex={0}
           aria-label="对话消息"
+          aria-busy={state.historyRefreshing}
           onWheel={reader.onWheel}
           onTouchMove={reader.onTouchMove}
           onScroll={() => { reader.onScroll(); setSelection(null); }}
         >
-          {!visibleItems.some(item => item.kind === "message") && !state.thinking && (
+          {state.historyRefreshing && <div className="chat-refresh-overlay"><div className="chat-refresh-status" role="status"><span aria-hidden="true" />正在刷新对话…</div></div>}
+          {!state.historyRefreshing && !visibleItems.some(item => item.kind === "message") && !state.thinking && (
             <div className="chat-scope-empty">
               {state.historyScope === "current" ? "当前场景还没有对话。" : "暂无对话记录。"}
               {state.historyScope === "current" && <button type="button" onClick={() => changeScope("all")}>显示全部场景上下文</button>}
@@ -485,18 +500,15 @@ function ChatView({
                 </div>
                 <ScheduledMessage
                   text={item.text}
+                  messageId={item.id}
                   intelligentUI={item.role === "being"}
                   storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id])}
                   onContinue={text => { state.draft = text; state.changed(); composer.current?.focus(); }}
-                  onSnapshot={text => { state.intelligentUISnapshots[item.sceneId || 'global'] = text; }}
+                  onSnapshot={(text, _values, _apps, active) => { state.recordIntelligentUISnapshot(item.sceneId || 'global', text, active); }}
                   streaming={item.streaming}
                   chat
                   onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
                 />
-                {item.queued && <div className="local-queue-status" role="status">
-                  {item.queueNotice || "排队中 · 等待其他场景完成，尚未发送"}
-                  <button type="button" onClick={() => item.cancelQueued?.()}>取消排队</button>
-                </div>}
                 {item.retry && (
                   <button
                     className="retry-btn"
@@ -529,6 +541,16 @@ function ChatView({
         </div>
         <ChatIndex items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} highlight={setHighlighted} />
         <div id="input-area">
+          {queuedMessages.length > 0 && <div className="composer-queue" aria-label={`待发送消息，共 ${queuedMessages.length} 条`}>
+            {queuedMessages.map(item => <div className="composer-queue-item" key={item.id}>
+              <svg className="composer-queue-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 4v11a3 3 0 0 0 3 3h13m-4-4 4 4-4 4M9 6h7M9 10h4" /></svg>
+              <span className="composer-queue-content" title={item.text}>{item.text}</span>
+              {item.queueNotice && <span className="composer-queue-notice" role="status" title={item.queueNotice} aria-label={item.queueNotice}>!</span>}
+              <button className="composer-queue-steer" type="button" aria-label="调整方向" disabled={!state.canInterruptQueue || !item.canInterruptQueued || state.stopping} title="调整方向：立即打断并发送这条消息" onClick={() => void item.interruptQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5v5a3 3 0 0 0 3 3h13m-5-5 5 5-5 5" /></svg><span>调整方向</span></button>
+              <button type="button" title="删除排队消息" aria-label={`取消排队：${item.text}`} onClick={() => item.cancelQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7" /></svg></button>
+            </div>)}
+          </div>}
+          {state.sendWillQueue && (state.draft.trim() || state.files.length > 0) && <div className="composer-queue-hint"><button type="button" title={`加入队列（${queueShortcut}）`} aria-label="加入队列" disabled={state.stopping} onClick={() => sendDraft()}>排队 <span aria-hidden="true">{isMac ? "⌘ ↵" : "Ctrl ↵"}</span></button></div>}
           <JumpToLatest items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} />
           <div
             id="pending-files"
@@ -564,7 +586,7 @@ function ChatView({
           </div>
           {showIntelligentUI && <div className="iui-playground" id="intelligent-ui-settings">
             <div className="iui-playground-actions"><strong>智能界面 <small>Beta</small></strong><button type="button" aria-label="关闭智能界面设置" onClick={() => setShowIntelligentUI(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
-            <label className="iui-beta-toggle"><span>启用智能 UI</span><input type="checkbox" role="switch" checked={state.intelligentUIEnabled} onChange={event => state.setIntelligentUIEnabled(event.target.checked)} /></label>
+            <label className="iui-beta-toggle"><input type="checkbox" checked={state.intelligentUIEnabled} onChange={event => state.setIntelligentUIEnabled(event.target.checked)} /><span>启用智能 UI</span></label>
             <p className="iui-beta-description">启用后，可在输入框底部选择“本条使用智能 UI”。只为选中的消息附加界面能力和当前选择，发送后自动取消。</p>
             {state.intelligentUIEnabled && <details className="iui-beta-demo"><summary>体验本地交互示例</summary><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></details>}
           </div>}
@@ -577,6 +599,7 @@ function ChatView({
               className={state.queued ? "queued" : ""}
               placeholder="说点什么…"
               aria-label="message input"
+              aria-keyshortcuts={isMac ? "Enter Control+Enter Meta+Enter Shift+Enter" : "Enter Control+Enter Shift+Enter"}
               value={state.draft}
               onChange={(value) => {
                 state.draft = value;
@@ -593,6 +616,7 @@ function ChatView({
                 if (
                   event.key !== "Enter" ||
                   event.shiftKey ||
+                  event.altKey ||
                   composing.current ||
                   event.nativeEvent.isComposing ||
                   event.keyCode === 229 ||
@@ -600,7 +624,8 @@ function ChatView({
                 )
                   return;
                 event.preventDefault();
-                sendDraft();
+                if (event.repeat) return;
+                sendDraft(event.ctrlKey || (isMac && event.metaKey) ? undefined : "interrupt");
               }}
             />
             <button type="button" className="btn-icon iui-trigger" title={`智能界面 Beta · ${state.intelligentUIForMessage ? "本条已选择" : state.intelligentUIEnabled ? "按条选择" : "未启用"}`} aria-label="Intelligent UI Beta 设置" aria-expanded={showIntelligentUI} aria-controls="intelligent-ui-settings" data-enabled={state.intelligentUIForMessage} onClick={() => setShowIntelligentUI(v => !v)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M3.5 9.5h17M10 9.5V20"/><path d="M14 13h3M14 16h2"/></svg><span className="iui-trigger-dot" aria-hidden="true" /></button>
@@ -613,18 +638,18 @@ function ChatView({
             >
               ＋
             </button>
-            {state.intelligentUIEnabled && <div className="iui-message-option"><button type="button" aria-label="本条使用智能 UI" aria-pressed={state.intelligentUIForMessage} onClick={() => state.setIntelligentUIForMessage(!state.intelligentUIForMessage)}><span aria-hidden="true">{state.intelligentUIForMessage ? '✓' : '+'}</span>智能 UI <small>仅本条</small></button></div>}
+            {state.intelligentUIEnabled && <div className="iui-message-option"><button type="button" aria-label="本条使用智能 UI" aria-pressed={state.intelligentUIForMessage} onClick={() => state.setIntelligentUIForMessage(!state.intelligentUIForMessage)}>智能 UI <small>仅本条 · {state.intelligentUIForMessage ? "已开启" : "已关闭"}</small></button></div>}
             <button
               className={`btn-icon${showStop ? " stop" : ""}`}
               id="send-btn"
               type="button"
-              title={showStop ? "停止生成" : "发送消息"}
-              aria-label={state.stopping ? "正在停止" : showStop ? "停止生成" : "发送消息"}
+              title={showStop ? "停止生成" : `${sendLabel}（Enter）；${queueShortcut} 排队，Shift Enter 换行`}
+              aria-label={state.stopping ? "正在停止" : showStop ? "停止生成" : sendLabel}
               disabled={state.stopping}
               aria-busy={state.stopping}
               onClick={() => {
                 if (showStop) void runtime.stopCurrentTurn();
-                else sendDraft();
+                else sendDraft("interrupt");
                 composer.current?.focus();
               }}
             >
@@ -683,5 +708,6 @@ function ChatView({
       </button>
     </div>
     </CodeClipboard.Provider>
+    </SurfaceContext.Provider>
   );
 }

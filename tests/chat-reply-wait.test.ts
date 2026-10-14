@@ -57,7 +57,7 @@ it('resumes a server-queued input and keeps a long task active, then waits afres
   try {
     f.emit('reasoning', {text: 'started'});
     await vi.advanceTimersByTimeAsync(20);
-    await f.runtime.send('follow-up accepted into the live stream');
+    await f.runtime.send('follow-up accepted into the live stream', null, {mode:'interrupt'});
     await vi.advanceTimersByTimeAsync(20);
     expect(f.runs()[0]).toMatchObject({status: 'queued', waitingForReply: true});
     expect(f.activity.mock.lastCall?.[0]['desktop-test']).toBe('queued');
@@ -90,7 +90,7 @@ it('ignores an overdue history check that completes after tool progress cancelle
   const f = await fixture();
   let finishRead: (() => void) | undefined;
   try {
-    await f.runtime.send('queued follow-up');
+    await f.runtime.send('queued follow-up', null, {mode:'interrupt'});
     await vi.advanceTimersByTimeAsync(20);
     f.setHistory(() => new Promise(resolve => { finishRead = () => resolve(Response.json({messages: []})); }));
     await vi.advanceTimersByTimeAsync(2000);
@@ -174,4 +174,66 @@ it('distinguishes waiting timeout from failed tools in the collapsed activity su
   expect(summary).toContain('1 次失败');
   expect(summary).toContain('1 次结果未确认');
   expect(summary).not.toContain('含失败项');
+});
+
+it.each(['human', 'beating'])('discovers a queued reply in a %s stream without focus or reconnect', async origin => {
+  const f = await fixture('queued');
+  try {
+    // The original SBS stream can keep its global identity after yielding.
+    const scene = origin === 'beating' ? {} : {scene_id: 'desktop-test'};
+    f.setActive(() => Response.json({stream_id: 'yielded-stream', ...scene, origin,
+      finished: false, next_seq: 3, events: [
+        {seq: 1, event: 'content_block_delta', data: {scene_id: 'desktop-test', delta: {text: 'reply after yield'}}},
+        {seq: 2, event: 'message_stop', data: {scene_id: 'desktop-test'}},
+      ]}));
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(f.state.items.filter(i => i.kind === 'message' && i.text === 'reply after yield')).toHaveLength(1);
+    expect(f.runs()[0]).toMatchObject({status: 'done', outcome: 'done'});
+  } finally { f.close(); }
+});
+
+it('does not settle a retry with delayed old history or a persisted yielded partial', async () => {
+  const f = await fixture('queued');
+  try {
+    const old = new Date(Date.now() - 7 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
+    f.setHistory(async () => Response.json({messages: [
+      {seq: 1, role: 'being', content: 'old reply', scene_id: 'desktop-test', at: old},
+      {seq: 2, role: 'being', content: 'yielded partial', from: 'partial', scene_id: 'desktop-test', at: now},
+      {seq: 3, from: 'system', type: 'marker', content: '[breath yielded]', at: old},
+    ]}));
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(f.runs()[0]).toMatchObject({status: 'queued', waitingForReply: true});
+    const userIndex = f.state.items.findIndex(i => i.kind === 'message' && i.role === 'user');
+    expect(f.state.items.filter(i => i.kind === 'separator' && !i.marker)).toHaveLength(0);
+    expect(f.state.items.findIndex(i => i.kind === 'separator' && i.marker)).toBeLessThan(userIndex);
+    f.setHistory(async () => Response.json({messages: [
+      {seq: 4, role: 'being', content: 'final reply', from: 'final', scene_id: 'desktop-test', at: new Date().toISOString()},
+    ]}));
+    await vi.advanceTimersByTimeAsync(4100);
+    expect(f.runs()[0]).toMatchObject({status: 'done', outcome: 'done'});
+  } finally { f.close(); }
+});
+
+it('does not count the shared replay reader as another busy scene when sending to the only active scene', async () => {
+  const posts = vi.fn();
+  vi.stubGlobal('fetch', async (input: string) => {
+    const path = new URL(input).pathname;
+    if (path === '/api/history') return Response.json({messages: []});
+    if (path === '/health') return new Response('OK fixture');
+    if (path === '/api/stream/active') return Response.json({stream_id:'shared-reader',origin:'human',finished:false,next_seq:2,
+      events:[{seq:1,event:'reasoning',data:{scene_id:'scene-b',text:'B is working'}}]});
+    if (path === '/api/chat/stream') { posts(); return Response.json({queued:true},{status:202}); }
+    return Response.json({sbs_enabled:false});
+  });
+  const state = new ChatState(), runtime = createChatRuntime(state);
+  try {
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(20);
+    await runtime.selectScene({sceneId:'scene-b',strict:true});
+    await runtime.send('interrupt B', null, {mode:'interrupt'});
+    await vi.advanceTimersByTimeAsync(20);
+    expect(posts).toHaveBeenCalledTimes(1);
+    expect(state.items.some(i => i.kind === 'message' && i.queued)).toBe(false);
+  } finally { runtime.dispose(); }
 });

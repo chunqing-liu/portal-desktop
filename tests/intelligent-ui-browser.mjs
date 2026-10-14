@@ -9,7 +9,7 @@ const dir = await mkdtemp(path.join(tmpdir(), 'town-intelligent-ui-'));
 let browser;
 try {
   await copyFile('web/public/iui-runtime.html', path.join(dir, 'iui-runtime.html'));
-  await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {IntelligentUI} from './desktop/renderer/shared/intelligent-ui/view'; import {demoSource} from './desktop/renderer/shared/intelligent-ui/examples'; import {templates,toUIStream} from './desktop/renderer/shared/intelligent-ui/templates'; const root=createRoot(document.getElementById('root')); window.source=demoSource; window.templates=templates;window.toUIStream=toUIStream;window.followups=[]; window.update=(source,streaming=false,key='demo')=>root.render(<IntelligentUI key={key} storageKey={key} source={source} streaming={streaming} onContinue={text=>window.followups.push(text)}/>); window.update(demoSource);`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', outfile: path.join(dir, 'ui.js') });
+  await build({ stdin: { contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import {IntelligentUI} from './desktop/renderer/shared/intelligent-ui/view'; import {CodeClipboard} from './desktop/renderer/shared/components/clipboard'; import {demoSource} from './desktop/renderer/shared/intelligent-ui/examples'; import {templates,toUIStream} from './desktop/renderer/shared/intelligent-ui/templates'; const root=createRoot(document.getElementById('root')); window.source=demoSource; window.templates=templates;window.toUIStream=toUIStream;window.followups=[]; window.update=(source,streaming=false,key='demo')=>root.render(<CodeClipboard.Provider value={async text=>{if(window.failCopy)throw new Error('bridge unavailable');window.copied=text;}}><IntelligentUI key={key} storageKey={key} source={source} streaming={streaming} onContinue={text=>window.followups.push(text)}/></CodeClipboard.Provider>); window.showFeedbackPair=()=>root.render(<CodeClipboard.Provider value={async text=>{if(text==='fail')throw new Error('bridge unavailable');}}>{['ok','fail'].map(name=><IntelligentUI key={name} source={JSON.stringify({version:1,title:name,state:{},body:[{id:'copy',type:'button',action:'copy',label:name,value:name}]})}/>)}</CodeClipboard.Provider>);window.update(demoSource);`, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic', outfile: path.join(dir, 'ui.js') });
   await writeFile(path.join(dir, 'index.html'), `<meta charset="utf-8"><link rel="stylesheet" href="${pathToFileURL(path.resolve('desktop/renderer/chat/styles.css'))}"><style>html,body,#root{overflow:visible;height:auto}</style><div style="max-width:800px;margin:24px auto" id="root"></div><script src="ui.js"></script>`);
   browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
   const page = await browser.newPage(); page.setDefaultTimeout(15000);
@@ -66,7 +66,7 @@ try {
   await page.locator('.iui-segments').getByRole('button', { name: '车架', exact: true }).click();
   await page.locator('.iui-part-description').getByRole('heading', { name: '车架' }).waitFor();
   await page.getByRole('button', { name: '继续了解这个部件' }).click();
-  assert.match(await page.evaluate(() => window.followups[0]), /part: frame/);
+  assert.match(await page.evaluate(() => window.followups[0]), /五个系统，协同前进: frame/);
   await page.setViewportSize({ width: 375, height: 800 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: path.resolve('test-results/intelligent-ui-bicycle-mobile.png'), fullPage: true });
@@ -78,13 +78,37 @@ try {
   await page.getByRole('heading',{name:'把周末，留给一桌好菜',exact:true}).waitFor();
   await page.getByRole('button',{name:'增加用餐人数',exact:true}).click();
   await page.getByRole('button',{name:'增加用餐人数',exact:true}).click();
-  assert.equal(await page.locator('.iui-facts dd').filter({hasText:'2000 克'}).count(), 1);
-  await page.getByRole('checkbox',{name:'确认与采购',exact:true}).check();
-  assert.match(await page.locator('.iui-checklist-heading').innerText(), /1 \/ 3 已完成/);
+  assert.equal(await page.locator('.iui-task-value').filter({hasText:'2000 克'}).count(), 1);
+  await page.getByRole('checkbox',{name:'鸡肉',exact:true}).check();
+  assert.match(await page.locator('.iui-checklist-heading').first().innerText(), /1 \/ 5 已完成/);
+  assert.equal(await page.getByRole('slider',{name:'用餐人数',exact:true}).inputValue(),'8');
+  await page.getByRole('slider',{name:'用餐人数',exact:true}).fill('4');
+  await page.getByRole('button',{name:'丰盛',exact:true}).click();
+  assert.equal(await page.locator('.iui-task-value').first().textContent(),'1250 克');
+  assert.equal(await page.getByRole('checkbox',{name:'鸡肉',exact:true}).isChecked(),true);
+  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw new Error('Browser clipboard unavailable');}}}));
+  const beforeCopy = await page.locator('.intelligent-ui').boundingBox();
+  await page.getByRole('button',{name:'复制清单',exact:true}).click();
+  assert.match(await page.evaluate(()=>window.copied), /\[✓\] 鸡肉 · 1250 克/);
+  assert.match(await page.evaluate(()=>window.copied), /配菜与水果/);
+  assert.equal((await page.locator('.intelligent-ui').boundingBox()).height,beforeCopy.height);
+  assert.equal(await page.locator('.intelligent-ui .iui-toast').count(),0);
+  await page.locator('.iui-toast').waitFor({state:'visible'});
+  assert.equal(await page.getByRole('button',{name:'用当前选择继续',exact:true}).count(),0);
+  await page.evaluate(()=>{window.failCopy=true;});
+  await page.getByRole('button',{name:'复制清单',exact:true}).click();
+  await page.getByText('复制失败，请重试',{exact:true}).waitFor();
+  await page.evaluate(()=>{window.failCopy=false;});
+  await page.getByRole('button',{name:'复制清单',exact:true}).click();
+  await page.getByText('已复制',{exact:true}).waitFor();
+  await page.locator('.iui-toast').waitFor({state:'detached',timeout:5000});
+  assert.equal(await page.locator('.iui-numbered-timeline .iui-timeline-number').count(),4);
+  assert.equal(await page.getByRole('heading',{name:'把周末，留给一桌好菜',exact:true}).count(),1);
+
   for (const width of [320,375]) {
     await page.setViewportSize({width,height:800});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    assert.equal(await page.locator('.iui-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),1);
+    assert.equal(await page.locator('.iui-grid:not(.iui-summary-grid)').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),1);
   }
   await page.screenshot({path:path.resolve('test-results/intelligent-ui-meal-mobile.png'),fullPage:true});
   await page.setViewportSize({width:1200,height:800});
@@ -222,6 +246,13 @@ try {
   await page.evaluate(() => window.update(window.source, false, 'cleanup'));
   await page.getByRole('heading', { name: '团队预算计算器' }).waitFor();
   assert.equal(await page.locator('iframe').count(), 0);
+  await page.evaluate(()=>window.showFeedbackPair());
+  await page.getByRole('button',{name:'ok',exact:true}).click();
+  await page.locator('.iui-toast').filter({hasText:'已复制'}).waitFor();
+  await page.getByRole('button',{name:'fail',exact:true}).click();
+  assert.equal(await page.locator('.iui-toast').count(),1);
+  assert.equal(await page.locator('.iui-toast').textContent(),'复制失败，请重试');
+  await page.locator('.iui-toast').waitFor({state:'detached',timeout:5000});
   assert.deepEqual(network, []);
   assert.deepEqual(errors, []);
   assert.ok(timings[37] < 100, 'interactive update budget');

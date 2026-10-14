@@ -1,0 +1,25 @@
+{"op":"begin","version":2,"title":"轻装出发 · 一周衣橱"}
+{"op":"state","key":"temp","initial":26}
+{"op":"state","key":"day","initial":"d1"}
+{"op":"node","node":{"id":"ov","type":"section","label":"胶囊衣橱 · 城市温暖季","value":"按你选的城市场合与温暖季节：4 件上衣 × 2 条下装 × 1 双鞋，再加 1 件空调房薄外搭，组成一周 7 套通勤不重样"}}
+{"op":"node","node":{"id":"s1","type":"slider","parent":"ov","label":"今日实感温度（°C）","bind":"temp","min":18,"max":34,"step":1}}
+{"op":"node","node":{"id":"t2","type":"text","parent":"ov","label":"穿法参考","value":"18–22°C：早晚薄针织披上，午间单穿长袖；23–27°C：单穿轻装正合适，空调房备外搭；28°C 以上：短袖与亚麻优先，浅色反射阳光。温暖季城市多阵雨——伞常驻包侧"}}
+{"op":"node","node":{"id":"f1","type":"facts","parent":"ov","label":"胶囊清单","rows":[["上衣（件）",4],["下装（条）",2],["鞋（双）",1],["薄外搭（件）",1],["一周组合（套）",7]]}}
+{"op":"node","node":{"id":"week","type":"tabs","label":"七天搭配","bind":"day"}}
+{"op":"node","node":{"id":"d1","type":"section","parent":"week","label":"周一 · 会议日"}}
+{"op":"node","node":{"id":"l1","type":"list","parent":"d1","items":[{"id":"d1a","label":"上装","description":"亚麻浅蓝衬衫（免烫版，周初最省心）"},{"id":"d1b","label":"下装","description":"米色休闲西裤"},{"id":"d1c","label":"鞋","description":"白色运动鞋"},{"id":"d1d","label":"备注","description":"空调房偏冷，薄针织放通勤包"}]}}
+{"op":"node","node":{"id":"d2","type":"section","parent":"week","label":"周二 · 拜访日"}}
+{"op":"node","node":{"id":"l2","type":"list","parent":"d2","items":[{"id":"d2a","label":"上装","description":"白色短袖 Polo（轻商务不闷热）"},{"id":"d2b","label":"下装","description":"米色休闲西裤"},{"id":"d2c","label":"鞋","description":"白色运动鞋"},{"id":"d2d","label":"备注","description":"移动多，选透气面料"}]}}
+{"op":"node","node":{"id":"d3","type":"section","parent":"week","label":"周三 · 深耕日"}}
+{"op":"node","node":{"id":"l3","type":"list","parent":"d3","items":[{"id":"d3a","label":"上装","description":"灰色莫代尔 T 恤（最舒适组合，脑力留给自己）"},{"id":"d3b","label":"下装","description":"深灰九分裤"},{"id":"d3c","label":"鞋","description":"白色运动鞋"}]}}
+{"op":"node","node":{"id":"d4","type":"section","parent":"week","label":"周四 · 协作日"}}
+{"op":"node","node":{"id":"l4","type":"list","parent":"d4","items":[{"id":"d4a","label":"上装","description":"亚麻浅蓝衬衫（复穿周一款，间隔三天）"},{"id":"d4b","label":"下装","description":"深灰九分裤（换下装即换风格）"},{"id":"d4c","label":"鞋","description":"白色运动鞋"}]}}
+{"op":"node","node":{"id":"d5","type":"section","parent":"week","label":"周五 · 轻快日"}}
+{"op":"node","node":{"id":"l5","type":"list","parent":"d5","items":[{"id":"d5a","label":"上装","description":"白色短袖 Polo（换深灰下装，周五轻快感来自对比）"},{"id":"d5b","label":"下装","description":"深灰九分裤"},{"id":"d5c","label":"鞋","description":"白色运动鞋"}]}}
+{"op":"node","node":{"id":"d6","type":"section","parent":"week","label":"周六 · 漫游日"}}
+{"op":"node","node":{"id":"l6","type":"list","parent":"d6","items":[{"id":"d6a","label":"上装","description":"灰色莫代尔 T 恤"},{"id":"d6b","label":"下装","description":"米色休闲西裤（裤脚卷一折，散步节奏）"},{"id":"d6c","label":"鞋","description":"白色运动鞋"},{"id":"d6d","label":"备注","description":"出门带伞，城市漫游不赶时间"}]}}
+{"op":"node","node":{"id":"d7","type":"section","parent":"week","label":"周日 · 整备日"}}
+{"op":"node","node":{"id":"l7","type":"list","parent":"d7","items":[{"id":"d7a","label":"上装","description":"舒适优先：灰 T 或 Polo 自选"},{"id":"d7b","label":"下装","description":"深灰九分裤"},{"id":"d7c","label":"鞋","description":"白色运动鞋"},{"id":"d7d","label":"备注","description":"晚间复盘本周实穿率，没穿到的下周换掉"}]}}
+{"op":"node","node":{"id":"prep","type":"section","label":"出发前检查","value":"五个动作，把早晨的决策留给前一晚"}}
+{"op":"node","node":{"id":"c1","type":"checklist","parent":"prep","label":"出门五件事","items":[{"id":"ck1","label":"前一晚挂好次日搭配","description":"按当天组合挂出来，早晨零决策"},{"id":"ck2","label":"伞放包侧袋","description":"温暖季城市多阵雨"},{"id":"ck3","label":"白鞋快速擦一遍","description":"城市体面从鞋开始"},{"id":"ck4","label":"薄针织叠放门口","description":"空调房与早晚温差的双重保险"},{"id":"ck5","label":"周日晚复盘实穿","description":"保持 7 套都真实可穿"}]}}
+{"op":"commit"}

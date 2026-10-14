@@ -52,7 +52,7 @@ it.each([
     await runtime.send("first");
     await vi.advanceTimersByTimeAsync(1200);
     expect(sent).toHaveLength(2);
-    await runtime.send("follow-up");
+    await runtime.send("follow-up", [], {mode:"interrupt"});
     await vi.advanceTimersByTimeAsync(0);
     expect(sent).toHaveLength(3);
     for (const request of sent) expect(request).toMatchObject({

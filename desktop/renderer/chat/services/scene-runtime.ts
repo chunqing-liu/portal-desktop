@@ -9,10 +9,41 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
   const restoredHistory = new WeakSet<object>();
   let selected: any, owner: any, disposed = false, counter = 0;
   let lastActivity = "";
+  let historyRefreshes = 0;
   const sendQueue: any[] = [];
   let drainScheduled = false, dispatching = false;
   let submission = Promise.resolve();
   let queueReady = false, drainTimer: any;
+  let activityTimer: ReturnType<typeof setTimeout> | undefined;
+  let activityInFlight = false, coordinatorStarted = false;
+  async function syncActivity() {
+    if (disposed || activityInFlight) return;
+    activityInFlight = true;
+    const snapshots = [...sessions.values()].map(session => [session, session.runtime.captureActivity?.()] as const);
+    try {
+      const response = await owner.runtime.request('/api/stream/active', {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+      if (disposed || (!response.ok && response.status !== 204)) return;
+      const active = response.status === 204 ? null : await response.json();
+      // Malformed/failed responses are not evidence that the server is idle.
+      if (response.status !== 204 && (!active || typeof active.stream_id !== 'string' || !active.stream_id || typeof active.finished !== 'boolean')) return;
+      if (disposed) return;
+      for (const [session, snapshot] of snapshots) {
+        if (disposed) return;
+        if (snapshot) await session.runtime.reconcileActivity(active, snapshot);
+      }
+      if (disposed) return;
+      if (active) owner.runtime.discoverActiveStream?.(active);
+      // Short autonomous breaths may finish between polls; their history still
+      // needs to appear without a focus change or manual refresh.
+      await owner.runtime.reconcileHistory?.({preserve: true});
+      for (const session of sessions.values()) session.runtime.settleHistoryReply?.();
+      publish();
+    } catch { /* A failed observation must not clear valid work. Retry below. */ }
+    finally {
+      activityInFlight = false;
+      if (!disposed) activityTimer = setTimeout(syncActivity, 10000);
+    }
+  }
   const pageLocation = typeof location === 'undefined' ? { search: '', origin: '' } : location;
   const queueStore = new SceneQueueStore(new URLSearchParams(pageLocation.search).get('history_scope') || pageLocation.origin);
   let queueStoreClosed = false;
@@ -25,19 +56,43 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     if (!disposed && !drainTimer) drainTimer = setTimeout(() => { drainTimer = null; scheduleDrain(); }, 2000);
   }
   function attachQueued(target: any, entry: any, saved: any, persisted = true) {
-    const queued = { session: target, entry, saved, persisted };
+    const queued = { session: target, entry, saved, persisted, claimed: false };
     sendQueue.push(queued);
+    entry.message.canInterruptQueued = persisted && saved.phase === "queued";
     target.local.queued++;
     entry.message.queueNotice = saved.phase === 'sending' ? '发送状态待确认，请先查看场景历史；不会自动重发' : undefined;
     entry.message.cancelQueued = async () => {
-      if (queued === sendQueue[0] && dispatching) return;
+      if (queued.claimed) return;
+      queued.claimed = true;
       try { await queueStore.write(saved.id); }
-      catch { entry.message.queueNotice = '无法保存取消操作，请重试'; publish(); return; }
+      catch { queued.claimed = false; entry.message.queueNotice = '无法保存取消操作，请重试'; publish(); return; }
       const index = sendQueue.indexOf(queued);
       if (index < 0) return;
       detachQueued(queued);
       state.items = state.items.filter((item: any) => item !== entry.message);
       publish();
+    };
+    entry.message.interruptQueued = () => {
+      submission = submission.then(async () => {
+        if (disposed || queued.claimed || !sendQueue.includes(queued) || !queued.persisted || saved.phase !== 'queued') return;
+        if ([...sessions.values()].some(other => other !== target && busy(other))) return;
+        queued.claimed = true;
+        try {
+          saved.createdAt = Date.now();
+          await queueStore.write({ ...saved, phase: 'sending' });
+          if (disposed || [...sessions.values()].some(other => other !== target && busy(other))) { await queueStore.write(saved); return; }
+          saved.phase = 'sending';
+          detachQueued(queued, true);
+          // The server's existing splice/yield path interrupts this scene with
+          // the new input; do not stop a different scene's stream.
+          void Promise.resolve(target.runtime.send(entry.text, entry.files, { ...entry.sendOptions, queuedMessage: entry.message }))
+            .then(() => { if (!disposed) return queueStore.write(saved.id); })
+            .catch(() => { /* Keep the durable uncertain record for reconciliation. */ });
+        } catch {
+          entry.message.queueNotice = '无法保存发送状态，请重试';
+        } finally { queued.claimed = false; publish(); }
+      });
+      return submission;
     };
     return queued;
   }
@@ -47,8 +102,11 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     sendQueue.splice(index, 1);
     queued.session.local.queued = Math.max(0, queued.session.local.queued - 1);
     if (sent) {
+      state.items = [...state.items.filter((item: any) => item !== queued.entry.message), queued.entry.message];
+      queued.entry.message.createdAt = queued.saved.createdAt;
       queued.entry.message.queued = false;
       queued.entry.message.cancelQueued = undefined;
+      queued.entry.message.interruptQueued = undefined;
       queued.entry.message.queueNotice = undefined;
     }
     return true;
@@ -65,8 +123,11 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       return Number.isFinite(sentAt) && Number.isFinite(acceptedAt) && Math.abs(sentAt - acceptedAt) <= 2 * 60 * 1000;
     });
   }
-  const busy = (session: any) => session.runtime?.isBusy?.() ||
-    ["thinking", "replying", "working", "waiting", "reconnecting"].includes(sceneStatus(session));
+  // Presentation also includes completed delegated tasks awaiting a summary.
+  // Only runtime ownership can block sending; those ledger rows hold no stream.
+  const busy = (session: any) => typeof session.runtime?.isBusy === "function"
+    ? session.runtime.isBusy()
+    : ["thinking", "replying", "working", "waiting", "reconnecting"].includes(session.runtime?.sceneActivity());
   function scheduleDrain() {
     if (disposed || !queueReady || drainTimer || drainScheduled || dispatching || !sendQueue.length) return;
     drainScheduled = true;
@@ -74,7 +135,8 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       drainScheduled = false;
       if (disposed || dispatching || [...sessions.values()].some(busy)) { retryDrain(); return; }
       const next = sendQueue[0];
-      if (!next || next.saved.phase === 'sending' || !next.persisted) return;
+      if (!next || next.claimed || next.saved.phase === 'sending' || !next.persisted) return;
+      next.claimed = true;
       dispatching = true;
       try {
         // Refresh can erase local activity flags; check the actual breath first.
@@ -82,20 +144,22 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         if (response.status !== 204) {
           if (!response.ok) { retryDrain(); return; }
           const active = await response.json();
-          if (!active.finished) { retryDrain(); return; }
+          if (!active.finished && (!active.origin || active.origin === 'human')) { retryDrain(); return; }
         }
         if (disposed || [...sessions.values()].some(busy)) { retryDrain(); return; }
+        next.saved.createdAt = Date.now();
         await queueStore.write({ ...next.saved, phase: 'sending' });
         next.saved.phase = 'sending';
-        if (disposed) {
-          // No send can start after disposal. Put the durable row back into the
-          // retryable state instead of restoring it as an uncertain send.
+        if (disposed || [...sessions.values()].some(busy)) {
+          // Storage yields to other submissions. Recheck ownership before send
+          // and restore the retryable row if another turn or disposal won.
           next.saved.phase = 'queued';
           try { await queueStore.write(next.saved); } catch { /* The next load keeps the conservative sending row. */ }
+          retryDrain();
           return;
         }
         detachQueued(next, true);
-        await next.session.runtime.send(next.entry.text, next.entry.files, { queuedMessage: next.entry.message });
+        await next.session.runtime.send(next.entry.text, next.entry.files, { ...next.entry.sendOptions, queuedMessage: next.entry.message });
         // If refresh interrupts the request, retain the uncertain record instead
         // of risking a duplicate send on the next page load.
         if (!disposed) await queueStore.write(next.saved.id);
@@ -103,6 +167,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         if (sendQueue.includes(next)) next.entry.message.queueNotice = '等待连接或本地存储恢复';
         retryDrain();
       } finally {
+        next.claimed = false;
         dispatching = false;
         if (disposed) closeQueueStore();
         publish();
@@ -134,6 +199,8 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     }
     // The transcript may contain an active background run in the all-scenes view.
     state.streaming = [...sessions.values()].some(session => session.local.streaming);
+    state.sendWillQueue = sendQueue.length > 0 || [...sessions.values()].some(busy);
+    state.canInterruptQueue = ![...sessions.values()].some(session => session !== selected && busy(session));
     const activity = Object.fromEntries([...sessions.entries()].flatMap(([id, session]) => {
       const status = sceneStatus(session);
       return id && status ? [[id, status]] : [];
@@ -202,6 +269,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       },
       historyOwner: () => owner && owner !== session ? owner.runtime : null,
       selectedScene: () => state.currentScene,
+      activeAutonomousOrigin: () => [...sessions.values()].map(s => s.runtime?.activeAutonomousOrigin?.()).find(Boolean),
       restoredHistory,
       isLiveScene: (scene: any) => [...sessions.values()].some(s => s.runtime?.ownsLiveScene(scene)),
       routeEvent(type: any, data: any) {
@@ -242,12 +310,14 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       publish();
     },
     async start() {
+      if (coordinatorStarted || disposed) return;
+      coordinatorStarted = true;
       try {
         const saved = await queueStore.read();
         if (disposed) return;
         for (const row of saved) {
           const target = sessionFor(row.scene);
-          const entry = target.runtime.stageQueuedSend(row.text, row.files);
+          const entry = target.runtime.stageQueuedSend(row.text, row.files, row.sendOptions);
           if (entry) { entry.message.createdAt = row.createdAt; attachQueued(target, entry, row); }
         }
         await owner.runtime.start();
@@ -263,9 +333,14 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         await owner.runtime.start();
       }
       publish();
+      if (!disposed) activityTimer = setTimeout(syncActivity, 10000);
     },
     send(...args: any[]) {
       const target = selected;
+      args[2] = { intelligentUI: state.intelligentUIEnabled && state.intelligentUIForMessage,
+        uiSnapshot: state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], ...args[2] };
+      // Detach structured UI values now, before any queued asynchronous work.
+      if (args[2].uiAction) args[2].uiAction = structuredClone(args[2].uiAction);
       const sendSnapshot = !Array.isArray(args[1])
         ? (typeof target.runtime.captureSendSnapshot === 'function'
           ? target.runtime.captureSendSnapshot()
@@ -279,7 +354,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         if (!prepared) return;
         if (disposed) return;
         const othersBusy = [...sessions.values()].some(other => other !== target && busy(other));
-        if (sendQueue.length || othersBusy) {
+        if (othersBusy || (args[2].mode !== 'interrupt' && (sendQueue.length || busy(target)))) {
           // Older/embedded runtimes may not expose the durable queue hook yet.
           // Keep sending functional while the host is being upgraded; the full
           // Desktop runtime supplies stageQueuedSend and persists the entry.
@@ -291,9 +366,9 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           if (!entry) return;
           const saved: SavedSceneSend = { id: crypto.randomUUID(), endpoint: queueStore.endpoint,
             scene: { ...target.local.currentScene }, text: entry.text, files: entry.files,
-            createdAt: entry.message.createdAt || Date.now(), phase: 'queued' };
+            createdAt: entry.message.createdAt || Date.now(), phase: 'queued', sendOptions: entry.sendOptions };
           const queued = attachQueued(target, entry, saved, false);
-          try { await queueStore.write(saved); queued.persisted = true; }
+          try { await queueStore.write(saved); queued.persisted = true; entry.message.canInterruptQueued = true; }
           catch { entry.message.queueNotice = '排队内容未能保存，刷新可能丢失；请取消后重试'; }
           publish();
         } else {
@@ -324,13 +399,23 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     dispose() {
       disposed = true;
       clearTimeout(drainTimer);
+      clearTimeout(activityTimer);
       for (const queued of [...sendQueue]) detachQueued(queued);
       state.queued = 0;
       if (lastActivity) options.onSceneActivity?.({});
       if (!dispatching) closeQueueStore();
       for (const session of sessions.values()) session.runtime.dispose();
     },
-    refreshHistory: () => owner.runtime.refreshHistory(),
+    async refreshHistory() {
+      historyRefreshes++;
+      state.historyRefreshing = true;
+      state.changed();
+      try { await owner.runtime.refreshHistory(); }
+      finally {
+        historyRefreshes--;
+        if (!disposed) { state.historyRefreshing = historyRefreshes > 0; state.changed(); }
+      }
+    },
     refreshOnRegainedAttention: () => Promise.all([...sessions.values()].map(s => s.runtime.refreshOnRegainedAttention())),
   };
   for (const method of ["stopCurrentTurn", "handleFiles", "removePending"])

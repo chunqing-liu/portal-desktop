@@ -165,10 +165,10 @@ try {
   assert.equal(await page.getByText('离线期间 1', { exact: true }).count(), 1);
   assert.equal(await page.getByText('离线期间 250', { exact: true }).count(), 1);
 
-  // Latest-window responses do not erase earlier cached history. The 300 limit
-  // bounds rendering only, not retention in IndexedDB.
+  // Latest-window responses must retain and display every cached row.
   history = history.slice(-5); await open();
-  assert.equal(await page.locator('#messages .message').count(), 300);
+  assert.equal(await page.locator('#messages .message').count(), 352);
+  assert.equal(await page.getByText('历史 1', { exact: true }).count(), 1);
   assert.equal((await cached()).messages.length, 352);
   // The client reader shares IDB but does not require a mounted chat UI.
   const reader = await context.newPage();
@@ -181,7 +181,7 @@ try {
   assert.ok(crossScene.indexOf('离线期间 153') < crossScene.indexOf('离线期间 249'));
   assert.ok(!crossScene.includes('离线期间 250'));
   assert.equal(await run('context', '', 'town-mail'), crossScene);
-  // This scene is older than the visible 300-message window.
+  // Context commands can also read old scenes independently of the chat UI.
   assert.match(await run('context', 'another-client'), /已持久化的流式回复/);
   const scenes = await run('scenes');
   assert.match(scenes, /town-mail — 小镇私信.*messages: 159/);
@@ -253,6 +253,18 @@ try {
   assert.ok(queries.includes('450'), 'Larger initial pages preserve the incremental cursor');
   await open('&history_limit=500');
   assert.equal(await page.locator('#messages .message').count(), 450);
+  history = history.slice(-5);
+  // The network page preference must never truncate a cached scene, even offline.
+  offline = true;
+  await open('&history_limit=1&scene_id=configurable-room&scene_strict=1');
+  assert.equal(await page.locator('#messages .message').count(), 450);
+  assert.equal(await page.getByText('可配置历史 1', { exact: true }).count(), 1);
+  offline = false;
+  append('being', '缓存后的新消息', 'configurable-room');
+  await open('&history_limit=1&scene_id=configurable-room&scene_strict=1');
+  await waitCache(451);
+  assert.equal(await page.locator('#messages .message').count(), 451);
+  assert.equal(await page.getByText('缓存后的新消息', { exact: true }).count(), 1);
   history = history.slice(-5);
 
   // Failed writes leave no advanced cursor; rendering still uses the network.

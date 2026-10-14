@@ -50,6 +50,28 @@ async function start(runtime: ReturnType<typeof createChatRuntime>) {
 }
 
 describe("scene history cache fallback", () => {
+  it("fills cache gaps inside the initial window and merges overlapping network history once", async () => {
+    const middle: HistoryMessage = { seq: 150, role: "user", content: "缓存窗口内的旧场景消息", scene_id: "old-room" };
+    vi.mocked(HistoryCache.prototype.read).mockResolvedValue({
+      messages: recent.filter(message => message.seq !== middle.seq), lastSeq: 400,
+    });
+    vi.mocked(HistoryCache.prototype.readScene).mockResolvedValue([...old, middle]);
+    network = [middle, { seq: 401, role: "being", content: "接口新增回复", scene_id: "old-room" }];
+    const state = new ChatState(), runtime = createChatRuntime(state);
+    try {
+      await start(runtime);
+      await runtime.refreshHistory();
+      await runtime.selectScene({ sceneId: "recent-room", strict: true });
+      await runtime.selectScene(oldScene);
+      expect(visible(state).filter(m => m.kind === "message").map(m => m.text))
+        .toEqual([old[0].content, old[1].content, middle.content, "接口新增回复"]);
+      expect(HistoryCache.prototype.read).toHaveBeenCalledWith();
+      expect(HistoryCache.prototype.readScene).toHaveBeenCalledWith("old-room");
+      expect(state.items.filter(item => item.kind === "message" && item.historySeq === 150)).toHaveLength(1);
+      expect(state.items.filter(item => item.kind === "message" && item.historySeq === 401)).toHaveLength(1);
+    } finally { runtime.dispose(); }
+  });
+
   it("does not treat a delayed cached reply as completion of a newly queued request", async () => {
     vi.mocked(HistoryCache.prototype.readScene).mockResolvedValueOnce([]);
     const activity = vi.fn();
