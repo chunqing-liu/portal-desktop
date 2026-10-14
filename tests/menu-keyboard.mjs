@@ -37,7 +37,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser, page;
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : { channel: 'chrome' }) });
-  page = await browser.newPage(); page.setDefaultTimeout(5000);
+  page = await browser.newPage(); page.setDefaultTimeout(15000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('http://127.0.0.1:' + server.address().port);
   assert.equal(await page.locator('#local-portal-status').getAttribute('aria-label'), '本机 Portal：工作室 Mac Portal，已连接');

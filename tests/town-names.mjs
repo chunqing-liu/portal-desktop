@@ -69,13 +69,13 @@ const { outputFiles } = await build({
       <TownAuth model={model} />
     </>);
   ` },
-  bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
+  bundle: true, write: false, outdir: "fixture", platform: 'browser', format: 'iife', jsx: 'automatic',
 });
-const styles = await readShellStyles();
+const styles = await readShellStyles() + '\n' + outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text).join('\n');
 const server = createServer((request, response) => {
   response.setHeader('Content-Type', request.url === '/fixture.js' ? 'text/javascript' : 'text/html; charset=utf-8');
   const css = `${styles} body {display:block;height:auto;padding:32px; overflow:auto;} .social-feed {max-width:960px;margin:auto;}`;
-  response.end(request.url === '/fixture.js' ? outputFiles[0].text : `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${css}</style><div id="root"></div><script src="/fixture.js"></script></html>`);
+  response.end(request.url === '/fixture.js' ? outputFiles.find(file => file.path.endsWith('.js')).text : `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${css}</style><div id="root"></div><script src="/fixture.js"></script></html>`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;

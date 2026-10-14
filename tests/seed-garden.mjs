@@ -48,8 +48,8 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
   }
   createRoot(document.getElementById('root')).render(<Fixture />);
   town.show('town');
-` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic' });
-const css = await readShellStyles();
+` }, bundle: true, write: false, outdir: "fixture", format: 'iife', platform: 'browser', jsx: 'automatic' });
+const css = await readShellStyles() + '\n' + outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text).join('\n');
 const server = createServer(async (request, response) => {
   if (request.url === '/query') {
     let body = ''; for await (const chunk of request) body += chunk;
@@ -82,7 +82,7 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify(data ? { ok: true, data, fetchedAt: new Date().toISOString() } : { ok: false, code: 'not-found', message: '种子不存在' }));
   } else {
     response.setHeader('Content-Type', request.url === '/fixture.js' ? 'text/javascript' : 'text/html; charset=utf-8');
-    response.end(request.url === '/fixture.js' ? outputFiles[0].text : `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${css}</style><div id="root"></div><script src="/fixture.js"></script></html>`);
+    response.end(request.url === '/fixture.js' ? outputFiles.find(file => file.path.endsWith('.js')).text : `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${css}</style><div id="root"></div><script src="/fixture.js"></script></html>`);
   }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -176,10 +176,13 @@ try {
   await page.locator('#place-panel').evaluate(el => { window.originalSheet = el; });
   const switchTo = async (label, title, kind, cached = false) => {
     const before = queries.filter(query => query.kind === kind).length;
-    await nav.getByRole('button', { name: label, exact: true }).click();
+    const direct = nav.getByRole('button', {name:label,exact:true});
+    const overflow = !await direct.isVisible();
+    if (overflow) await page.locator('#rail-more-trigger').click();
+    await page.getByRole('button', {name:label,exact:true}).click();
     await page.waitForFunction(() => !window.seedTown.loading);
     assert.equal(await page.locator('#view-title').innerText(), title);
-    assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'), label);
+    assert.equal(await nav.locator('[aria-current="page"]').getAttribute('aria-label'), overflow ? '更多功能' : label);
     const after = queries.filter(query => query.kind === kind).length;
     if (cached) assert.equal(after, before, 'Fresh catalogs reopen from cache without another request');
     else assert(after > before, 'Uncached pages fetch their content');

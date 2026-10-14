@@ -1,6 +1,6 @@
-# Portal Desktop 0.1.10
+# Portal Desktop 0.1.9
 
-本版本包含 0.1.9 的功能更新，并修复 Windows 后台服务清理已丢失的 PID 文件时误报失败的问题。同步修正启动回归测试的 Electron mock，恢复跨平台发布验证。
+本次更新加入智能 UI 与对话体验改进，并修复 Windows 后台服务清理已丢失的 PID 文件时误报失败的问题。同步修正启动回归测试的 Electron mock，恢复跨平台发布验证。
 
 ## 智能 UI Beta
 

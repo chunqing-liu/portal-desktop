@@ -57,8 +57,8 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
   }
   createRoot(document.getElementById('root')).render(<Fixture />);
   town.show('bonfire');
-` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic' });
-const css = await readShellStyles();
+` }, bundle: true, write: false, outdir: "fixture", format: 'iife', platform: 'browser', jsx: 'automatic' });
+const css = await readShellStyles() + '\n' + outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text).join('\n');
 const server = createServer(async (request, response) => {
   if (request.url === '/query') {
     let body = ''; for await (const chunk of request) body += chunk;
@@ -77,7 +77,7 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify(data ? { ok: true, data, fetchedAt: new Date().toISOString() } : { ok: false, code: 'not-found', message: '内容不存在' }));
   } else {
     response.setHeader('Content-Type', request.url === '/fixture.js' ? 'text/javascript' : 'text/html; charset=utf-8');
-    response.end(request.url === '/fixture.js' ? outputFiles[0].text : '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' + css + '</style><div id="root"></div><script src="/fixture.js"></script></html>');
+    response.end(request.url === '/fixture.js' ? outputFiles.find(file => file.path.endsWith('.js')).text : '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' + css + '</style><div id="root"></div><script src="/fixture.js"></script></html>');
   }
 });
 await new Promise(resolve => server.listen(process.argv.includes('--serve') ? 4318 : 0, '127.0.0.1', resolve));
@@ -90,6 +90,11 @@ if (process.argv.includes('--serve')) {
     browser = await chromium.launch({ headless: true, channel: 'chrome' });
     const page = await browser.newPage({ viewport: { width: 1180, height: 900 }, hasTouch: true });
     page.setDefaultTimeout(10000);
+    const openDestination = async name => {
+      const button = page.getByRole('button', {name, exact:true});
+      if (!await button.isVisible()) await page.getByRole('button', {name:'更多功能',exact:true}).click();
+      await button.click();
+    };
     await page.clock.install();
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
@@ -156,7 +161,7 @@ if (process.argv.includes('--serve')) {
     await page.getByRole('button', { name: '复制链接', exact: true }).click();
     assert.equal(await page.evaluate(() => window.copied), 'https://beings.town/api/announcements/notice-0');
     assert.equal(await page.evaluate(() => window.civicPwned), undefined);
-    await page.getByRole('button', { name: '公告', exact: true }).click();
+    await openDestination('公告');
     await page.locator('.announcement-board .catalog-item').first().waitFor();
     await page.waitForFunction(() => !window.civicTown.loading);
     assert.match(await page.locator('#town-pagination').textContent(), /共 25 项/);
@@ -171,7 +176,7 @@ if (process.argv.includes('--serve')) {
     await page.locator('.announcement-board .catalog-item').first().click();
     await page.locator('.announcement-detail .reading-title').waitFor();
     await page.screenshot({ animations: 'disabled', path: 'output/playwright/civic-announcements.png' });
-    await page.getByRole('button', { name: '通讯录', exact: true }).click();
+    await openDestination('通讯录');
     await page.locator('.contact-card').first().waitFor();
     assert.equal(await page.locator('.contact-card').count(), 3);
     await page.getByLabel('搜索通讯录').fill('小溪');
@@ -214,7 +219,7 @@ if (process.argv.includes('--serve')) {
     await page.getByRole('button', { name: '收起公告', exact: true }).tap();
     await page.locator('#bonfire-announcement-panel').waitFor({ state: 'detached' });
     await page.screenshot({ animations: 'disabled', path: 'output/playwright/civic-bonfire-mobile.png' });
-    await page.getByRole('button', { name: '通讯录', exact: true }).click();
+    await openDestination('通讯录');
     await page.locator('.contact-card').first().waitFor();
     assert.equal(await page.locator('#town-view').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
     await page.screenshot({ animations: 'disabled', path: 'output/playwright/civic-contacts-mobile.png' });
