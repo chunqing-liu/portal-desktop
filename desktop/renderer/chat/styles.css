@@ -1653,3 +1653,8 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .chat-refresh-status>span { width:13px; height:13px; border:2px solid var(--border); border-top-color:var(--text-dim); border-radius:50%; animation:chat-refresh-spin .8s linear infinite; }
 @keyframes chat-refresh-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .chat-refresh-status>span { animation:none; } }
+
+.iui-context-target { display:flex; align-items:center; gap:12px; margin:0 12px 8px; padding:8px 12px; border:1px solid var(--border); border-radius:12px; color:var(--text); background:var(--bg); font-size:12px; }
+.iui-context-target>span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.iui-context-target small { margin-left:8px; color:var(--text-dim); }
+.iui-context-target>button { flex:none; width:28px; height:28px; border:0; border-radius:50%; background:transparent; color:var(--text-dim); cursor:pointer; font-size:18px; }

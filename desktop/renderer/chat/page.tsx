@@ -504,6 +504,11 @@ function ChatView({
                   intelligentUI={item.role === "being"}
                   storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id])}
                   onContinue={text => { state.draft = text; state.changed(); composer.current?.focus(); }}
+                  onEdit={inCurrentScene(item, state.currentScene) ? () => {
+                    state.setIntelligentUIEnabled(true);
+                    state.setIntelligentUIForMessage(true);
+                    requestAnimationFrame(() => composer.current?.focus());
+                  } : undefined}
                   onSnapshot={(text, _values, _apps, active) => { state.recordIntelligentUISnapshot(item.sceneId || 'global', text, active); }}
                   streaming={item.streaming}
                   chat
@@ -541,6 +546,7 @@ function ChatView({
         </div>
         <ChatIndex items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} highlight={setHighlighted} />
         <div id="input-area">
+          {state.intelligentUIForMessage && state.intelligentUITargetTitle && <div className="iui-context-target" role="status"><span>修改「{state.intelligentUITargetTitle}」<small>将携带原界面和当前选择</small></span><button type="button" aria-label="取消本条界面修改" onClick={() => state.setIntelligentUIForMessage(false)}>×</button></div>}
           {queuedMessages.length > 0 && <div className="composer-queue" aria-label={`待发送消息，共 ${queuedMessages.length} 条`}>
             {queuedMessages.map(item => <div className="composer-queue-item" key={item.id}>
               <svg className="composer-queue-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 4v11a3 3 0 0 0 3 3h13m-4-4 4 4-4 4M9 6h7M9 10h4" /></svg>

@@ -125,6 +125,10 @@ export class ChatState extends Store {
     if (selected !== undefined) this.intelligentUISnapshots[scene] = selected;
   }
   intelligentUIEnabled = readIntelligentUIPreference();
+  get intelligentUITargetTitle(): string {
+    try { return JSON.parse(this.intelligentUISnapshots[this.currentScene.sceneId || 'global'] || '{}').title || ''; }
+    catch { return ''; }
+  }
   intelligentUIForMessage = false;
   setIntelligentUIForMessage(enabled: boolean) {
     this.intelligentUIForMessage = this.intelligentUIEnabled && enabled;

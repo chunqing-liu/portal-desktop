@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,6 +61,35 @@ try {
   await page.waitForTimeout(100);
   assert.deepEqual(await app.evaluate(() => globalThis.opened), ['https://example.com/article']);
   const plugin = await (await page.locator('.plugin-frame').elementHandle()).contentFrame();
+  // Exercise both the real iframe sandbox and the protocol's CSP sandbox.
+  const exportedFile = path.join(root, 'team-export.json');
+  await app.evaluate(({ session }, destination) => {
+    globalThis.exportFinished = new Promise(resolve => {
+      session.defaultSession.once('will-download', (_event, item) => {
+        item.setSavePath(destination);
+        item.once('done', (_event, state) => resolve({ state, filename: item.getFilename() }));
+      });
+    });
+  }, exportedFile);
+  await plugin.evaluate(() => {
+    const button = document.createElement('button');
+    button.id = 'export-team'; button.textContent = 'Export team';
+    button.onclick = () => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify({ tracks: ['shared-track'] })], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = 'team-export.json';
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+    document.body.append(button);
+  });
+  await frame.locator('#export-team').click();
+  const exported = await app.evaluate(async () => Promise.race([
+    globalThis.exportFinished,
+    new Promise(resolve => setTimeout(() => resolve({ state: 'timeout' }), 10000)),
+  ]));
+  assert.deepEqual(exported, { state: 'completed', filename: 'team-export.json' });
+  assert.deepEqual(JSON.parse(await readFile(exportedFile, 'utf8')), { tracks: ['shared-track'] });
   const result = await plugin.evaluate(async base => {
     const direct = await (await fetch(base + '/cors')).json();
     let corsBlocked = false;
@@ -88,7 +117,7 @@ try {
     await frame.locator('#status').getByText('Public API: 200, id=1').waitFor();
     console.log('PASS: real public HTTPS API returned HTTP 200 / id=1 inside the sandboxed plugin panel.');
   }
-  console.log('PASS: real plugin link click and SDK dispatch, direct fetch, CORS-independent POST with headers/body, redirects, and sandbox isolation.');
+  console.log('PASS: real plugin link click and SDK dispatch, direct fetch, CORS-independent POST with headers/body, redirects, Blob export written to disk, and sandbox isolation.');
 } finally {
   await app?.close(); await new Promise(resolve => server.close(resolve)); await rm(root,{recursive:true,force:true});
 }

@@ -23,7 +23,9 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/api/chat/stream'){
     let body='';for await(const chunk of req)body+=chunk;
     const send=JSON.parse(body);sends.push(send);
-    const action=JSON.parse(send.message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s)[1]);
+    const match=send.message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s);
+    assert.ok(match, 'Missing UI context for fixture send ' + sends.length + ': ' + send.message.slice(0,100));
+    const action=JSON.parse(match[1]);
     history.push({seq:history.length+1,role:'user',scene_id:'surface-test',content:send.message});
     const content=ui([
       {op:'begin',version:2,surfaceId:action.surfaceId,title:action.title,mode:'patch',baseRevision:action.revision},
@@ -46,11 +48,16 @@ try{
   await page.goto(url);
   await page.getByRole('slider',{name:'温度'}).fill('28');
   assert.equal(await page.getByRole('button',{name:'用当前选择继续',exact:true}).count(),0);
-  await page.getByRole('button',{name:'Intelligent UI Beta 设置'}).click();
-  await page.getByRole('checkbox',{name:'启用智能 UI'}).check();
-  await page.getByRole('button',{name:'关闭智能界面设置'}).click();
   await page.getByRole('textbox',{name:'message input'}).fill('按当前选择调整');
-  await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).click();
+  await page.getByRole('button',{name:'修改',exact:true}).click();
+  assert.equal(sends.length,0,'Edit must not send automatically');
+  assert.equal(await page.getByRole('textbox',{name:'message input'}).evaluate(el=>el.value??el.editor.getMarkdown()),'按当前选择调整');
+  await page.waitForFunction(()=>document.activeElement?.matches('#input, #input [contenteditable], [role=textbox][contenteditable]'));
+  await page.locator('.iui-context-target').getByText('将携带原界面和当前选择').waitFor();
+  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'取消本条界面修改',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'false');
+  await page.getByRole('button',{name:'修改',exact:true}).click();
   await page.locator('#send-btn').click();
   await page.getByText('按当前选择调整后的建议',{exact:true}).waitFor();
   assert.equal(await page.locator('.intelligent-ui').count(),1,'Update must reuse the original UI');
@@ -59,9 +66,16 @@ try{
   assert.equal(sends.length,1);
   assert.ok(sends[0].message.includes('"surfaceId":"wardrobe"'));
   assert.ok(sends[0].message.includes('"temp":28'));
+  const original=JSON.parse(sends[0].message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s)[1]);
+  assert.equal(original.revision,1);
+  assert.ok(original.document.body[0].children.some(node=>node.type==='slider' && node.bind==='temp'),'Edit includes original component structure');
+  assert.equal(await page.locator('.iui-context-target').count(),0,'Context clears after this send');
+  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'false');
+
   assert.equal(await page.locator('.message.user').filter({hasText:'客户端当前界面选择'}).count(),0);
   await page.getByLabel('界面版本').selectOption('1');
   await page.getByText('初始建议',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'修改',exact:true}).count(),0,'Historical preview cannot become edit target');
   assert.equal(await page.getByRole('button',{name:'用当前选择继续',exact:true}).count(),0);
   await page.getByRole('slider',{name:'温度'}).fill('19');
   await page.getByLabel('界面版本').selectOption('latest');
@@ -72,6 +86,7 @@ try{
   assert.equal(await page.locator('.intelligent-ui').count(),1);
   await page.getByLabel('界面版本').selectOption('1');
   await page.getByText('初始建议',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'修改',exact:true}).count(),0,'Historical preview cannot become edit target');
   await page.getByLabel('界面版本').selectOption('latest');
   await page.setViewportSize({width:375,height:800});
   await mkdir('test-results',{recursive:true});
@@ -99,10 +114,13 @@ try{
   assert.equal(appAction.apps.simulation.values.choice,4);
   // A passive Worker render must not steal the artifact selected by the user.
   await page.getByRole('slider',{name:'温度'}).fill('29');
+  await appSurface.scrollIntoViewIfNeeded();
   const ticks = Number(await appSurface.locator('.iui-metric output').textContent());
   await page.waitForFunction(ticks=>Number(document.querySelector('.iui-app .iui-metric output')?.textContent)>ticks,ticks);
   await page.getByRole('textbox',{name:'message input'}).fill('调整衣橱而不是模拟');
-  await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).click();
+  await page.locator('.iui-surface').filter({has:page.getByRole('slider',{name:'温度'})}).getByRole('button',{name:'修改',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'true','Edit must arm next message for existing artifact');
+  await page.waitForFunction(()=>document.activeElement?.matches('#input, #input [contenteditable], [role=textbox][contenteditable]'));
   await page.locator('#send-btn').click();
   await page.waitForFunction(()=>document.querySelector('select[aria-label="界面版本"] option')?.textContent.includes('第 3 版'));
   const selected=JSON.parse(sends.at(-1).message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s)[1]);

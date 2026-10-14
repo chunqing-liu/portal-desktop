@@ -159,7 +159,7 @@ export function PluginFrame({ api, model, id, view, command, slot, theme, title 
   return <>
     {error ? <p role="alert">{error} <button className="secondary" onClick={() => setRevision(n => n + 1)}>重试</button></p> : <>
       {!ready && <p role="status">正在加载插件…</p>}
-      {session && <iframe className="plugin-frame" ref={frame} src={session.url} title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" />}
+      {session && <iframe className="plugin-frame" ref={frame} src={session.url} title={title} sandbox="allow-scripts allow-downloads" referrerPolicy="no-referrer" />}
     </>}
   </>;
 }

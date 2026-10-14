@@ -13,7 +13,7 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
   const snapshot = useRef<Parameters<NonNullable<UIActions['onSnapshot']>> | null>(null);
   const entry = messageId ? context?.blocks.get(blockKey(messageId, blockId)) : undefined;
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
-  if (!entry || !context) return <IntelligentUI source={source} streaming={streaming} {...actions} />;
+  if (!entry || !context) return <IntelligentUI source={source} streaming={streaming} {...actions} onEdit={undefined} />;
   const { surface } = entry;
   const latest = surface.versions.at(-1);
   const anchor = `iui-surface-${encodeURIComponent(surface.scope + ':' + surface.id)}`;
@@ -31,6 +31,12 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
     <IntelligentUI key={selectedRevision ?? 'latest'} source={version ? JSON.stringify(version.doc) : source} streaming={!version && streaming} {...actions}
       storageKey={selectedRevision === null ? JSON.stringify(['surface', surface.scope, surface.id]) : undefined}
       submitDisabled={!latest || selectedRevision !== null}
+      onEdit={actions.onEdit && latest && selectedRevision === null ? () => {
+        if (!snapshot.current) return;
+        const [text, values, apps] = snapshot.current;
+        actions.onSnapshot?.(text, values, apps, true);
+        actions.onEdit?.();
+      } : undefined}
       onActivate={() => {
         if (selectedRevision !== null || !snapshot.current) return;
         const [text, values, apps] = snapshot.current;
@@ -38,7 +44,7 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
       }}
       onSnapshot={(text, values, apps) => {
         if (selectedRevision !== null) return;
-        const current: Parameters<NonNullable<UIActions['onSnapshot']>> = [JSON.stringify({ surfaceId: surface.id, revision: latest?.revision || 0, title: version?.doc.title, values, apps }), values, apps];
+        const current: Parameters<NonNullable<UIActions['onSnapshot']>> = [JSON.stringify({ surfaceId: surface.id, revision: latest?.revision || 0, title: version?.doc.title, document: version?.doc, values, apps }), values, apps];
         snapshot.current = current;
         actions.onSnapshot?.(...current);
       }}

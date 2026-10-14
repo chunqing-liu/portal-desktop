@@ -11,7 +11,7 @@ import type { PluginEventTopic } from '../../../plugins/sdk';
 
 const MAX_HTML = 8 * 1024 * 1024;
 const MAX_DATA = 1024 * 1024;
-export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts";
+export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-downloads";
 interface Package extends InstalledPlugin { html: string }
 interface Session { id: string; view: string; command?: string; slot?: string; html: string; csp: string; calls: number; since: number; key: string; controller: AbortController; subscriptions: Map<number, PluginEventTopic> }
 async function boundedRead(file: string, limit: number) {
