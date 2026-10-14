@@ -23,6 +23,7 @@ vi.mock('electron', async () => {
     session: { defaultSession: { setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } },
   };
 });
+vi.mock('../desktop/main/app/taskbar-icons', () => ({ installWindowsTaskbarIcons: vi.fn() }));
 vi.mock('../desktop/main/app/tray', () => ({ installApplicationMenu: vi.fn(), createApplicationTray: () => ({ destroy: vi.fn() }) }));
 vi.mock('../desktop/main/app/window', () => ({ createMainWindow: vi.fn() }));
 

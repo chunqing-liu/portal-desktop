@@ -7,7 +7,7 @@ import path from 'node:path';
 import { BackgroundPortal, command, windowsModulePath, windowsPowerShellScript } from '../desktop/main/portal/background';
 import { parseConnection } from '../desktop/main/chat/connection';
 
-it.skipIf(process.platform !== 'win32')('opens a saved Windows runtime even when its scheduled task no longer exists', async () => {
+it.skipIf(process.platform !== 'win32').each([false, true])('opens a saved Windows runtime even when its scheduled task no longer exists (PID file: %s)', async hasPidFile => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'portal-missing-task-'));
   let phase = 'discover';
   const commands: { phase: string; milliseconds: number; error?: string }[] = [];
@@ -24,6 +24,10 @@ it.skipIf(process.platform !== 'win32')('opens a saved Windows runtime even when
     }
   });
   const service = { label: background.label, root: path.join(root, 'runtime'), file: '', existing: false };
+  if (hasPidFile) {
+    await mkdir(service.root, {recursive:true});
+    await writeFile(path.join(service.root, 'supervisor.pid'), '2147483647');
+  }
   const metadata = JSON.stringify(service);
   await writeFile(path.join(root, 'portal-service.json'), metadata);
   try {
@@ -34,6 +38,7 @@ it.skipIf(process.platform !== 'win32')('opens a saved Windows runtime even when
     expect(await readFile(path.join(root, 'portal-service.json'), 'utf8')).toBe(metadata);
     phase = 'disable and refresh';
     await expect(background.disable()).resolves.toMatchObject({ enabled: false, running: false });
+    await expect(readFile(path.join(service.root, 'supervisor.pid'))).rejects.toMatchObject({code:'ENOENT'});
   } catch (error) {
     await mkdir('test-results', { recursive: true });
     await writeFile('test-results/background-native-failure.json', JSON.stringify({ phase, commands, state: background.state, error: String(error) }, null, 2));

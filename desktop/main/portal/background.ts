@@ -506,7 +506,11 @@ while (($task=Find-PortalTask ${ps(service.label)}) -and $task.State -eq 'Runnin
   if ([DateTime]::UtcNow -ge $deadline) { throw 'Portal supervisor task is still running' }
   Start-Sleep -Milliseconds 200;
 }
-Remove-Item -LiteralPath $supervisorFile -Force -ErrorAction SilentlyContinue;`);
+# Missing PID metadata is normal after OS cleanup. SilentlyContinue still
+# leaves $? false, which makes powershell -EncodedCommand exit with code 1.
+if (Test-Path -LiteralPath $supervisorFile -ErrorAction Stop) {
+  Remove-Item -LiteralPath $supervisorFile -Force -ErrorAction Stop;
+}`);
   }
   get installedService(): Service | null { return this.service; }
   async forget() {
