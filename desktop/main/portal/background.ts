@@ -44,6 +44,9 @@ function Find-PortalTask([string]$name) {
 }
 try { $ErrorActionPreference='Stop'; ${script} }
 catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
+# A deliberately ignored missing PID file can leave $? false. Successful
+# cleanup must not become an unexplained exit 1 under -EncodedCommand.
+exit 0
 `;
 }
 export async function portableCommand(binary: string, action: 'stop' | 'status' | 'start', platform = process.platform, run: Command = command) {

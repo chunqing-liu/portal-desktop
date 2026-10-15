@@ -33,9 +33,24 @@ export class ClientInstall {
     catch (error) { await this.resume(intent); throw error; }
     return intent;
   }
-  async resume(intent: InstallIntent) {
+  async resume(intent: InstallIntent, startForeground?: () => Promise<unknown>) {
     for (const { service, enabled } of intent.services) if (enabled && !service.existing && !service.kind) await this.background.load(service);
+    if (intent.foreground && startForeground) await startForeground();
     await this.finish();
+  }
+  async shutdown(from: string, target: string, connection: Connection | null, foreground: boolean, steps: {
+    cleanup(): Promise<void>; handoff?(): Promise<void>; quit(): void; startForeground(): Promise<unknown>;
+  }) {
+    const intent = await this.prepare(from, target, connection, foreground);
+    try {
+      // Complete fallible shutdown work while rollback is still owned by this client.
+      await steps.cleanup();
+      await steps.handoff?.();
+      steps.quit();
+    } catch (error) {
+      await this.resume(intent, steps.startForeground);
+      throw error;
+    }
   }
   async finish() { await rm(this.file, { force: true }); }
 }

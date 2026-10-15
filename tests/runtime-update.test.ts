@@ -7,6 +7,8 @@ import { RuntimeUpdater, digest, restoreRuntimeMode, type RuntimeBundle } from '
 import { parseConnection } from '../desktop/main/chat/connection';
 import type { Settings } from '../desktop/shared/types';
 import { portalConfig } from '../desktop/main/portal/supervisor';
+import { ClientInstall } from '../desktop/main/updates/client-install';
+import { PortalTakeover } from '../desktop/main/portal/takeover';
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 async function fixture(platform: 'darwin' | 'win32' = 'darwin') {
@@ -50,6 +52,52 @@ async function fixture(platform: 'darwin' | 'win32' = 'darwin') {
   return { root, profile, background, previous, original, settings, connection, binary, bundle, calls, updater };
 }
 for (const platform of ['darwin', 'win32'] as const) {
+  it.each([true, false])(`restores the pre-install enabled=%s state after a failed ${platform} client/runtime upgrade`, async enabled => {
+    const f = await fixture(platform);
+    if (!enabled) await f.background.disable();
+    const install = new ClientInstall(f.profile, f.background);
+    const intent = await install.prepare('0.1.8', '0.1.9', f.connection, false);
+    expect(intent.services[0].enabled).toBe(enabled);
+    expect((await f.background.refresh()).enabled).toBe(false);
+    await expect(f.updater(async () => { throw new Error('candidate failed'); })
+      .sync(f.binary, f.bundle, f.settings, f.connection, intent)).rejects.toThrow('已恢复旧服务');
+    expect(f.background.installedService).toEqual(f.previous);
+    expect((await f.background.refresh()).enabled).toBe(enabled);
+    expect(f.background.state.running).toBe(enabled);
+  });
+
+  it(`recovers a failed ${platform} rollback before evaluating the persisted takeover hold`, async () => {
+    const f = await fixture(platform), install = new ClientInstall(f.profile, f.background);
+    const intent = await install.prepare('0.1.8', '0.1.9', f.connection, false);
+    const options = { discover: async () => [], stop: async () => {}, preflight: async () => {} };
+    const takeover = new PortalTakeover(f.profile, options);
+    const register = f.background.installRegistration.bind(f.background);
+    let failRestore = true;
+    vi.spyOn(f.background, 'installRegistration').mockImplementation(async service => {
+      if (platform === 'win32' && failRestore && service.root === f.previous.root) throw new Error('registration unavailable');
+      await register(service);
+    });
+    const load = f.background.load.bind(f.background);
+    vi.spyOn(f.background, 'load').mockImplementation(async service => {
+      if (failRestore && service.root === f.previous.root) throw new Error('service unavailable');
+      await load(service);
+    });
+    await expect(takeover.run(f.connection, 'automatic', async () => { await f.updater(async () => { throw new Error('candidate failed'); })
+      .sync(f.binary, f.bundle, f.settings, f.connection, intent); })).rejects.toThrow('恢复未完成');
+    const start = vi.fn(async () => {}), restarted = new PortalTakeover(f.profile, options);
+    expect(await restarted.run(f.connection, 'automatic', start)).toBe(false);
+    failRestore = false;
+    expect(await f.updater().recover(intent)).toBe(true);
+    await install.resume(intent);
+    await restarted.clearRuntimeFailure(f.connection);
+    expect(await restarted.run(f.connection, 'automatic', start)).toBe(true);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(f.background.installedService).toEqual(f.previous);
+    expect(f.background.state.running).toBe(true);
+    expect(await install.read()).toBeNull();
+    await expect(readFile(path.join(f.profile, 'runtime-update.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it(`repairs a missing ${platform} engine even when its recorded bundle is current`, async () => {
     const f = await fixture(platform);
     await f.background.setService({ ...f.previous, bundleId: f.bundle.id });

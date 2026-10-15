@@ -38,8 +38,14 @@ async function until(label, predicate, timeout = 60_000) {
 const root = await mkdtemp(path.join(os.tmpdir(), 'portal-win-upgrade-'));
 const profile = path.join(root, 'profile'), workspace = path.join(root, '工作目录'), kits = path.join(root, 'kits');
 const pkg = await json(new URL('../package.json', import.meta.url));
-const previous = pkg.version.replace(/\d+$/, value => String(Number(value) - 1));
 const historicalSetup = process.env.PORTAL_DESKTOP_BASELINE_SETUP;
+if (process.env.PORTAL_DESKTOP_REQUIRE_HISTORICAL_BASELINE === '1') {
+  assert(historicalSetup && process.env.PORTAL_DESKTOP_BASELINE_VERSION, 'Release validation requires a verified historical installer and version.');
+}
+const previous = historicalSetup
+  ? (process.env.PORTAL_DESKTOP_BASELINE_VERSION || path.basename(historicalSetup).match(/^portal-desktop-(\d+\.\d+\.\d+)-windows-x64-Setup\.exe$/)?.[1])
+  : pkg.version.replace(/\d+$/, value => String(Number(value) - 1));
+assert(previous, 'Specify PORTAL_DESKTOP_BASELINE_VERSION for a historical installer with a nonstandard filename.');
 assert.match(previous, /^\d+\.\d+\.\d+$/);
 const packaged = path.dirname(await desktopExecutable());
 const bundle = await json(path.join(packaged, 'resources/runtime-bundle.json'));
@@ -222,6 +228,11 @@ try {
   console.log('PASS: manually opening NSIS while the client and Portal run gracefully stops both, reinstalls, and automatically restores the same profile and Portal.');
   await runProcess(installed(), ['--quit-for-update'], env, 30_000);
   await until('upgraded client closes for final UI validation', async () => (await clients()).length === 0);
+  // The old process can exit before the installer's control launch reaches it.
+  // A first-instance control request must exit without opening a new client.
+  await runProcess(installed(), [`--prepare-installer=${pkg.version}`], env, 15_000);
+  await runProcess(installed(), ['--quit-for-update'], env, 15_000);
+  assert.equal((await clients()).length, 0, 'First-instance installer control requests must not launch the client');
   app = await launchDesktop({ executablePath: installed(), env });
   const upgradedPage = await app.firstWindow();
   assert.equal(await app.evaluate(({ app }) => app.getVersion()), pkg.version);

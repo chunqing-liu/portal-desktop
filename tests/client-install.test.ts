@@ -57,3 +57,27 @@ it('selects only supported assets, requires one digest and generates wait/replac
   expect(windows).not.toContain('--silent');
   expect(windows).toContain('-WindowStyle Normal -PassThru');
 });
+
+it.each(['cleanup', 'handoff'])('restores the service and foreground state when %s fails before quitting', async failure => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'town-install-shutdown-'));
+  const service: Service = { label: 'test', root: path.join(directory, 'engine'), file: '', existing: false };
+  let enabled = true;
+  const background = { label: 'test', installedService: service, refresh: async () => ({ enabled }),
+    unload: async () => { enabled = false; }, load: async () => { enabled = true; } } as unknown as BackgroundPortal;
+  const cleanup = vi.fn(async () => { expect(enabled).toBe(false); if (failure === 'cleanup') throw new Error('locked staging directory'); });
+  const handoff = vi.fn(async () => { throw new Error('worker exited'); });
+  const quit = vi.fn(), startForeground = vi.fn(async () => {});
+  try {
+    const install = new ClientInstall(directory, background);
+    await expect(install.shutdown('0.1.8', '0.1.9', null, true, { cleanup, handoff, quit, startForeground })).rejects.toThrow();
+    expect(enabled).toBe(true);
+    expect(startForeground).toHaveBeenCalledTimes(1);
+    expect(quit).not.toHaveBeenCalled();
+    expect(handoff).toHaveBeenCalledTimes(failure === 'cleanup' ? 0 : 1);
+    expect(await install.read()).toBeNull();
+    // A failed attempt must not leave the next install permanently blocked.
+    await install.shutdown('0.1.8', '0.1.9', null, false, { cleanup: async () => {}, handoff: async () => {}, quit, startForeground });
+    expect(quit).toHaveBeenCalledTimes(1);
+    expect(await install.read()).not.toBeNull();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

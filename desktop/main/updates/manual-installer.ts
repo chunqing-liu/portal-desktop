@@ -72,11 +72,32 @@ exit 1
 `;
 }
 export function windowsInstallerScript(parentPid: number, setup: string, oldExecutable: string) {
-  return windowsModulePath + `
+  return `param([string]$ReadyFile, [string]$CancelFile, [string]$StatusFile)
+` + windowsModulePath + `
 $ErrorActionPreference='Stop'
-Wait-Process -Id ${parentPid} -Timeout 120 -ErrorAction SilentlyContinue
-if (Get-Process -Id ${parentPid} -ErrorAction SilentlyContinue) { exit 1 }
+$ProgressPreference='SilentlyContinue'
+$parentExited=$false
+function Write-InstallState([string]$stage, [string]$detail = '') {
+  if (!$StatusFile) { return }
+  $state=@{stage=$stage; detail=$detail; pid=$PID; time=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Compress
+  [IO.File]::WriteAllText($StatusFile, $state, [Text.UTF8Encoding]::new($false))
+}
+function Assert-InstallActive {
+  if ($CancelFile -and (Test-Path -LiteralPath $CancelFile)) { throw 'Installation handoff cancelled' }
+}
 try {
+  Write-InstallState 'waiting-for-client'
+  Assert-InstallActive
+  if ($ReadyFile) { [IO.File]::WriteAllText($ReadyFile, [string]$PID) }
+  $deadline=(Get-Date).AddSeconds(120)
+  while (Get-Process -Id ${parentPid} -ErrorAction SilentlyContinue) {
+    Assert-InstallActive
+    if ((Get-Date) -ge $deadline) { throw 'Client shutdown timed out' }
+    Wait-Process -Id ${parentPid} -Timeout 1 -ErrorAction SilentlyContinue
+  }
+  Assert-InstallActive
+  $parentExited=$true
+  Write-InstallState 'stopping-children'
   # Chromium children can briefly outlive the Electron main process and keep
   # native DLLs locked. Give them time to exit, then stop only processes that
   # still run from the exact client executable being replaced.
@@ -91,10 +112,14 @@ try {
     $remaining | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 500
   }
+  Assert-InstallActive
+  Write-InstallState 'running-setup'
   $result=Start-Process -FilePath ${ps(setup)} -WindowStyle Normal -PassThru
+  $null=$result.Handle
   # Wait for Setup itself, not any newly launched long-lived client descendants.
   $result.WaitForExit()
-  if ($result.ExitCode -ne 0) { throw 'Client installation failed' }
+  if ($result.ExitCode -ne 0) { throw ('Client installation failed: exit=' + $result.ExitCode) }
+  Write-InstallState 'starting-client'
   $location=(Get-ItemProperty -LiteralPath 'HKCU:\\Software\\${windowsInstaller.guid}' -Name InstallLocation).InstallLocation
   $installed=Join-Path $location '${windowsInstaller.executableName}.exe'
   if (!(Test-Path -LiteralPath $installed)) { throw 'Installed client missing' }
@@ -102,9 +127,16 @@ try {
   # profile/environment for managed installations; the single-instance lock
   # ensures the standard NSIS launch never creates a second client.
   Start-Process -FilePath $installed -WindowStyle Normal
+  Write-InstallState 'completed'
 } catch {
-  Start-Process -FilePath ${ps(oldExecutable)}
-  throw
+  $failure=$_
+  Write-InstallState 'failed' $failure.Exception.Message
+  if ($parentExited) {
+    try { Start-Process -FilePath ${ps(oldExecutable)} -WindowStyle Normal }
+    catch { [Console]::Error.WriteLine('Client recovery failed: ' + $_.Exception.Message) }
+  }
+  [Console]::Error.WriteLine($failure)
+  exit 1
 }
 `;
 }
@@ -156,8 +188,26 @@ export async function stageInstaller(directory: string, version: string, reposit
         // script; an attached console can also close with the old client.
         // Start-Process gives the worker its own hidden console and returns as
         // soon as it starts, so the worker can wait for this client to exit.
-        const args = `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptFile}"`;
-        const launch = windowsModulePath + `$ErrorActionPreference='Stop'; Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -ArgumentList ${ps(args)} -RedirectStandardOutput ${ps(path.join(root, 'install.log'))} -RedirectStandardError ${ps(path.join(root, 'install-error.log'))}`;
+        const attempt = path.join(root, `install-${randomUUID()}`);
+        const ready = attempt + '.ready', cancel = attempt + '.cancel';
+        const args = `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptFile}" -ReadyFile "${ready}" -CancelFile "${cancel}" -StatusFile "${attempt}.json"`;
+        const launch = windowsModulePath + `$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';
+try {
+  $worker=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -WindowStyle Hidden -PassThru -ArgumentList ${ps(args)} -RedirectStandardOutput ${ps(path.join(root, 'install.log'))} -RedirectStandardError ${ps(path.join(root, 'install-error.log'))}
+  $null=$worker.Handle
+  $deadline=(Get-Date).AddSeconds(20)
+  while ($true) {
+    $worker.Refresh()
+    if ($worker.HasExited) { $worker.WaitForExit(); throw ('Installer worker exited before handoff: ' + $worker.ExitCode) }
+    if (Test-Path -LiteralPath ${ps(ready)}) { break }
+    if ((Get-Date) -ge $deadline) { throw 'Installer worker readiness timed out' }
+    Start-Sleep -Milliseconds 100
+  }
+} catch {
+  [IO.File]::WriteAllText(${ps(cancel)}, 'cancelled')
+  [Console]::Error.WriteLine($_)
+  exit 1
+}`;
         const log = await open(path.join(root, 'install-launch.log'), 'a', 0o600);
         const bootstrap = spawn(windowsExecutable('powershell.exe'), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(launch, 'utf16le').toString('base64')],
           { windowsHide: true, env: windowsEnvironment(process.env), stdio: ['ignore', log.fd, log.fd] });
@@ -170,6 +220,10 @@ export async function stageInstaller(directory: string, version: string, reposit
             bootstrap.once('exit', code => code === 0 ? resolve() : reject(new Error('无法启动客户端安装助手，请查看 install-launch.log。')));
             timer = setTimeout(() => { bootstrap.kill(); reject(new Error('启动客户端安装助手超时。')); }, 30_000);
           });
+        } catch (error) {
+          // A delayed worker must not install if this client later exits normally.
+          await writeFile(cancel, 'cancelled');
+          throw error;
         } finally { clearTimeout(timer); await log.close(); }
         return;
       }

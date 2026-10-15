@@ -7,10 +7,12 @@ import type { Settings } from '../../shared/types';
 import { readPortalSample, readPortalReady } from '../portal/status';
 import { portalConfig } from '../portal/supervisor';
 import { parse as parseToml } from 'smol-toml';
+import type { InstallIntent } from './client-install';
 
 export interface RuntimeBundle { schema: 1; id: string; clientVersion: string; portalVersion: string; sha256: string; platform: string; arch: string }
 interface Journal { schema: 1; previous: Service; candidate: Service; enabled: boolean; previousPlist?: string; external?: Service[] }
 export interface RuntimeUpdateResult { phase: 'current' | 'updated' | 'skipped' | 'error'; message: string; portalVersion?: string }
+export class RuntimeRollbackError extends Error {}
 export const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 export function compareVersions(left: string, right: string) {
   const parse = (value: string) => {
@@ -55,7 +57,7 @@ export class RuntimeUpdater {
     private ready: (service: Service) => Promise<void> = service => this.waitReady(service),
   ) { this.journal = path.join(directory, 'runtime-update.json'); }
 
-  async recover() {
+  async recover(installIntent?: InstallIntent | null) {
     let transaction: Journal;
     try { transaction = JSON.parse(await readFile(this.journal, 'utf8')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
@@ -68,6 +70,8 @@ export class RuntimeUpdater {
       throw new Error('升级恢复记录路径无效，未修改服务。');
     }
     if (transaction.external?.some(s => s.kind !== 'portable' || !s.binary || !path.isAbsolute(s.root) || !path.isAbsolute(s.binary))) throw new Error('独立 Portal 恢复记录无效。');
+    transaction.enabled = installIntent?.services.find(item => item.service.root === transaction.previous.root &&
+      item.service.label === transaction.previous.label)?.enabled ?? transaction.enabled;
     await this.restore(transaction);
     return true;
   }
@@ -87,12 +91,13 @@ export class RuntimeUpdater {
       if (t.candidate.file !== t.previous.file) await rm(t.candidate.file, { force: true });
     } else await this.background.installRegistration(t.previous);
     if (t.enabled) await this.background.load(t.previous);
+    else if (this.platform === 'win32') await this.background.unload(t.previous);
     await this.background.setService(t.previous);
     await rm(this.journal);
     // Keep files until recovery is committed; never delete the original config.
     await rm(t.candidate.root, { recursive: true, force: true });
   }
-  async sync(binary: string, bundle: RuntimeBundle, settings: Settings, connection: Connection): Promise<RuntimeUpdateResult> {
+  async sync(binary: string, bundle: RuntimeBundle, settings: Settings, connection: Connection, installIntent?: InstallIntent | null): Promise<RuntimeUpdateResult> {
     const previous = this.background.installedService;
     if (!previous || previous.existing || previous.kind === 'portable') return { phase: 'skipped', message: '尚未安装客户端管理的后台服务。' };
     if (digest(await readFile(binary)) !== bundle.sha256) throw new Error('Portal 文件校验失败，旧服务未修改。');
@@ -115,7 +120,8 @@ export class RuntimeUpdater {
     const generatedConfig =
       ((previous.generatedConfig !== false && (!settings.portalConfigPath || settings.portalConfigPath === previous.configPath)) &&
         [portalConfig(settings), portalConfig(settings).replace('screenshot = true', 'screenshot = false')].includes(contents));
-    const wasEnabled = (await this.background.refresh()).enabled;
+    const wasEnabled = installIntent?.services.find(item => item.service.root === previous.root &&
+      item.service.label === previous.label)?.enabled ?? (await this.background.refresh()).enabled;
     const root = path.join(this.background.runtimeDirectory, randomUUID());
     if (generatedConfig) config = path.join(root, 'portal.toml');
     const candidate: Service = { label: previous.label, file: previous.file, root, existing: false,
@@ -146,9 +152,9 @@ export class RuntimeUpdater {
       await rm(this.journal);
       return { phase: 'updated', message: '旧 Portal 和守护已停止，已按原配置启动当前引擎与新守护。', portalVersion: bundle.portalVersion };
     } catch (error) {
-      try { await this.recover(); }
+      try { await this.recover(installIntent); }
       catch (recovery) { throw new Error(`升级失败且恢复未完成；下次启动将重试恢复。${String(recovery)}`); }
-      throw new Error(`Portal 更新失败，已恢复旧服务：${String(error)}`);
+      throw new RuntimeRollbackError(`Portal 更新失败，已恢复旧服务：${String(error)}`);
     }
   }
   async waitReady(service: Service) {

@@ -104,9 +104,17 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/portal-signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+      - name: Download and verify the previous published Windows installer
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/download-windows-baseline.mjs "$env:RUNNER_TEMP/windows-upgrade-baseline"
       - name: Verify NSIS installation and client Portal upgrade
         if: runner.os == 'Windows'
         shell: powershell
+        env:
+          PORTAL_DESKTOP_REQUIRE_HISTORICAL_BASELINE: '1'
         run: npm run test:windows-upgrade
       - name: Upload Windows installer diagnostics
         if: runner.os == 'Windows' && always()

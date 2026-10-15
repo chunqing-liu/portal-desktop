@@ -29,7 +29,7 @@ import { PortalSupervisor } from './portal/supervisor';
 import { ExternalPortalObserver } from './portal/external';
 import { PortalTakeover } from './portal/takeover';
 import { WindowsForcePortal } from './portal/windows-force';
-import { RuntimeUpdater, loadRuntimeBundle, restoreRuntimeMode, type RuntimeUpdateResult } from './updates/runtime';
+import { RuntimeUpdater, RuntimeRollbackError, loadRuntimeBundle, restoreRuntimeMode, type RuntimeUpdateResult } from './updates/runtime';
 import { UpdateChecker } from './updates/checker';
 import { ClientInstall } from './updates/client-install';
 import { stageInstaller } from './updates/manual-installer';
@@ -107,6 +107,21 @@ const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
   mutation = next.then(() => {}, () => {});
   return next;
 };
+async function cleanupForQuit() {
+  await kitInstaller?.dispose();
+  await portal.stop();
+  browser?.close();
+  await errorLog.flush();
+}
+function finishQuit() {
+  clearInterval(backgroundPoll); clearInterval(updatePoll);
+  townLive?.dispose(); notifications?.clear(); proxy.abortAll();
+  // Installer shutdown reaches here directly, without the normal before-quit
+  // handler. Let the window close instead of cancelling quit and hiding it.
+  quitting = true;
+  cancelTownPairing?.();
+  quitCleanupDone = true; tray?.destroy(); app.quit();
+}
 const shellURL = () => new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL || 'beings://desktop/').href;
 
 async function openExternal(url: string) {
@@ -298,18 +313,19 @@ async function ready() {
   app.once('will-quit', () => { clientContext.close(); void clientCommands.close().catch(error => errorLog.report('client-commands-close', error)); });
   let recoveryBlocked = false;
   const clientInstall = new ClientInstall(directory, background);
-  const installIntent = await clientInstall.read();
+  let installIntent = await clientInstall.read();
+  const finishClientInstall = async () => { await clientInstall.finish(); installIntent = null; };
   prepareInstallerShutdown = target => {
     void exclusive(async () => {
       if (quitting) return;
-      const intent = await clientInstall.prepare(app.getVersion(), target, store.connection, portal.managing);
       try {
         recoveryBlocked = true;
-        await portal.stop();
-        app.quit();
+        await clientInstall.shutdown(app.getVersion(), target, store.connection, portal.managing, {
+          cleanup: cleanupForQuit, quit: finishQuit,
+          startForeground: async () => { if (store.connection) await portal.start(store.settings, store.connection); },
+        });
       } catch (error) {
-        await clientInstall.resume(intent);
-        recoveryBlocked = false;
+        recoveryBlocked = Boolean(await clientInstall.read());
         throw error;
       }
     }).catch(error => {
@@ -486,17 +502,15 @@ async function ready() {
     updates.setActivity({ phase: 'installing', version: activity.version });
     try {
       await exclusive(async () => {
-        const intent = await clientInstall.prepare(app.getVersion(), activity.version, store.connection, portal.managing);
         try {
           recoveryBlocked = true;
-          await portal.stop();
-          await handoff();
+          await clientInstall.shutdown(app.getVersion(), activity.version, store.connection, portal.managing, {
+            cleanup: cleanupForQuit, handoff, quit: finishQuit,
+            startForeground: async () => { if (store.connection) await portal.start(store.settings, store.connection); },
+          });
           updateHandoff = undefined;
-          app.quit();
         } catch (error) {
-          await clientInstall.resume(intent);
-          if (intent.foreground && store.connection) await portal.start(store.settings, store.connection);
-          recoveryBlocked = false;
+          recoveryBlocked = Boolean(await clientInstall.read());
           throw error;
         }
       });
@@ -734,7 +748,7 @@ async function ready() {
       await store.save({ ...store.settings, portalBinary: binary });
       await startClientPortal(true);
       startupDeferred = false;
-      if (installIntent) await clientInstall.finish();
+      if (installIntent) await finishClientInstall();
     }, false, true);
     await publishCurrentPortal(); return portal.state;
   }));
@@ -785,7 +799,7 @@ async function ready() {
   async function restoreStartup(intent: 'manual' | 'automatic' = 'automatic') {
     if (!store.connection) {
       if (installIntent) {
-        await clientInstall.finish();
+        await finishClientInstall();
         runtimeUpdate = { phase: 'current', message: '客户端已安装；连接配置完成后使用客户端 Portal。' };
       }
       return;
@@ -801,18 +815,40 @@ async function ready() {
     }
     try {
       const connection = store.connection;
+      const updater = new RuntimeUpdater(directory, background);
+      const resumeInstalledRuntime = async () => {
+        if (!installIntent) return;
+        await clientInstall.resume(installIntent, async () => {
+          const service = background.installedService;
+          // The newly installed bundle may be the one that failed. Resume the
+          // preserved engine, not that bundle, for a foreground-only client.
+          const settings = service ? { ...store.settings,
+            portalBinary: path.join(service.root, process.platform === 'win32' ? 'heart-portal.exe' : 'heart-portal'),
+            portalConfigPath: service.configPath } : store.settings;
+          await portal.start(settings, connection);
+          await portal.waitReady();
+        });
+        installIntent = null;
+      };
+      // Recovery must run even when the previous attempt left takeover paused.
+      const recovered = await updater.recover(installIntent);
+      if (recovered && background.installedService) {
+        await resumeInstalledRuntime();
+        await takeover.clearRuntimeFailure(connection);
+        recoveryBlocked = false;
+        runtimeUpdate = { phase: 'error', message: '已恢复上次未完成升级前的 Portal；本次启动不再自动重试升级。' };
+        await publishCurrentPortal();
+        return;
+      }
       await takeover.run(connection, intent, async replacing => {
-        if (replacing) { await startClientPortal(true); if (installIntent) await clientInstall.finish(); return; }
-        const updater = new RuntimeUpdater(directory, background);
-        const recovered = await updater.recover();
-        if (recovered && background.installedService) {
-          runtimeUpdate = { phase: 'error', message: '已恢复上次未完成升级前的 Portal；本次启动不再自动重试升级。' };
-          await publishBackground();
-          return;
-        }
+        if (replacing) { await startClientPortal(true); if (installIntent) await finishClientInstall(); return; }
         if (app.isPackaged) {
           const { bundle, binary: bundledBinary } = await loadRuntimeBundle(process.resourcesPath);
-          runtimeUpdate = await updater.sync(bundledBinary, bundle, store.settings, connection);
+          try { runtimeUpdate = await updater.sync(bundledBinary, bundle, store.settings, connection, installIntent); }
+          catch (error) {
+            if (error instanceof RuntimeRollbackError) await resumeInstalledRuntime();
+            throw error;
+          }
           if (runtimeUpdate.phase !== 'skipped') {
             if (runtimeUpdate.phase === 'current' || runtimeUpdate.phase === 'updated') {
               const service = background.installedService!;
@@ -822,7 +858,7 @@ async function ready() {
                 await portal.waitReady();
               },
                 runtimeUpdate.phase === 'updated' || Boolean(installIntent));
-              if (installIntent) await clientInstall.finish();
+              if (installIntent) await finishClientInstall();
             }
             await publishCurrentPortal();
             // The replacement follows the existing background/foreground preference.
@@ -839,7 +875,7 @@ async function ready() {
             if (installIntent) await portal.waitReady();
           }
         }
-        if (installIntent) await clientInstall.finish();
+        if (installIntent) await finishClientInstall();
       });
       await publishCurrentPortal();
     } catch (error) {
@@ -880,6 +916,9 @@ if (profileError) {
   });
 } else if (squirrelEvent) { void handleInstallerEvent(squirrelEvent, process.execPath).catch(error => { errorLog.report('installer-event', error); process.exitCode = 1; }).finally(() => app.quit()); }
 else if (!app.requestSingleInstanceLock()) app.quit();
+// The target can exit between the installer's process scan and its control launch.
+// A first-instance control request must never start a new client or Portal.
+else if (installerTarget(process.argv) || process.argv.includes('--quit-for-update')) app.quit();
 else {
   app.on('second-instance', (_event, argv) => {
     const args = argv ?? [];
@@ -905,11 +944,7 @@ else {
     quitting = true;
     cancelTownPairing?.();
     lifecycleError = '';
-    void exclusive(async () => { await kitInstaller?.dispose(); await portal.stop(); browser?.close(); await errorLog.flush(); }).then(() => {
-      clearInterval(backgroundPoll); clearInterval(updatePoll);
-      townLive?.dispose(); notifications?.clear(); proxy.abortAll();
-      quitCleanupDone = true; tray?.destroy(); app.quit();
-    }).catch(error => {
+    void exclusive(cleanupForQuit).then(finishQuit).catch(error => {
       errorLog.report('client-quit', error);
       quitting = false;
       lifecycleError = '退出未完成，当前客户端保持打开。请在 Portal 设置中检查运行状态，停止后再退出。';

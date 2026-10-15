@@ -8,6 +8,14 @@ import type { PortalConflict } from '../desktop/main/portal/external';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const connection = parseConnection('https://example.org/alice/?token=private-fixture');
+it('does not clear a failed external takeover after recovering a client runtime', async () => {
+  const f = await fixture();
+  await expect(f.takeover.run(connection, 'automatic', async () => { throw new Error('external takeover failed'); })).rejects.toThrow();
+  await f.takeover.clearRuntimeFailure(connection);
+  expect(await f.takeover.run(connection, 'automatic', f.start)).toBe(false);
+  expect(f.start).not.toHaveBeenCalled();
+  expect(JSON.parse(await readFile(f.takeover.file, 'utf8')).replacing).toBe(true);
+});
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'portal-takeover-')); roots.push(root);
   const a: PortalConflict = { id: 'a', root: '/old-client', label: 'old-client', service: { label: 'old-client', root: '/old-client', file: '/old.plist', existing: false } };

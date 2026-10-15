@@ -16,6 +16,17 @@ export class PortalTakeover {
   readonly file: string;
   holdMessage = '';
   constructor(directory: string, private options: TakeoverOptions) { this.file = path.join(directory, 'portal-takeover.json'); }
+  // Call only after a runtime rollback succeeded. A failed external takeover
+  // remains paused; recovering our own service does not authorize resuming it.
+  async clearRuntimeFailure(connection: Connection) {
+    let saved: Decision;
+    try { saved = JSON.parse(await readFile(this.file, 'utf8')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    if (saved.schema === 1 && saved.identity === portalIdentity(connection) && saved.phase === 'blocked' && saved.replacing === false) {
+      await rm(this.file);
+      this.holdMessage = '';
+    }
+  }
   async run(connection: Connection, intent: 'manual' | 'automatic', start: (replacing: boolean) => Promise<void>, requireConflict = false, force = false): Promise<boolean> {
     if (force && intent !== 'manual') throw new Error('强制接管只能手动执行。');
     const identity = portalIdentity(connection);
