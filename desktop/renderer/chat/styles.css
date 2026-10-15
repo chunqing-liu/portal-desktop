@@ -1811,15 +1811,15 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .attachment-transcript p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
 .attachment-transcript button,.attachment-transcript-error button { border:0; padding:4px 0; background:none; color:inherit; text-decoration:underline; cursor:pointer; }
 .attachment-transcript-error { font-size:12px; }
-/* Speed selection replaces the popover contents instead of resizing it. */
-:is(.audio-menu > div,.audio-floating-menu) { height:196px; box-sizing:border-box; }
+/* Legacy inline speed selection; floating menus size to their actual actions. */
+:is(.audio-menu > div,.audio-floating-menu) { height:auto; box-sizing:border-box; }
 .audio-settings .audio-speed-options { position:absolute; inset:12px 14px; z-index:2; background:var(--bg); grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:38px 38px 38px; align-content:start; gap:8px; padding:0; border-radius:10px; }
 .audio-settings .audio-speed-options button { height:38px; }
 .audio-settings .audio-speed-options .audio-speed-back { grid-column:1/-1; text-align:left; justify-content:start; background:transparent; font-size:14px; }
 .attachment-message .attachment-processing-status { align-self:flex-end; padding:4px 2px; min-height:20px; gap:6px; font-size:12px; }
 .attachment-message .attachment-processing-status small { font-size:11px; }
 
-.audio-floating-menu { position:fixed; inset:auto; margin:0; height:196px; box-sizing:border-box; padding:12px 14px; border:0; border-radius:22px; background:var(--bg); color:var(--text); box-shadow:0 8px 30px #0003; overflow:visible; font-size:14px; }
+.audio-floating-menu[popover] { position:fixed; inset:auto; margin:0; height:auto; box-sizing:border-box; padding:12px 14px; border:0; border-radius:22px; background:var(--bg); color:var(--text); box-shadow:0 8px 30px #0003; overflow:visible; font-size:14px; }
 .audio-floating-menu::backdrop { background:transparent; }
 .attachment-audio .audio-menu-trigger { display:grid; place-items:center; width:26px; height:26px; padding:0; border:0; border-radius:50%; color:#fff; background:#454545; font-size:16px; line-height:1; }
 .audio-floating-menu .audio-settings .audio-speed-options { left:var(--submenu-left); top:var(--submenu-top); right:auto; bottom:auto; width:220px; padding:10px; height:auto; display:grid; grid-template-columns:1fr; grid-template-rows:none; gap:0; background:var(--bg); border-radius:18px; box-shadow:0 8px 30px #0003; }

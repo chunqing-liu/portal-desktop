@@ -17,3 +17,13 @@ it('clamps the submenu at the bottom edge without moving the parent',()=>{
  const p=audioMenuPosition({top:760,bottom:786,right:900},{width:1000,height:800});
  expect(p.top).toBe(556);expect(p.top+p.submenuTop+236).toBeLessThanOrEqual(788);
 });
+
+it('uses measured content height as menu actions change',()=>{
+ const rect={top:500,bottom:526,right:900},viewport={width:1000,height:800};
+ const compact=audioMenuPosition(rect,viewport,{height:148,submenuHeight:236});
+ const expanded=audioMenuPosition(rect,viewport,{height:186,submenuHeight:236});
+ expect(compact.top+148).toBe(rect.top-8);
+ expect(expanded.top+186).toBe(rect.top-8);
+ expect(compact.left).toBe(expanded.left);
+ expect(audioMenuPosition({top:160,bottom:186,right:900},viewport,{height:140,submenuHeight:236}).top).toBe(12);
+});
