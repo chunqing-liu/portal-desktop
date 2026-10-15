@@ -2,7 +2,7 @@ import {AttachmentImageUpload} from './attachment-image-upload';
 import {AttachmentProcessing} from './attachment-processing';
 import {AttachmentTranscript} from './attachment-transcript';
 import {transferBytes} from '../services/attachment-transfer';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { Message } from '../models/chat';
 import { AttachmentMessages, messageReferences, type AttachmentMessage } from '../services/attachment-messages';
 import { viewRequest } from '../services/attachment-view';
@@ -15,6 +15,13 @@ export function originalMessageText(message: Message) {
 export function AttachmentMessageContent({message}: {message: Message}) {
   const endpoint = message.attachmentEndpoint || new URLSearchParams(location.search).get('history_scope') || '';
   const [fetched, setFetched] = useState<AttachmentMessage[]>([]), [error, setError] = useState(''), [attempt, setAttempt] = useState(0);
+  const [localImages,setLocalImages]=useState<({src:string;blob:Blob}|undefined)[]>([]);
+  // Keep the same object URLs across the upload -> server message transition.
+  useLayoutEffect(()=>{
+    const images=(message.attachmentUploads || []).map(file=>file.blob && /^image\/(png|jpeg|gif|webp)$/.test(file.mime || '') ? {src:URL.createObjectURL(file.blob),blob:file.blob} : undefined);
+    setLocalImages(images);
+    return()=>images.forEach(image=>{if(image)URL.revokeObjectURL(image.src);});
+  },[message.attachmentUploads]);
   const ids = messageReferences(message.text).join(',');
   useEffect(() => {
     if (message.attachmentViews?.length || !ids) return;
@@ -28,7 +35,7 @@ export function AttachmentMessageContent({message}: {message: Message}) {
     {message.attachmentUploads.map((file, index) => {
       const p = file.progress, complete = p?.phase === 'complete';
       const percent = complete ? 100 : Math.min(99, Math.floor((p?.loaded || 0) / (p?.total || file.size) * 100));
-      if (file.blob && file.mime?.startsWith('image/')) return <AttachmentImageUpload key={index} blob={file.blob} name={file.name} percent={percent} complete={complete}/>;
+      if (file.blob && /^image\/(png|jpeg|gif|webp)$/.test(file.mime || '')) return <AttachmentImageUpload key={index} src={localImages[index]?.src || ''} name={file.name} percent={percent} complete={complete}/>;
       return <section className="attachment-card attachment-upload-card" key={index}><div className="attachment-file-row"><span className="attachment-file-icon" aria-hidden="true">↑</span><span className="attachment-file-label"><strong>{file.name}</strong><small>{file.name.split('.').pop()?.toUpperCase()} · {transferBytes(file.size)}</small></span></div>
         <p role="status">{complete ? '上传完成' : p?.phase === 'confirming' ? '正在确认上传' : p?.phase === 'uploading' ? '正在上传' : p ? '正在准备上传' : '等待上传'} · {percent}%</p>
         {!complete && <progress aria-label={`${file.name} 上传进度`} max={100} value={percent} />}
@@ -40,7 +47,7 @@ export function AttachmentMessageContent({message}: {message: Message}) {
   if (!views.length) return <div className="content attachment-fallback"><p role="status">{error || '正在加载附件消息…'}</p>{error && <button onClick={() => { setError(''); setAttempt(attempt + 1); }}>重试加载</button>}<details><summary>查看原始消息</summary><pre>{message.text}</pre></details></div>;
   return <div className="content attachment-message">{views.map(view => <div key={view.message_id}>
     {view.channel !== 'portal' && <small>{view.channel} · {view.scene_label}</small>}
-    {view.parts.filter(part=>part.type==='attachment').map(part=><AttachmentCard key={part.attachment_id} part={part} endpoint={endpoint}/>)}
+    {view.parts.filter(part=>part.type==='attachment').map((part,index)=><AttachmentCard key={part.attachment_id} part={part} endpoint={endpoint} localImage={views.length===1 ? localImages[index] : undefined}/>)}
     <AttachmentProcessing items={[message]} name="" />
     <div className="attachment-message-copy">
       {view.parts.filter(part=>part.type==='attachment' && /^audio\//.test(part.mime)).map(part=>part.type==='attachment' && <AttachmentTranscript key={part.attachment_id} part={part} endpoint={endpoint}/>)}

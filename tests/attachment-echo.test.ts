@@ -68,9 +68,27 @@ describe('desktop attachment queue and echo',()=>{
     const uploads=requests.filter(p=>p==='/api/attachments').length, parses=requests.filter(p=>p.endsWith('/parse')).length;
     jobState='succeeded';current=await start();try{await vi.advanceTimersByTimeAsync(0);expect(posts).toHaveLength(1);expect(requests.filter(p=>p==='/api/attachments')).toHaveLength(uploads);expect(requests.filter(p=>p.endsWith('/parse'))).toHaveLength(parses);}finally{current.runtime.dispose();}
   });
-  it('cancels a slow parse locally and never sends its result',async()=>{
+  it('stops an in-flight upload through the same composer action',async()=>{
+    const original=globalThis.fetch;let aborted=false;
+    vi.stubGlobal('fetch',vi.fn((input:string,init:RequestInit={})=>{
+      if(new URL(input).pathname==='/api/attachments')return new Promise<Response>((_resolve,reject)=>{
+        const cancel=()=>{aborted=true;reject(new DOMException('Cancelled','AbortError'));};
+        if(init.signal?.aborted)cancel();else init.signal?.addEventListener('abort',cancel,{once:true});
+      });
+      return original(input,init);
+    }));
+    const {state,runtime}=await start();try{
+      await runtime.send('原始问题',[file()]);await vi.advanceTimersByTimeAsync(0);
+      expect(state.attachmentPending).toBe(true);
+      await runtime.stopCurrentTurn();await vi.advanceTimersByTimeAsync(3000);
+      expect(aborted).toBe(true);expect(state.attachmentPending).toBe(false);
+      expect(rows.size).toBe(0);expect(parseForces).toHaveLength(0);expect(posts).toHaveLength(0);
+    }finally{runtime.dispose();}
+  });
+  it('uses the composer stop action to cancel parsing and never sends its result',async()=>{
     jobState='running';const {state,runtime}=await start();try{await runtime.send('原始问题',[file()]);await vi.advanceTimersByTimeAsync(0);
-      const message=state.items.find((m:any)=>m.cancelQueued) as any;await message.cancelQueued();jobState='succeeded';await vi.advanceTimersByTimeAsync(3000);
+      expect(state.attachmentPending).toBe(true);expect(state.streaming).toBe(false);
+      await runtime.stopCurrentTurn();expect(state.attachmentPending).toBe(false);expect(state.stopping).toBe(false);jobState='succeeded';await vi.advanceTimersByTimeAsync(3000);
       expect(posts).toHaveLength(0);expect(delivery).toBe('cancelled');expect(rows.size).toBe(0);
     }finally{runtime.dispose();}
   });

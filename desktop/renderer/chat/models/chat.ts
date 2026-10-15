@@ -195,6 +195,7 @@ export class ChatState extends Store {
   thinking = false;
   streaming = false;
   stopping = false;
+  attachmentPending = false;
   connection = "connecting";
   banner = "";
   dotClass = "reconnecting";

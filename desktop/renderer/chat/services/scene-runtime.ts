@@ -227,9 +227,9 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           const active = await response.json();
           if (!active.finished && (!active.origin || active.origin === 'human')) { retryDrain(); return; }
         }
-        if (disposed || [...sessions.values()].some(busy)) { retryDrain(); return; }
+        if (disposed || next.cancelled || [...sessions.values()].some(busy)) { retryDrain(); return; }
         if (next.saved.attachment) {
-          next.saved.phase = 'preparing'; await queueStore.write(next.saved);
+          next.saved.phase = 'preparing'; await queuedSave(next);
           const request = attachmentRequest(next.saved.scene.sceneId, next.controller.signal);
           const views = new AttachmentMessages(request);
           const save = () => queuedSave(next);
@@ -335,6 +335,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     }
     // The transcript may contain an active background run in the all-scenes view.
     state.streaming = [...sessions.values()].some(session => session.local.streaming);
+    state.attachmentPending = sendQueue.some(next => next.session === selected && next.saved.attachment && next.saved.phase !== 'sending');
     state.sendWillQueue = sendQueue.length > 0 || [...sessions.values()].some(busy);
     state.canInterruptQueue = ![...sessions.values()].some(session => session !== selected && busy(session));
     const activity = Object.fromEntries([...sessions.entries()].flatMap(([id, session]) => {
@@ -579,7 +580,19 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     },
     refreshOnRegainedAttention: async () => {await Promise.all([...sessions.values()].map(s => s.runtime.refreshOnRegainedAttention()));await syncAttachmentViews(true);},
   };
-  for (const method of ["stopCurrentTurn", "handleFiles", "removePending"])
+  runtime.stopCurrentTurn = async () => {
+    const target = selected;
+    if (target.local.stopping) return;
+    const pending = sendQueue.filter(next => next.session === target && next.saved.attachment && next.saved.phase !== 'sending');
+    if (!pending.length) return target.runtime.stopCurrentTurn();
+    target.local.stopping = true; publish();
+    try {
+      // Abort every selected-scene attachment synchronously before awaiting persistence.
+      await Promise.all(pending.map(next => next.entry.message.cancelQueued?.()));
+      await target.runtime.stopCurrentTurn();
+    } finally { target.local.stopping = false; publish(); }
+  };
+  for (const method of ["handleFiles", "removePending"])
     runtime[method] = (...args: any[]) => {
       selected.local.files = state.files;
       return selected.runtime[method](...args);

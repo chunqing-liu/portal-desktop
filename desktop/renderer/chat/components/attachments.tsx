@@ -1,3 +1,4 @@
+import {imagePreviewSize,rememberImageSize} from '../services/image-preview-size';
 import {AttachmentFilePreview} from './attachment-file-preview';
 import { AttachmentImage } from './attachment-image';
 import { AttachmentAudio } from './attachment-audio';
@@ -13,27 +14,32 @@ export function attachmentProgress(part: AttachmentPart) {
   if (p && Number.isFinite(p.completed)) return `已处理 ${p.completed}${Number.isFinite(p.total) ? ` / ${p.total}` : ''} ${p.unit === 'page' ? '页' : '段'}`;
   return ({receiving:'正在接收', uploaded:'已上传，等待解析', parsing:'正在解析', unavailable:'附件不可用'} as Record<string,string>)[part.parse_status] || '等待处理';
 }
-export function AttachmentCard({part, endpoint}: {part: AttachmentPart; endpoint: string}) {
+export function AttachmentCard({part, endpoint, localImage}: {part: AttachmentPart; endpoint: string; localImage?:{src:string;blob:Blob}}) {
   const [imageBlob,setImageBlob]=useState<Blob>();
   const [preview, setPreview] = useState(''), [previewError, setPreviewError] = useState('');
   const image = /^image\/(png|jpeg|gif|webp)$/.test(part.mime);
   useEffect(() => {
-    if (!image) return;
+    if (!image || localImage) return;
     const controller = new AbortController(); let url = '';
     void fetch(attachmentContentURL(endpoint, part.attachment_id, true), {signal:controller.signal}).then(async r => {
       if (!r.ok || !/^image\/(png|jpeg|gif|webp)$/.test(r.headers.get('content-type') || '')) throw new Error('图片预览暂不可用');
       const blob = await r.blob(); if (controller.signal.aborted) return;
-      url = URL.createObjectURL(blob); setImageBlob(blob); setPreview(url);
+      url = URL.createObjectURL(blob);
+      // Decode before swapping the skeleton, so the image never has zero height.
+      const decoded=new Image();decoded.src=url;await decoded.decode();
+      if(controller.signal.aborted)return;
+      rememberImageSize(endpoint,part.attachment_id,decoded.naturalWidth,decoded.naturalHeight);
+      setImageBlob(blob); setPreview(url);
     }).catch(() => { if (!controller.signal.aborted) setPreviewError('图片预览暂不可用，可下载原件'); });
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [endpoint, part.attachment_id, image]);
+  }, [endpoint, part.attachment_id, image, localImage]);
   if(/^audio\//.test(part.mime))return <section className="attachment-audio-card" aria-label={part.name}>
     <AttachmentAudio src={attachmentContentURL(endpoint,part.attachment_id,true)} name={part.name} endpoint={endpoint} id={part.attachment_id}/>
     {part.parse_status==='failed' && <p className="attachment-error" role="alert">解析失败，请重试</p>}
   </section>;
   if (image) return <section className="attachment-image-card" aria-label={part.name}>
-    {preview ? <AttachmentImage blob={imageBlob} src={preview} name={part.name} endpoint={endpoint} id={part.attachment_id}/> : <div className="attachment-image-placeholder" role="status">{previewError || '正在加载图片…'}</div>}
-    {previewError && <AttachmentDownload endpoint={endpoint} id={part.attachment_id} name={part.name}>下载原图</AttachmentDownload>}
+    {(localImage?.src || preview) ? <AttachmentImage blob={localImage?.blob || imageBlob} src={localImage?.src || preview} name={part.name} endpoint={endpoint} id={part.attachment_id} onImageLoad={(img)=>rememberImageSize(endpoint,part.attachment_id,img.naturalWidth,img.naturalHeight)}/> : <div className={`attachment-image-placeholder${previewError ? "" : " attachment-image-skeleton"}`} style={imagePreviewSize(endpoint,part.attachment_id)} role="status" aria-label={previewError || `正在加载图片 ${part.name}`} aria-busy={!previewError}>{previewError || null}</div>}
+    {!localImage && previewError && <AttachmentDownload endpoint={endpoint} id={part.attachment_id} name={part.name}>下载原图</AttachmentDownload>}
   </section>;
   return <section className="attachment-card" aria-label={part.name}>
     {part.parse_status==='failed' && <p className="attachment-error" role="alert">解析失败，可重试或下载原件</p>}

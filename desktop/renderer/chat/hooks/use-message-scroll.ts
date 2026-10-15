@@ -21,7 +21,7 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     const el = container.current;
     if (!el || !el.clientWidth) return;
     const saved=reading.current;
-    if(saved && saved.width!==el.clientWidth){
+    if(saved){
       if(!scrollLock.current && saved.node.isConnected)el.scrollTop+=saved.node.getBoundingClientRect().top-el.getBoundingClientRect().top-saved.offset;
       saved.width=el.clientWidth;
     }
@@ -40,13 +40,13 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     if (reply && tracked.current !== reply.id) { tracked.current = reply.id; if (scrollLock.current || followedTurn.current === turn) followedTurn.current = turn; }
     if (anchor.current && (!reply || reply.id !== anchor.current)) { anchor.current = null; accumulated.current = 0; }
     // An anchored reply is a reading position, not a repeated scroll-to-top instruction.
-    if (anchor.current) return;
+    if (anchor.current) { remember(); return; }
     if (reply && followedTurn.current === turn) {
       const node = elements.current.get(reply.id);
       if (node) {
         const offset = node.getBoundingClientRect().top - el.getBoundingClientRect().top;
         const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
-        if (offset + el.scrollTop - bottom < 20) { anchor.current = reply.id; scrollLock.current = false; el.scrollTop += offset - 20; return; }
+        if (offset + el.scrollTop - bottom < 20) { anchor.current = reply.id; scrollLock.current = false; el.scrollTop += offset - 20; remember(); return; }
       }
     }
     if (scrollLock.current) el.scrollTop = el.scrollHeight;
@@ -57,7 +57,8 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
   useEffect(() => {
     const el = container.current;
     if (!el) return;
-    const observer = new ResizeObserver(schedule);
+    // ResizeObserver runs before paint: compensate image/layout growth immediately.
+    const observer = new ResizeObserver(layout);
     const observed = new Set<Element>();
     const observe = () => {
       observer.observe(el);
@@ -72,7 +73,7 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     };
     el.addEventListener('keydown', keyboard);
     return () => { observer.disconnect(); mutation.disconnect(); el.removeEventListener('keydown', keyboard); cancelAnimationFrame(frame.current); frame.current = 0; };
-  }, [container, schedule, releaseAnchor]);
+  }, [container, schedule, layout, releaseAnchor]);
   return {
     scrollLock, releaseAnchor,
     onWheel(event: WheelEvent) {

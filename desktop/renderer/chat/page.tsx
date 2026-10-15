@@ -109,7 +109,7 @@ function ChatView({
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const queueShortcut = isMac ? "⌘ Enter / Ctrl Enter" : "Ctrl Enter";
   const sendLabel = state.sendWillQueue ? (state.canInterruptQueue ? "立即打断并发送" : "加入队列") : "发送消息";
-  const showStop = state.streaming && !state.draft.trim() && state.files.length === 0;
+  const showStop = (state.streaming || state.attachmentPending) && !state.draft.trim() && state.files.length === 0;
   function sendDraft(mode?: "interrupt") {
     if (state.stopping) return;
     releaseAnchor();
@@ -516,7 +516,6 @@ function ChatView({
                   onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
                 />}
                 {item.queueNotice && (!item.queued || hasAttachmentMessage(item)) && item.retry && <p className="attachment-error" role="alert">{item.queueNotice}</p>}
-                {item.queued && hasAttachmentMessage(item) && <button className="attachment-cancel" type="button" onClick={()=>item.cancelQueued?.()}>取消发送</button>}
                 {item.retry && (
                   <button
                     className="retry-btn"
@@ -643,8 +642,8 @@ function ChatView({
               className={`btn-icon${showStop ? " stop" : ""}`}
               id="send-btn"
               type="button"
-              title={showStop ? "停止生成" : `${sendLabel}（Enter）；${queueShortcut} 排队，Shift Enter 换行`}
-              aria-label={state.stopping ? "正在停止" : showStop ? "停止生成" : sendLabel}
+              title={showStop ? "停止处理" : `${sendLabel}（Enter）；${queueShortcut} 排队，Shift Enter 换行`}
+              aria-label={state.stopping ? "正在停止" : showStop ? "停止处理" : sendLabel}
               disabled={state.stopping}
               aria-busy={state.stopping}
               onClick={() => {

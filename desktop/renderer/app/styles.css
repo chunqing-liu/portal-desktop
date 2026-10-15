@@ -1,5 +1,8 @@
 @import "../shared/typography.css";
 @import "../shared/model-settings.css";
+/* Suppress native focus rings; controls retain their explicit focus styles. */
+:focus { outline: none; }
+
 :root {
   color-scheme: light;
   --bg: #fff; --sidebar: rgba(245,245,244,.35); --surface: #f7f7f6;
