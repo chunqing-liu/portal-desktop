@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, readdir, readlink, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
@@ -9,6 +9,28 @@ import { macInstallLocation, validateMacApp } from '../desktop/main/updates/mac-
 import { command } from '../desktop/main/portal/background';
 import { macDmgIdentifier, verifyMacSignature } from '../desktop/main/updates/mac-signature';
 import { assetName, stageInstaller } from '../desktop/main/updates/manual-installer';
+
+// Deep equality enumerates every Buffer byte and can exhaust the CI worker's
+// heap for app.asar. Stream the digest instead, including the release ZIP.
+async function fileSha256(file: string) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+it('hashes package files across stream chunks and detects changed bytes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'portal-package-hash-'));
+  try {
+    const file = path.join(root, 'fixture.asar');
+    const bytes = Buffer.alloc(1024 * 1024 + 17, 0x5a);
+    await writeFile(file, bytes);
+    const original = await fileSha256(file);
+    expect(original).toBe(createHash('sha256').update(bytes).digest('hex'));
+    bytes[bytes.length - 1] ^= 1;
+    await writeFile(file, bytes);
+    expect(await fileSha256(file)).not.toBe(original);
+  } finally { await rm(root, {recursive:true,force:true}); }
+});
 
 it.skipIf(process.platform !== 'darwin' || process.env.PORTAL_DESKTOP_MAC_PACKAGE_TESTS !== '1')(
   'installs the signed DMG and stages its matching Release ZIP without launching another client', async () => {
@@ -25,9 +47,7 @@ it.skipIf(process.platform !== 'darwin' || process.env.PORTAL_DESKTOP_MAC_PACKAG
     await verifyMacSignature(dmg, macDmgIdentifier);
     await command('/usr/bin/hdiutil', ['verify', dmg]);
     const archive = path.join(out, 'make/zip/darwin', process.arch, `${name}-${version}.zip`);
-    const hash = createHash('sha256');
-    for await (const chunk of createReadStream(archive)) hash.update(chunk);
-    const sums = `${hash.digest('hex')}  ${assetName(version)}\n`;
+    const sums = `${await fileSha256(archive)}  ${assetName(version)}\n`;
     const root = await mkdtemp(path.join(os.tmpdir(), 'portal-real-mac-package-'));
     const mount = path.join(root, 'mounted');
     let mounted = false;
@@ -44,7 +64,8 @@ it.skipIf(process.platform !== 'darwin' || process.env.PORTAL_DESKTOP_MAC_PACKAG
       await command('/usr/bin/hdiutil', ['detach', mount]); mounted = false;
       await expect(validateMacApp(current, version)).resolves.toEqual(bundle);
       for (const file of ['Info.plist', '_CodeSignature/CodeResources', 'Resources/app.asar', 'Resources/runtime-bundle.json']) {
-        expect(await readFile(path.join(current, 'Contents', file))).toEqual(await readFile(path.join(packaged, 'Contents', file)));
+        expect(await fileSha256(path.join(current, 'Contents', file)), file)
+          .toBe(await fileSha256(path.join(packaged, 'Contents', file)));
       }
       const handoff = await stageInstaller(path.join(root, 'profile'), version, 'd5z/portal-desktop', path.join(current, 'Contents/MacOS/Portal Desktop'),
         (async (url: string | URL | Request) => new Response(String(url).endsWith('SHA256SUMS.txt') ? sums : Readable.toWeb(createReadStream(archive)) as ReadableStream)) as typeof fetch);
