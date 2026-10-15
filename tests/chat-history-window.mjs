@@ -53,6 +53,18 @@ try {
   const count=()=>frame.locator('.message').count();
   assert.ok(await count()<=40, 'Initial history must render only the latest page');
   const messages=frame.locator('#messages');
+  // One index click must survive the synchronous highlight render and later layout.
+  for (const question of [85, 92]) {
+    const tick=frame.getByRole('button',{name:new RegExp(`跳转到提问 .*user 历史 ${question}`)});
+    await tick.click();
+    await page.waitForTimeout(200);
+    const position=await messages.evaluate((el,question)=>{
+      const target=[...el.querySelectorAll('.message.user')].find(node=>node.textContent.includes(`user 历史 ${question}`));
+      return target.getBoundingClientRect().top-el.getBoundingClientRect().top;
+    },question);
+    assert.ok(Math.abs(position-24)<3,`Single index click must land on question ${question}, got offset ${position}`);
+  }
+  await frame.getByRole('button',{name:'回到底部',exact:true}).click();
   await messages.hover();
   await page.mouse.wheel(0,-100000);
   await page.waitForFunction(() => document.querySelector('#chat').contentDocument.querySelectorAll('.message').length > 40);
