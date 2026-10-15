@@ -135,6 +135,25 @@ function ChatView({
     [highlighted, setHighlighted] = useState<string | null>(null),
     [panel, setPanel] = useState<ChatPanel>(null),
     [panelReturnsToSettings, setPanelReturnsToSettings] = useState(false);
+  useEffect(() => {
+    const reset=()=>{dragDepth.current=0;setDragging(false);};
+    const escape=(event:KeyboardEvent)=>{if(event.key==='Escape')reset();};
+    const hidden=()=>{if(document.hidden)reset();};
+    const released=(event:PointerEvent)=>{if(event.buttons===0 && dragDepth.current)reset();};
+    window.addEventListener('blur',reset);
+    window.addEventListener('pointermove',released,true);
+    window.addEventListener('dragend',reset,true);
+    window.addEventListener('drop',reset,true);
+    window.addEventListener('pointerup',reset,true);
+    window.addEventListener('keydown',escape,true);
+    document.addEventListener('visibilitychange',hidden);
+    reset();
+    return()=>{
+      window.removeEventListener('blur',reset);window.removeEventListener('pointermove',released,true);window.removeEventListener('dragend',reset,true);
+      window.removeEventListener('drop',reset,true);window.removeEventListener('pointerup',reset,true);
+      window.removeEventListener('keydown',escape,true);document.removeEventListener('visibilitychange',hidden);
+    };
+  },[state.currentScene.sceneId,state.historyScope]);
   const [readingSize, setReadingSize] = useState(16);
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     new URLSearchParams(location.search).get("theme") === "dark"
@@ -347,11 +366,13 @@ function ChatView({
         }
       }}
       onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
         dragDepth.current++;
         setDragging(true);
       }}
       onDragLeave={(event) => {
+        if (!dragDepth.current) return;
         event.preventDefault();
         if (--dragDepth.current <= 0) {
           dragDepth.current = 0;
@@ -378,7 +399,7 @@ function ChatView({
     >
       {!mobileWeb && <TemperatureGlow items={visibleItems} />}
       <div id="drop-zone" className={dragging ? "active" : ""}>
-        drop files here
+        松开以添加附件
       </div>
       <div id="app" inert={nativeTouch && panel === 'model'}>
         <header id="header">

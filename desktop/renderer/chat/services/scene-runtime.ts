@@ -1,5 +1,6 @@
+import {attachmentTimeline} from './attachment-timeline';
 import { prepareAttachments } from './attachments';
-import { AttachmentMessages, messageReferences } from './attachment-messages';
+import { AttachmentMessages, attachmentMessageReader, releaseAttachmentMessageReader, messageReferences } from './attachment-messages';
 import { SceneQueueStore } from "./scene-queue";
 import type { SavedSceneSend } from "./scene-queue";
 import { inCurrentScene, messageScene, stripSceneTransition, withSceneTransition } from "../models/scenes";
@@ -61,7 +62,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       return globalThis.fetch('beings://chat' + path, {...init, headers, signal: AbortSignal.any([signal, attachmentLifetime.signal, AbortSignal.timeout(path.startsWith('/api/attachments?') ? 330000 : 60000)])});
     };
   }
-  const messageViews = new AttachmentMessages(attachmentRequest());
+  const messageViews = attachmentMessageReader(queueStore.endpoint, attachmentRequest());
   let attachmentDiscoveryAt=0, attachmentSignature='';
   const externallyActive = () => state.items.filter((item:any)=>item.kind==='message' && !item.queued && item.sceneId===state.currentScene.sceneId).flatMap((item:any)=>item.attachmentViews || []).filter((view:any)=>!['failed','cancelled'].includes(view.delivery_status) && view.parts.some((part:any)=>part.type==='attachment' && ['receiving','uploaded','parsing'].includes(part.parse_status)));
   async function syncAttachmentViews(discover=false) {
@@ -69,7 +70,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     clearTimeout(attachmentPoll);
     attachmentSyncing = true;
     try {
-      const pending = discover && Date.now()-attachmentDiscoveryAt>60000 ? await messageViews.list() : [];
+      const pending = discover && Date.now()-attachmentDiscoveryAt>60000 ? await messageViews.list().catch(()=>[]) : [];
       if(discover)attachmentDiscoveryAt=Date.now();
       const refreshIds=new Set(externallyActive().map((view:any)=>view.message_id));
       if (disposed) return;
@@ -80,13 +81,15 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           timestamp:new Date(view.created_at * 1000).toLocaleTimeString(), createdAt:view.created_at * 1000, label:view.channel === 'portal' ? 'you' : view.channel,
           consecutive:false, sceneId:view.scene_id, sceneLabel:view.scene_label, attachmentViews:[view], attachmentEndpoint:queueStore.endpoint});
       }
+      state.items = attachmentTimeline(state.items);
       // Resolve accepted rows by stable history references, independently of pending.
       for (const item of [...state.items]) {
         if (item.kind !== 'message' || item.role !== 'user') continue;
         const ids = messageReferences(item.text);
         const wanted = ids.length ? ids : item.attachmentViews?.map(v => v.message_id) || [];
         if (!wanted.length) continue;
-        const views = await Promise.all(wanted.map(id => messageViews.get(id, !pending.some(view=>view.message_id===id) && refreshIds.has(id))));
+        const views = await Promise.all(wanted.map(id => messageViews.get(id, !pending.some(view=>view.message_id===id) && refreshIds.has(id)))).catch(()=>null);
+        if (!views) continue;
         if (disposed) return;
         if (item.historySeq) for (let index = 0; index < views.length; index++) {
           const view = views[index];
@@ -559,6 +562,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     dispose() {
       disposed = true;
       attachmentLifetime.abort();
+      releaseAttachmentMessageReader(queueStore.endpoint,messageViews);
       clearTimeout(attachmentPoll);
       clearTimeout(drainTimer);
       clearTimeout(activityTimer);

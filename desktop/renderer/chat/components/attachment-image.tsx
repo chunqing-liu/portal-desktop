@@ -21,7 +21,7 @@ export function AttachmentImage({src,name,endpoint,id,blob,onImageLoad}:{onImage
     setOpen(true);
   }
   return <>
-    <button type="button" className="attachment-image-thumbnail" style={size} aria-label={`预览 ${name}`} onClick={()=>void show()}><img src={src} alt={name} onLoad={event=>{const img=event.currentTarget;rememberImageSize(endpoint,id,img.naturalWidth,img.naturalHeight);setSize(imagePreviewSize(endpoint,id));onImageLoad?.(img);}}/></button>
+    <button type="button" className="attachment-image-thumbnail" style={size} aria-label={`预览 ${name}`} onClick={()=>void show()}><img src={src} alt={name} draggable={false} onLoad={event=>{const img=event.currentTarget;rememberImageSize(endpoint,id,img.naturalWidth,img.naturalHeight);setSize(imagePreviewSize(endpoint,id));onImageLoad?.(img);}}/></button>
     {open && createPortal(<dialog ref={dialog} className="attachment-image-viewer" aria-label={`图片预览：${name}`} onClose={()=>setOpen(false)} onClick={event=>{if(event.target===event.currentTarget)dialog.current?.close();}}>
       <div className="attachment-image-toolbar"><button type="button" autoFocus aria-label="关闭图片预览" onClick={()=>dialog.current?.close()}>×</button><AttachmentDownload endpoint={endpoint} id={id} name={name}>下载原图</AttachmentDownload></div>
       <img src={src} alt={name}/>

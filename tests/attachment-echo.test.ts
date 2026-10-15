@@ -38,6 +38,21 @@ beforeEach(() => {
 afterEach(()=>{vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();});
 async function start(){const state=new ChatState();const runtime=createChatRuntime(state);const starting=runtime.start();await vi.advanceTimersByTimeAsync(50);await starting;await vi.advanceTimersByTimeAsync(0);return {state,runtime};}
 describe('desktop attachment queue and echo',()=>{
+  it('merges discovered other-scene attachments chronologically with Heart history',async()=>{
+    const now=Date.now();history=[{seq:1,role:'user',content:'最新提问',scene_id:'room',at:new Date(now).toISOString()},{seq:2,role:'assistant',content:'最新回复',scene_id:'room',at:new Date(now+1000).toISOString()}];
+    const original=globalThis.fetch;
+    vi.stubGlobal('fetch',vi.fn((input:string,init:RequestInit={})=>{
+      if(new URL(input).pathname==='/api/attachment-messages' && init.method!=='POST')return Promise.resolve(Response.json({messages:[{...view(),scene_id:'samples',created_at:Math.floor(now/1000)-3600}],next_cursor:null}));
+      return original(input,init);
+    }));
+    const {state,runtime}=await start();try{
+      await vi.advanceTimersByTimeAsync(0);
+      const messages=state.items.filter((item:any)=>item.kind==='message');
+      expect(messages[0].id).toBe('attachment-'+id);
+      expect(messages.findIndex((item:any)=>item.text==='最新提问')).toBeGreaterThan(0);
+    }finally{runtime.dispose();}
+  });
+
   it('keeps desktop files as Blobs and accepts files over the old 10 MiB limit',async()=>{
     const {state,runtime}=await start();try {
       const reader = vi.fn(); vi.stubGlobal('FileReader',reader);

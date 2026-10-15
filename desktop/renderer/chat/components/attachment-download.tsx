@@ -1,3 +1,4 @@
+import {AttachmentFileMenu} from './attachment-file-menu';
 import {AttachmentAudioMenu} from './attachment-audio-menu';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {transferBytes} from '../services/attachment-transfer';
@@ -65,11 +66,11 @@ export function AttachmentDownload({endpoint, id, artifact, name, children, file
         <span className="attachment-file-label"><strong>{name}</strong><small>{fileType}</small></span>
         <span className="attachment-file-action" aria-hidden="true">{checking ? '…' : downloaded ? '↗' : '↓'}</span>
       </button>
-      <details className="attachment-menu"><summary aria-label={`${name} 文件操作`}>···</summary><div>
+      <AttachmentFileMenu name={name}>
         <button type="button" disabled={busy} onClick={()=>void action(downloaded ? 'open' : 'download')}>{primary}</button>
         {downloaded && <button type="button" disabled={busy} onClick={()=>void action('reveal')}>打开所在位置</button>}
         {details}
-      </div></details>
+      </AttachmentFileMenu>
     </div> : <button type="button" disabled={busy || checking} onClick={()=>void action(downloaded ? 'open' : 'download')}>{checking ? '正在检查…' : downloaded ? '打开' : downloading ? '正在下载…' : children}</button>}
     {downloading && <button type="button" onClick={()=>controller.current?.abort()}>取消下载</button>}
     {status && <small role="status">{status}{downloading && progress.total ? ` · ${Math.min(99,Math.floor(progress.loaded / progress.total * 100))}% · ${transferBytes(progress.loaded)} / ${transferBytes(progress.total)}` : ''}</small>}

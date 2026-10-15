@@ -1,3 +1,4 @@
+import {useDismissAttachmentMenu} from './use-dismiss-attachment-menu';
 import {useCallback,useEffect,useId,useRef,useState,type ReactNode,type CSSProperties} from 'react';
 import {createPortal} from 'react-dom';
 import {audioMenuPosition} from '../services/audio-menu-position';
@@ -5,6 +6,7 @@ import {audioMenuPosition} from '../services/audio-menu-position';
 export function AttachmentAudioMenu({name,children}:{name:string;children:ReactNode}) {
   const id=useId(),trigger=useRef<HTMLButtonElement>(null),popup=useRef<HTMLDivElement>(null);
   const [open,setOpen]=useState(false),[position,setPosition]=useState<CSSProperties>({});
+  useDismissAttachmentMenu(open,[trigger,popup],()=>{if(popup.current?.matches(':popover-open'))popup.current.hidePopover();setOpen(false);});
   const place=useCallback(()=>{
     const button=trigger.current;if(!button)return;
     const p=audioMenuPosition(button.getBoundingClientRect(),{width:innerWidth,height:innerHeight});

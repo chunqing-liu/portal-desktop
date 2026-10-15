@@ -1881,3 +1881,6 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 @media(prefers-reduced-motion:reduce) { .attachment-image-skeleton::after { animation:none; transform:none; opacity:.35; } }
 
 .attachment-image-skeleton { min-height:0; }
+
+/* The drag hint must not become a new drag target and unbalance enter/leave events. */
+#drop-zone { pointer-events:none; }

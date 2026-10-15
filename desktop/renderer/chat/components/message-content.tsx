@@ -4,7 +4,7 @@ import {AttachmentTranscript} from './attachment-transcript';
 import {transferBytes} from '../services/attachment-transfer';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import type { Message } from '../models/chat';
-import { AttachmentMessages, messageReferences, type AttachmentMessage } from '../services/attachment-messages';
+import { attachmentMessageReader, messageReferences, type AttachmentMessage } from '../services/attachment-messages';
 import { viewRequest } from '../services/attachment-view';
 import { AttachmentCard } from './attachments';
 const delivery: Record<string,string> = {pending:'等待处理或发送', sending:'正在发送', accepted:'已发送', unknown:'发送结果待确认，请核对历史', failed:'发送失败', cancelled:'已取消'};
@@ -14,7 +14,7 @@ export function originalMessageText(message: Message) {
 }
 export function AttachmentMessageContent({message}: {message: Message}) {
   const endpoint = message.attachmentEndpoint || new URLSearchParams(location.search).get('history_scope') || '';
-  const [fetched, setFetched] = useState<AttachmentMessage[]>([]), [error, setError] = useState(''), [attempt, setAttempt] = useState(0);
+  const [fetched, setFetched] = useState<{key:string;views:AttachmentMessage[]}>({key:'',views:[]}), [error, setError] = useState(''), [attempt, setAttempt] = useState(0);
   const [localImages,setLocalImages]=useState<({src:string;blob:Blob}|undefined)[]>([]);
   // Keep the same object URLs across the upload -> server message transition.
   useLayoutEffect(()=>{
@@ -23,14 +23,16 @@ export function AttachmentMessageContent({message}: {message: Message}) {
     return()=>images.forEach(image=>{if(image)URL.revokeObjectURL(image.src);});
   },[message.attachmentUploads]);
   const ids = messageReferences(message.text).join(',');
+  const service=attachmentMessageReader(endpoint, viewRequest(endpoint, new AbortController().signal));
+  const hasViews=!!message.attachmentViews?.length;
   useEffect(() => {
-    if (message.attachmentViews?.length || !ids) return;
-    const controller = new AbortController();
-    const service = new AttachmentMessages(viewRequest(endpoint, controller.signal));
-    void Promise.all(ids.split(',').map(id => service.get(id))).then(setFetched).catch(() => { if (!controller.signal.aborted) setError('附件消息加载失败'); });
-    return () => controller.abort();
-  }, [ids, endpoint, message.attachmentViews, attempt]);
-  const views = message.attachmentViews || fetched;
+    if (hasViews || !ids) return;
+    let active=true;setError('');
+    void Promise.all(ids.split(',').map(id => service.get(id))).then(views=>{if(active)setFetched({key:JSON.stringify([endpoint,ids]),views});}).catch(() => { if(active)setError('附件消息暂时无法加载'); });
+    return () => {active=false;};
+  }, [ids, endpoint, hasViews, attempt, service]);
+  const cached=ids ? ids.split(',').map(id=>service.cache.get(id)).filter((view):view is AttachmentMessage=>!!view) : [];
+  const views = hasViews ? message.attachmentViews! : cached.length===ids.split(',').length ? cached : fetched.key===JSON.stringify([endpoint,ids]) ? fetched.views : [];
   if (!views.length && message.attachmentUploads?.length) return <div className="content attachment-message">
     {message.attachmentUploads.map((file, index) => {
       const p = file.progress, complete = p?.phase === 'complete';
