@@ -1630,6 +1630,7 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .iui-callout>strong { display:block; font-size:13px; margin-bottom:6px; }
 .iui-callout>p { font-size:13px; line-height:1.65; color:var(--text-dim); }
 .intelligent-ui .iui-button-primary { width:100%; justify-self:stretch; padding:12px 18px; border:0; border-radius:99px; background:var(--text); color:var(--bg); font-weight:600; font-size:14px; }
+.intelligent-ui .iui-button-primary:hover:not(:disabled) { background:var(--text); color:var(--bg); opacity:.88; }
 .intelligent-ui .iui-button-primary:disabled { opacity:.5; }
 .intelligent-ui .iui-button-quiet { background:transparent; border:0; color:var(--text-dim); }
 .intelligent-ui :is(.iui-button-primary,.iui-segments-quiet>button):focus-visible { outline:2px solid var(--accent); outline-offset:3px; }

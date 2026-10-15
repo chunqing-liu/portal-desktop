@@ -67,6 +67,28 @@ try {
   await page.locator('.iui-part-description').getByRole('heading', { name: '车架' }).waitFor();
   await page.getByRole('button', { name: '继续了解这个部件' }).click();
   assert.match(await page.evaluate(() => window.followups[0]), /五个系统，协同前进: frame/);
+  assert.equal(await page.getByRole('button', { name: '用当前选择继续' }).count(), 0);
+  await page.evaluate(() => {
+    window.fallbackDoc = { version: 1, title: '选择方案', state: { plan: 'A', ready: false }, body: [
+      { id: 'plan', type: 'select', label: '方案', bind: 'plan', options: ['A', 'B'] },
+      { id: 'ready', type: 'toggle', label: '显示专用按钮', bind: 'ready' },
+      { id: 'next', type: 'button', label: '生成方案', action: 'continue', when: { state: 'ready' } },
+    ] };
+    window.update(JSON.stringify(window.fallbackDoc), false, 'fallback');
+  });
+  await page.getByRole('button', { name: '用当前选择继续' }).waitFor();
+  await page.getByLabel('方案', { exact: true }).selectOption('B');
+  await page.getByRole('button', { name: '用当前选择继续' }).click();
+  assert.match(await page.evaluate(() => window.followups.at(-1)), /方案: B/);
+  assert.equal(await page.locator('.iui-action-status').count(), 0);
+  assert.equal(await page.locator('.iui-continue p').count(), 0);
+  await page.getByLabel('显示专用按钮', { exact: true }).check();
+  assert.equal(await page.getByRole('button', { name: '用当前选择继续' }).count(), 0);
+  await page.getByLabel('显示专用按钮', { exact: true }).uncheck();
+  await page.evaluate(() => window.update(JSON.stringify(window.fallbackDoc), true, 'fallback'));
+  await page.waitForFunction(() => document.querySelector('.iui-continue button')?.disabled);
+  await page.evaluate(() => window.update(window.toUIStream(window.templates.bicycle), false, 'bicycle'));
+  await page.locator('.iui-segments').getByRole('button', { name: '车架', exact: true }).click();
   await page.setViewportSize({ width: 375, height: 800 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: path.resolve('test-results/intelligent-ui-bicycle-mobile.png'), fullPage: true });
