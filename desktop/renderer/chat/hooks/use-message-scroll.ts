@@ -16,7 +16,15 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     }
   },[container,elements]);
   const currentItems = useRef(items); currentItems.current = items;
-  const releaseAnchor = useCallback(() => { anchor.current = null; followedTurn.current = null; accumulated.current = 0; }, []);
+  const releaseAnchor = useCallback(() => {
+    anchor.current = null;
+    followedTurn.current = null;
+    accumulated.current = 0;
+    // Explicit navigation replaces the reading position too. Its highlight
+    // render can run before the browser delivers the new scroll event; keeping
+    // the old position here would immediately undo the user's jump.
+    reading.current = null;
+  }, []);
   const layout = useCallback(() => {
     const el = container.current;
     if (!el || !el.clientWidth) return;
