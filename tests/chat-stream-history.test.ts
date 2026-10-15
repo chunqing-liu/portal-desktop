@@ -37,6 +37,25 @@ describe("stream progress and persisted replies", () => {
     };
   }
 
+  it.each([false, true])('uses the tool result error flag even with PowerShell stderr (error=%s)', async isError => {
+    const f = fixture();
+    try {
+      await f.runtime.start();
+      await f.runtime.send('run command');
+      await vi.advanceTimersByTimeAsync(0);
+      f.event('tool_use', { name: 'portal_exec', input: { shell: 'powershell', command: 'Write-Output "ok"' } });
+      f.event('tool_result', {
+        name: 'portal_exec', is_error: isError,
+        summary: 'ok\n--- stderr ---\n#< CLIXML\n<Objs><Obj S="progress">正在准备首次使用模块。</Obj></Objs>',
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      const tools = f.state.items.flatMap(item => item.kind === 'run' ? item.entries : [])
+        .filter(entry => entry.type === 'tool');
+      expect(tools).toHaveLength(1);
+      expect(tools[0]).toMatchObject({ done: true, error: isError });
+    } finally { f.close(); f.runtime.dispose(); }
+  });
+
   it('keeps one visible bubble through tools and reasoning, then starts a new reply at stop', async () => {
     const f = fixture();
     const bubbles = () => replyBubbles(f.state.items).filter((i): i is Message => i.kind === 'message' && i.role === 'being');
