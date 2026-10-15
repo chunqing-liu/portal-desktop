@@ -220,13 +220,13 @@ describe("React chat runtime lifecycle", () => {
       await vi.advanceTimersByTimeAsync(1000);
       expect(sent).toHaveLength(3);
       state.historyScope = initialScope;
-      await runtime.send("再补充一点", [{ name: "notes.txt", type: "text/plain", size: 3, base64: "YWJj" }], { mode: 'interrupt' });
+      await runtime.send("再补充一点", [], { mode: 'interrupt' });
       await flush();
       expect(sent).toEqual([
         { message: "第一条", ...scene },
         { message: "继续讨论", session_id: "session-fixture", ...scene },
         { message: "继续讨论", session_id: "session-fixture", ...scene },
-        { message: "再补充一点", session_id: "session-fixture", attachments: [{ media_type: "text/plain", data: "YWJj" }], ...scene },
+        { message: "再补充一点", session_id: "session-fixture", ...scene },
       ]);
       stream.enqueue(new TextEncoder().encode('event: message_stop\ndata: {}\n\n'));
       stream.close();
@@ -260,7 +260,7 @@ describe("React chat runtime lifecycle", () => {
       await runtime.send(state.draft, files);
       expect(fetch).not.toHaveBeenCalled();
       expect(state.draft).toBe("暂存的消息");
-      expect(state.files).toEqual([expect.objectContaining(files[0])]);
+      expect(state.files).toEqual([expect.objectContaining({name:'notes.txt',type:'text/plain',size:3,base64:'',blob:expect.any(Blob)})]);
       expect(state.items).toEqual([expect.objectContaining({ role: "system", text: expect.stringContaining("客户端场景不可用") })]);
       expect(state.streaming).toBe(false);
     } finally { runtime.dispose(); }

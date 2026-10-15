@@ -1,3 +1,5 @@
+import { ATTACHMENT_TRANSFER_TIMEOUT_MS } from '../../shared/attachment-limits';
+import { attachmentRoute, handleAttachment } from './attachments';
 import type { Connection } from './connection';
 import type { ChatScene } from '../../shared/types';
 
@@ -30,6 +32,7 @@ export function upstreamRequest(request: Request, connection: Connection) {
 }
 
 export class ChatProxy {
+  onAttachmentUploaded?: (token:string, endpoint:string, id:string, checksum:string) => Promise<void>;
   private requests = new Set<AbortController>();
   constructor(private getConnection: () => Connection | null, private fetchUpstream: typeof fetch, private scene?: ChatScene | (() => ChatScene | undefined), private resolveScene?: (id: string) => ChatScene | undefined) {}
   abortAll() { for (const controller of this.requests) controller.abort(); this.requests.clear(); }
@@ -40,6 +43,50 @@ export class ChatProxy {
     const expectedEndpoint = request.headers.get('X-Portal-Being-Endpoint');
     if (expectedEndpoint && expectedEndpoint !== connection.endpoint)
       return Response.json({ error: 'Being 连接已切换，请刷新对话后重试。' }, { status: 409 });
+    const local = new URL(request.url);
+    const attachment = local.protocol === 'beings:' && local.hostname === 'chat' && attachmentRoute(local.pathname, request.method);
+    if (attachment) {
+      const requestedScene = request.headers.get('X-Portal-Scene-Id');
+      if (requestedScene && requestedScene !== scene?.scene_id) scene = this.resolveScene?.(requestedScene);
+      const controller = new AbortController();
+      this.requests.add(controller);
+      const signal = AbortSignal.any([controller.signal, request.signal, AbortSignal.timeout((request.method === 'POST' && local.pathname === '/api/attachments') || local.pathname.endsWith('/content') ? ATTACHMENT_TRANSFER_TIMEOUT_MS : 60000)]);
+      if (request.method === 'POST' && local.pathname === '/api/attachments' && request.headers.get('Accept') === 'application/x-ndjson') {
+        const encoder = new TextEncoder();
+        const cleanup = () => this.requests.delete(controller);
+        let cancelled = false;
+        return new Response(new ReadableStream({
+          start: stream => {
+            const emit = (value: unknown) => { if (!cancelled) stream.enqueue(encoder.encode(JSON.stringify(value) + '\n')); };
+            void handleAttachment(request, connection, scene, this.fetchUpstream, signal, progress => emit({type:'progress',...progress}), this.onAttachmentUploaded)
+              .then(async response => {
+                const value = await response.json();
+                emit(response.ok ? {type:'complete',attachment:value} : {type:'error',status:response.status,error:value.error});
+              }).catch(() => emit({type:'error',error:'附件上传失败，请检查连接后重试'}))
+              .finally(() => { cleanup(); if (!cancelled) stream.close(); });
+          },
+          cancel() { cancelled = true; controller.abort(); cleanup(); },
+        }), {headers:{'Content-Type':'application/x-ndjson','Cache-Control':'no-store'}});
+      }
+      try {
+        const response = await handleAttachment(request, connection, scene, this.fetchUpstream, signal, undefined, this.onAttachmentUploaded);
+        if (!response.body) { this.requests.delete(controller); return response; }
+        const reader = response.body.getReader();
+        const cleanup = () => this.requests.delete(controller);
+        return new Response(new ReadableStream({
+          async pull(stream) {
+            try {
+              const chunk = await reader.read();
+              if (chunk.done) { cleanup(); stream.close(); } else stream.enqueue(chunk.value);
+            } catch (error) { cleanup(); stream.error(error); }
+          },
+          async cancel() { controller.abort(); cleanup(); await reader.cancel().catch(() => {}); },
+        }), {status:response.status, headers:response.headers});
+      } catch {
+        this.requests.delete(controller);
+        return Response.json({error: '附件请求失败，请检查连接、服务配置或文件大小后重试。'}, {status: 502});
+      }
+    }
     let upstream: ReturnType<typeof upstreamRequest>;
     try { upstream = upstreamRequest(request, connection); }
     catch { return new Response('Not found', { status: 404 }); }

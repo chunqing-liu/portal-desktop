@@ -11,7 +11,19 @@ export interface Attachment {
   type: string;
   size: number;
   base64: string;
+  /** Desktop files are structured-cloned to IndexedDB without Base64 expansion. */
+  blob?: Blob;
+  /** Composer-only object URL; excluded from persisted queue rows. */
+  previewUrl?: string;
   loading?: boolean;
+  uploadProgress?: import('../services/attachment-transfer').UploadProgress;
+  sourceToken?: string;
+  uploadKey?: string;
+  attachmentId?: string;
+  jobId?: string;
+  resultId?: string;
+  parseFailed?: boolean;
+  forceParse?: boolean;
 }
 export interface Message extends MessageScene {
   kind: "message";
@@ -35,6 +47,9 @@ export interface Message extends MessageScene {
   persistedText?: string;
   label: string;
   consecutive: boolean;
+  attachmentViews?: import("../services/attachment-messages").AttachmentMessage[];
+  attachmentEndpoint?: string;
+  attachmentUploads?: {name:string; size:number; mime?:string; blob?:Blob; progress?: import('../services/attachment-transfer').UploadProgress}[];
   retry?: () => void | Promise<void>;
   retryLabel?: string;
   queued?: boolean;

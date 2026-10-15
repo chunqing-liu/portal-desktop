@@ -1,3 +1,4 @@
+import { AttachmentMessageContent, hasAttachmentMessage, originalMessageText } from "./components/message-content";
 import { SurfaceContext } from '../shared/intelligent-ui/surface-view';
 import { SurfaceTimeline } from '../shared/intelligent-ui/surfaces';
 import { templates, toUIStream } from "../shared/intelligent-ui/templates";
@@ -89,8 +90,8 @@ function ChatView({
     media.addEventListener('change', change);
     return () => media.removeEventListener('change', change);
   }, [mobileWeb]);
-  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
-  const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId);
+  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued || !!item.attachmentViews?.length || !!item.attachmentUploads?.length), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
+  const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId && !hasAttachmentMessage(item));
   const surfaceTimeline = useRef(new SurfaceTimeline());
   const surfaceScope = (sceneId?: string) => JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, sceneId || 'global']);
   const surfaceBlocks = surfaceTimeline.current.build(visibleItems.filter((item): item is Message => item.kind === 'message' && item.role === 'being').map(item => ({
@@ -489,16 +490,16 @@ function ChatView({
                 className={`message ${item.role}${item.persistedFrom === "partial" ? " message-partial" : ""}${item.consecutive ? " consecutive" : ""}${(highlighted === item.id || item.sourceMessageIds?.includes(highlighted || "")) ? " index-target" : ""}`}
               >
                 <div className={`meta${item.consecutive ? " time-only" : ""}`}>
-                  {item.role === "user" && <CopyMessage text={splitSchedulingHint(item.text).text} copy={bridge.copyText} />}
+                  {item.role === "user" && <CopyMessage text={splitSchedulingHint(originalMessageText(item)).text} copy={bridge.copyText} />}
                   {!item.consecutive && <span>{item.label} · </span>}
                   <span className="message-time-actions">
                     <time>{item.timestamp}</time>
-                    {item.role !== "user" && <CopyMessage text={splitSchedulingHint(item.text).text} copy={bridge.copyText} />}
+                    {item.role !== "user" && <CopyMessage text={splitSchedulingHint(originalMessageText(item)).text} copy={bridge.copyText} />}
                   </span>
                   {item.persistedFrom === "partial" && <span className="message-scene">已中断</span>}
                   {(state.historyScope === "all" || isGlobalBeingMessage(item)) && <span className="message-scene" title={isGlobalBeingMessage(item) ? "Being 发出的无场景消息，在各场景共享显示；包含自主醒来消息" : item.sceneId || "这条历史消息未提供场景标记"}>{isGlobalBeingMessage(item) ? "全局消息" : sceneName(item, state.currentScene, state.sceneNames)}</span>}
                 </div>
-                <ScheduledMessage
+                {hasAttachmentMessage(item) ? <AttachmentMessageContent message={item} /> : <ScheduledMessage
                   text={item.text}
                   messageId={item.id}
                   intelligentUI={item.role === "being"}
@@ -513,7 +514,9 @@ function ChatView({
                   streaming={item.streaming}
                   chat
                   onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
-                />
+                />}
+                {item.queueNotice && (!item.queued || hasAttachmentMessage(item)) && item.retry && <p className="attachment-error" role="alert">{item.queueNotice}</p>}
+                {item.queued && hasAttachmentMessage(item) && <button className="attachment-cancel" type="button" onClick={()=>item.cancelQueued?.()}>取消发送</button>}
                 {item.retry && (
                   <button
                     className="retry-btn"
@@ -526,16 +529,6 @@ function ChatView({
               </div>
             ),
           )}
-          {state.thinking && showActivity && (
-            <div className="message being thinking-indicator">
-              <div className="meta">{state.name}</div>
-              <div className="content">
-                <span className="thinking-dot" />
-                <span className="thinking-dot" />
-                <span className="thinking-dot" />
-              </div>
-            </div>
-          )}
         </div>
         <div
           id="reconnect-banner"
@@ -544,13 +537,14 @@ function ChatView({
         >
           {state.banner}
         </div>
-        <ChatIndex items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} highlight={setHighlighted} />
+        <ChatIndex items={visibleItems.map(item=>item.kind==='message' && hasAttachmentMessage(item) ? {...item,text:originalMessageText(item)} : item)} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} highlight={setHighlighted} />
         <div id="input-area">
           {state.intelligentUIForMessage && state.intelligentUITargetTitle && <div className="iui-context-target" role="status"><span>修改「{state.intelligentUITargetTitle}」<small>将携带原界面和当前选择</small></span><button type="button" aria-label="取消本条界面修改" onClick={() => state.setIntelligentUIForMessage(false)}>×</button></div>}
           {queuedMessages.length > 0 && <div className="composer-queue" aria-label={`待发送消息，共 ${queuedMessages.length} 条`}>
             {queuedMessages.map(item => <div className="composer-queue-item" key={item.id}>
               <svg className="composer-queue-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 4v11a3 3 0 0 0 3 3h13m-4-4 4 4-4 4M9 6h7M9 10h4" /></svg>
               <span className="composer-queue-content" title={item.text}>{item.text}</span>
+              {item.retry && <button type="button" onClick={() => void item.retry?.()}>{item.retryLabel}</button>}
               {item.queueNotice && <span className="composer-queue-notice" role="status" title={item.queueNotice} aria-label={item.queueNotice}>!</span>}
               <button className="composer-queue-steer" type="button" aria-label="调整方向" disabled={!state.canInterruptQueue || !item.canInterruptQueued || state.stopping} title="调整方向：立即打断并发送这条消息" onClick={() => void item.interruptQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5v5a3 3 0 0 0 3 3h13m-5-5 5 5-5 5" /></svg><span>调整方向</span></button>
               <button type="button" title="删除排队消息" aria-label={`取消排队：${item.text}`} onClick={() => item.cancelQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7" /></svg></button>
@@ -564,10 +558,10 @@ function ChatView({
           >
             {state.files.map((file, i) => (
               <div className="pending-file" key={`${file.name}-${i}`}>
-                {file.type.startsWith("image/") && file.base64 ? (
+                {/^image\/(png|jpeg|gif|webp)$/.test(file.type) && (file.previewUrl || file.base64) ? (
                   <img
                     className="pending-file-preview"
-                    src={`data:${file.type};base64,${file.base64}`}
+                    src={file.previewUrl || `data:${file.type};base64,${file.base64}`}
                     alt=""
                   />
                 ) : (
@@ -576,8 +570,8 @@ function ChatView({
                   </span>
                 )}
                 <span>
-                  {file.name} ({formatSize(file.size)})
-                  {file.loading ? " · 正在读取…" : ""}
+                  <strong>{file.name}</strong>
+                  <small>{formatSize(file.size)} · {file.loading ? '正在读取…' : '待发送'}</small>
                 </span>{" "}
                 <button
                   className="remove"

@@ -42,7 +42,7 @@ export function ChatActivity({
   run: Run;
   sceneLabel?: string;
 }) {
-  const [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(!run.end),
     [now, setNow] = useState(Date.now);
   const passive = run.waitingForReply && !run.scheduling?.tasks.some(task => task.status === 'running' || task.status === 'queued');
   const status = run.status || run.outcome || (passive ? "waiting" : "thinking");

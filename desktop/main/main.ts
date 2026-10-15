@@ -1,3 +1,4 @@
+import {AttachmentDownloads} from './chat/downloads';
 import { subagentReady } from './portal/subagent-ready';
 import { SceneTaskObserver } from './portal/subagent-tasks';
 import { setupSubagent, validateSubagentSetup, readSubagentConfig, setSubagentEnabled } from './portal/subagent-setup';
@@ -255,7 +256,7 @@ async function ready() {
     chatSessions = sessions;
   }
   catch { chatSceneNotice = '桌面场景标识未能读取或保存，暂时无法发送消息。请检查客户端配置目录后重启。'; }
-  proxy = new ChatProxy(() => store.connection, net.fetch.bind(net) as typeof fetch, () => chatSessions?.current(store.connection?.endpoint) || chatScene, id => chatSessions?.list(store.connection?.endpoint).find(scene => scene.scene_id === id));
+  proxy = new ChatProxy(() => store.connection, (url, init) => init?.body instanceof ReadableStream ? fetch(url, init) : net.fetch(url as string, init), () => chatSessions?.current(store.connection?.endpoint) || chatScene, id => chatSessions?.list(store.connection?.endpoint).find(scene => scene.scene_id === id));
   const assets = app.isPackaged ? path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`) : path.resolve('desktop/generated');
   const currentPluginScene = () => chatSessions?.current(store.connection?.endpoint) || chatScene;
   const pluginContextKey = () => JSON.stringify([store.connection?.endpoint, store.connection?.token, townLive.state.generation, currentPluginScene()]);
@@ -281,7 +282,11 @@ async function ready() {
   closePluginSessions = () => { pluginWindows?.close(); plugins.invalidate(); };
   app.once('before-quit', () => pluginWindows?.close());
   publishPluginEvent = topic => plugins.publish(topic);
-  registerLocalProtocol(assets, proxy, plugins);
+  const attachmentDownloads=new AttachmentDownloads(directory,async current => {
+    const result=await dialog.showOpenDialog(window!,{title:'下载设置 · 选择保存位置',message:'所有附件将保存到此位置。可在客户端设置 → 通用 → 下载中更改。',defaultPath:current || app.getPath('downloads'),properties:['openDirectory','createDirectory']});
+    return result.canceled ? undefined : result.filePaths[0];
+  },file=>shell.openPath(file),file=>shell.showItemInFolder(file));
+  registerLocalProtocol(assets, proxy, plugins, attachmentDownloads);
   configureLocalSession();
   const clientContext = new ClientContextReader(shellURL());
   const clientCommands = new ClientCommandServer(path.join(directory, '.portal-client.json'),
@@ -331,6 +336,8 @@ async function ready() {
       catch (error) { throw new Error(errorLog.report(channel, error)); }
     });
   };
+  handle('beings:download-directory', (change: boolean) => attachmentDownloads.downloadDirectory(change === true));
+  handle('beings:attachment-source', (filename: string) => attachmentDownloads.registerSource(filename));
   handle('beings:plugins-window-open', (id, view, command) => pluginWindows!.open(id, view, command));
   handle('beings:plugins-host-reply', (id, value, error) => pluginWindows!.reply(id, value, error));
   handle('beings:client-startup', (enabled?: boolean) => clientStartup(app, process.platform, process.execPath, enabled));

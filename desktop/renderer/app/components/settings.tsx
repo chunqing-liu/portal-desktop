@@ -6,6 +6,10 @@ import { NavigationControls } from "../../shared/components/navigation-controls"
 import { MAX_CHAT_HISTORY_LIMIT, validChatHistoryLimit } from '../../../shared/chat-history';
 export function ClientSettings({ model }: { model: AppModel }) {
   const app = useModel(model);
+  const [downloadDirectory,setDownloadDirectory]=useState("");
+  const [downloadError,setDownloadError]=useState("");
+  const [choosingDownload,setChoosingDownload]=useState(false);
+  useEffect(()=>{if(app.clientSettingsOpen)void app.api.downloadDirectory?.().then(value=>setDownloadDirectory(value || "")).catch(()=>setDownloadError("下载设置读取失败"));},[app.clientSettingsOpen,app.api]);
   const [tab, setTab] = useState("connections");
   const [historyLimit, setHistoryLimit] = useState(String(app.chatHistoryLimit));
   useEffect(() => { setHistoryLimit(String(app.chatHistoryLimit)); }, [app.chatHistoryLimit, app.clientSettingsOpen]);
@@ -250,6 +254,20 @@ export function ClientSettings({ model }: { model: AppModel }) {
           aria-labelledby="settings-tab-general"
           hidden={tab !== "general"}
         >
+          <section className="general-settings-group" aria-labelledby="settings-downloads">
+            <div className="download-setting-row">
+              <div className="download-setting-info">
+                <span id="settings-downloads">下载位置</span>
+                <p title={downloadDirectory || undefined}>{downloadDirectory || '首次下载时选择保存位置'}</p>
+              </div>
+            <button className="download-setting-change" type="button" aria-label="设置下载位置" disabled={choosingDownload} onClick={async()=>{
+              setChoosingDownload(true);setDownloadError('');
+              try {const value=await app.api.downloadDirectory?.(true);if(value)setDownloadDirectory(value);}
+              catch {setDownloadError('无法设置下载位置，请重试');}finally{setChoosingDownload(false);}
+            }}>{choosingDownload ? '选择中…' : downloadDirectory ? '更改' : '选择'}</button>
+            </div>
+            {downloadError && <p className="general-setting-help" role="alert">{downloadError}</p>}
+          </section>
           <section className="general-settings-group" aria-labelledby="settings-notifications">
             <label className="general-setting-row">
               <span id="settings-notifications">桌面通知</span>

@@ -1,0 +1,51 @@
+import {AttachmentImageUpload} from './attachment-image-upload';
+import {AttachmentProcessing} from './attachment-processing';
+import {AttachmentTranscript} from './attachment-transcript';
+import {transferBytes} from '../services/attachment-transfer';
+import { useEffect, useState } from 'react';
+import type { Message } from '../models/chat';
+import { AttachmentMessages, messageReferences, type AttachmentMessage } from '../services/attachment-messages';
+import { viewRequest } from '../services/attachment-view';
+import { AttachmentCard } from './attachments';
+const delivery: Record<string,string> = {pending:'等待处理或发送', sending:'正在发送', accepted:'已发送', unknown:'发送结果待确认，请核对历史', failed:'发送失败', cancelled:'已取消'};
+export function hasAttachmentMessage(message: Message) { return message.role === 'user' && (!!message.attachmentUploads?.length || !!message.attachmentViews?.length || messageReferences(message.text).length > 0); }
+export function originalMessageText(message: Message) {
+  return message.attachmentViews?.map(v => v.parts.filter(p => p.type === 'text').map(p => p.text).join('\n')).join('\n') ?? (hasAttachmentMessage(message) ? '附件消息' : message.text);
+}
+export function AttachmentMessageContent({message}: {message: Message}) {
+  const endpoint = message.attachmentEndpoint || new URLSearchParams(location.search).get('history_scope') || '';
+  const [fetched, setFetched] = useState<AttachmentMessage[]>([]), [error, setError] = useState(''), [attempt, setAttempt] = useState(0);
+  const ids = messageReferences(message.text).join(',');
+  useEffect(() => {
+    if (message.attachmentViews?.length || !ids) return;
+    const controller = new AbortController();
+    const service = new AttachmentMessages(viewRequest(endpoint, controller.signal));
+    void Promise.all(ids.split(',').map(id => service.get(id))).then(setFetched).catch(() => { if (!controller.signal.aborted) setError('附件消息加载失败'); });
+    return () => controller.abort();
+  }, [ids, endpoint, message.attachmentViews, attempt]);
+  const views = message.attachmentViews || fetched;
+  if (!views.length && message.attachmentUploads?.length) return <div className="content attachment-message">
+    {message.attachmentUploads.map((file, index) => {
+      const p = file.progress, complete = p?.phase === 'complete';
+      const percent = complete ? 100 : Math.min(99, Math.floor((p?.loaded || 0) / (p?.total || file.size) * 100));
+      if (file.blob && file.mime?.startsWith('image/')) return <AttachmentImageUpload key={index} blob={file.blob} name={file.name} percent={percent} complete={complete}/>;
+      return <section className="attachment-card attachment-upload-card" key={index}><div className="attachment-file-row"><span className="attachment-file-icon" aria-hidden="true">↑</span><span className="attachment-file-label"><strong>{file.name}</strong><small>{file.name.split('.').pop()?.toUpperCase()} · {transferBytes(file.size)}</small></span></div>
+        <p role="status">{complete ? '上传完成' : p?.phase === 'confirming' ? '正在确认上传' : p?.phase === 'uploading' ? '正在上传' : p ? '正在准备上传' : '等待上传'} · {percent}%</p>
+        {!complete && <progress aria-label={`${file.name} 上传进度`} max={100} value={percent} />}
+        <small>{transferBytes(p?.loaded || 0)} / {transferBytes(p?.total || file.size)}</small>
+      </section>;
+    })}
+    {!message.text.startsWith('[发送了') && <p className="attachment-original-text">{message.text}</p>}
+  </div>;
+  if (!views.length) return <div className="content attachment-fallback"><p role="status">{error || '正在加载附件消息…'}</p>{error && <button onClick={() => { setError(''); setAttempt(attempt + 1); }}>重试加载</button>}<details><summary>查看原始消息</summary><pre>{message.text}</pre></details></div>;
+  return <div className="content attachment-message">{views.map(view => <div key={view.message_id}>
+    {view.channel !== 'portal' && <small>{view.channel} · {view.scene_label}</small>}
+    {view.parts.filter(part=>part.type==='attachment').map(part=><AttachmentCard key={part.attachment_id} part={part} endpoint={endpoint}/>)}
+    <AttachmentProcessing items={[message]} name="" />
+    <div className="attachment-message-copy">
+      {view.parts.filter(part=>part.type==='attachment' && /^audio\//.test(part.mime)).map(part=>part.type==='attachment' && <AttachmentTranscript key={part.attachment_id} part={part} endpoint={endpoint}/>)}
+      {view.parts.filter(part=>part.type==='text').map((part,i)=><p className="attachment-original-text" key={i}>{part.text}</p>)}
+    </div>
+    {['unknown','failed','cancelled'].includes(view.delivery_status) && <small role="status">{delivery[view.delivery_status]}</small>}
+  </div>)}</div>;
+}

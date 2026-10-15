@@ -5,15 +5,33 @@ import type { ChatItem, Message } from '../models/chat';
 export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDivElement | null>, elements: RefObject<Map<string, HTMLDivElement>>) {
   const scrollLock = useRef(true), anchor = useRef<string | null>(null), followedTurn = useRef<string | null>(null);
   const tracked = useRef<string | null>(null), accumulated = useRef(0), frame = useRef(0);
+  const reading = useRef<{node:HTMLDivElement;offset:number;width:number}|null>(null);
+  const remember = useCallback(()=>{
+    const el=container.current;if(!el)return;
+    if(reading.current && reading.current.width!==el.clientWidth)return;
+    const top=el.getBoundingClientRect().top;
+    for(const node of elements.current.values()){
+      const rect=node.getBoundingClientRect();
+      if(rect.bottom>top+1 && rect.top<top+el.clientHeight){reading.current={node,offset:rect.top-top,width:el.clientWidth};break;}
+    }
+  },[container,elements]);
   const currentItems = useRef(items); currentItems.current = items;
   const releaseAnchor = useCallback(() => { anchor.current = null; followedTurn.current = null; accumulated.current = 0; }, []);
   const layout = useCallback(() => {
     const el = container.current;
-    if (!el) return;
+    if (!el || !el.clientWidth) return;
+    const saved=reading.current;
+    if(saved && saved.width!==el.clientWidth){
+      if(!scrollLock.current && saved.node.isConnected)el.scrollTop+=saved.node.getBoundingClientRect().top-el.getBoundingClientRect().top-saved.offset;
+      saved.width=el.clientWidth;
+    }
     let reply: Message | undefined, turn: string | null = null;
     const list = currentItems.current;
     for (let i = list.length - 1; i >= 0; i--) {
       const item = list[i];
+      // Historical streams can retain their flag after reconnect. Never anchor
+      // an earlier turn when a newer user message is already visible.
+      if (item.kind === 'message' && item.role === 'user') break;
       if (item.kind !== 'message' || item.role !== 'being' || !item.streaming) continue;
       reply = item;
       for (let j = i - 1; j >= 0; j--) { const user = list[j]; if (user.kind === 'message' && user.role === 'user') { turn = user.turnId || user.id; break; } }
@@ -32,7 +50,8 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
       }
     }
     if (scrollLock.current) el.scrollTop = el.scrollHeight;
-  }, [container, elements]);
+    remember();
+  }, [container, elements, remember]);
   const schedule = useCallback(() => { if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; layout(); }); }, [layout]);
   useLayoutEffect(layout, [items, layout]);
   useEffect(() => {
@@ -61,6 +80,6 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
       releaseAnchor(); scrollLock.current = false;
     },
     onTouchMove() { releaseAnchor(); scrollLock.current = false; },
-    onScroll() { const el = container.current; if (el) scrollLock.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 2; },
+    onScroll() { remember(); const el = container.current; if (el && el.clientWidth && el.scrollHeight - el.scrollTop - el.clientHeight <= 2) scrollLock.current = true; },
   };
 }

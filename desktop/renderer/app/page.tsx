@@ -1,3 +1,5 @@
+import {AttachmentFileViewer} from './components/attachment-file-viewer';
+import {AttachmentImageViewer} from './components/attachment-image-viewer';
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { AppModel } from "./models/app";
 import { useModel } from "../shared/hooks/use-model";
@@ -69,6 +71,7 @@ export function App({ model }: { model: AppModel }) {
   }, [app]);
   return (
     <>
+      <AttachmentImageViewer key={app.chatSource} frame={frame}/>
       <section
         id="startup-screen"
         className="startup-screen"
@@ -161,6 +164,7 @@ export function App({ model }: { model: AppModel }) {
             </section>}
             </div>
           </div>
+          <AttachmentFileViewer key={app.chatSource} frame={frame}/>
           {!app.subagentSettingsOpen && <BeingInfo app={app} />}
           {app.subagentSettingsOpen && <SubagentModelSettings app={app} />}
           <Companion model={app.workspace} />

@@ -7,7 +7,8 @@ export interface SavedSceneSend {
   text: string;
   files: Attachment[];
   createdAt: number;
-  phase: 'queued' | 'sending';
+  phase: 'queued' | 'preparing' | 'sending' | 'failed';
+  attachment?: import('./attachments').AttachmentTransfer;
   sendOptions?: { intelligentUI?: boolean; uiAction?: import('../../shared/intelligent-ui/surfaces').UIInteraction; uiSnapshot?: string };
 }
 
@@ -46,7 +47,7 @@ export class SceneQueueStore {
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction('sends', 'readwrite');
       const store = transaction.objectStore('sends');
-      if (typeof row === 'string') store.delete(row); else store.put(row);
+      if (typeof row === 'string') store.delete(row); else store.put({...row, files: row.files.map(({previewUrl: _preview, ...file}) => file)});
       transaction.oncomplete = () => resolve();
       transaction.onabort = transaction.onerror = () => reject(transaction.error);
     });

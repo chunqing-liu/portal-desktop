@@ -1,4 +1,5 @@
-import { protocol, session } from 'electron';
+import { app, dialog, protocol, session, shell } from 'electron';
+import {AttachmentDownloads} from '../chat/downloads';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatProxy } from '../chat/proxy';
@@ -12,12 +13,17 @@ const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
 };
 
-const CHAT_CONTENT_SECURITY_POLICY = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data: blob:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-src beings://chat/iui-runtime.html";
+const CHAT_CONTENT_SECURITY_POLICY = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-src beings://chat/iui-runtime.html";
 const CHAT_ASSETS = new Set(['loom.html', 'chat.js', 'highlight.css', 'chat.css', 'client-context.html', 'client-context.js', 'iui-runtime.html']);
 
-export function registerLocalProtocol(assets: string, proxy: ChatProxy, plugins?: PluginRegistry) {
+export function registerLocalProtocol(assets: string, proxy: ChatProxy, plugins?: PluginRegistry, downloads = new AttachmentDownloads(app.getPath('userData'), async current => {
+  const result=await dialog.showOpenDialog({title:'选择附件下载位置',defaultPath:current || app.getPath('downloads'),properties:['openDirectory','createDirectory']});
+  return result.canceled ? undefined : result.filePaths[0];
+}, file => shell.openPath(file), file => shell.showItemInFolder(file))) {
+  proxy.onAttachmentUploaded = (token,endpoint,id,checksum) => downloads.bindSource(token,endpoint,id,checksum);
   protocol.handle('beings', async request => {
     const url = new URL(request.url);
+    if (url.hostname === 'chat' && url.pathname === '/api/local-downloads') return downloads.handle(request,proxy);
     if (url.hostname === 'plugins' && request.method === 'GET' && plugins) return plugins.document(url);
     if (url.hostname === 'chat' && (url.pathname.startsWith('/api/') || url.pathname === '/health')) return proxy.handle(request);
     if (!['desktop', 'chat'].includes(url.hostname) || request.method !== 'GET') return new Response('Not found', { status: 404 });

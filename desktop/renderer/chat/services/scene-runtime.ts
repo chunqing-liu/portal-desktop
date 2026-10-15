@@ -1,3 +1,5 @@
+import { prepareAttachments } from './attachments';
+import { AttachmentMessages, messageReferences } from './attachment-messages';
 import { SceneQueueStore } from "./scene-queue";
 import type { SavedSceneSend } from "./scene-queue";
 import { inCurrentScene, messageScene, stripSceneTransition, withSceneTransition } from "../models/scenes";
@@ -42,10 +44,77 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     finally {
       activityInFlight = false;
       if (!disposed) activityTimer = setTimeout(syncActivity, 10000);
+
     }
   }
   const pageLocation = typeof location === 'undefined' ? { search: '', origin: '' } : location;
   const queueStore = new SceneQueueStore(new URLSearchParams(pageLocation.search).get('history_scope') || pageLocation.origin);
+  const attachmentLifetime = new AbortController();
+  const desktopAttachments = typeof location !== 'undefined' && location.protocol === 'beings:';
+  let attachmentPoll: ReturnType<typeof setTimeout> | undefined;
+  let attachmentSyncing = false;
+  function attachmentRequest(sceneId?: string, signal = attachmentLifetime.signal) {
+    return (path: string, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers);
+      headers.set('X-Portal-Being-Endpoint', queueStore.endpoint);
+      if (sceneId) headers.set('X-Portal-Scene-Id', sceneId);
+      return globalThis.fetch('beings://chat' + path, {...init, headers, signal: AbortSignal.any([signal, attachmentLifetime.signal, AbortSignal.timeout(path.startsWith('/api/attachments?') ? 330000 : 60000)])});
+    };
+  }
+  const messageViews = new AttachmentMessages(attachmentRequest());
+  let attachmentDiscoveryAt=0, attachmentSignature='';
+  const externallyActive = () => state.items.filter((item:any)=>item.kind==='message' && !item.queued && item.sceneId===state.currentScene.sceneId).flatMap((item:any)=>item.attachmentViews || []).filter((view:any)=>!['failed','cancelled'].includes(view.delivery_status) && view.parts.some((part:any)=>part.type==='attachment' && ['receiving','uploaded','parsing'].includes(part.parse_status)));
+  async function syncAttachmentViews(discover=false) {
+    if (!desktopAttachments || disposed || attachmentSyncing) return;
+    clearTimeout(attachmentPoll);
+    attachmentSyncing = true;
+    try {
+      const pending = discover && Date.now()-attachmentDiscoveryAt>60000 ? await messageViews.list() : [];
+      if(discover)attachmentDiscoveryAt=Date.now();
+      const refreshIds=new Set(externallyActive().map((view:any)=>view.message_id));
+      if (disposed) return;
+      for (const view of pending) {
+        const represented = state.items.some((item: any) => item.kind === 'message' && item.role === 'user' &&
+          (item.attachmentViews?.some((v: any) => v.message_id === view.message_id) || messageReferences(item.text).includes(view.message_id)));
+        if (!represented) state.items.push({kind:'message', id:'attachment-' + view.message_id, role:'user', text:'', streaming:false,
+          timestamp:new Date(view.created_at * 1000).toLocaleTimeString(), createdAt:view.created_at * 1000, label:view.channel === 'portal' ? 'you' : view.channel,
+          consecutive:false, sceneId:view.scene_id, sceneLabel:view.scene_label, attachmentViews:[view], attachmentEndpoint:queueStore.endpoint});
+      }
+      // Resolve accepted rows by stable history references, independently of pending.
+      for (const item of [...state.items]) {
+        if (item.kind !== 'message' || item.role !== 'user') continue;
+        const ids = messageReferences(item.text);
+        const wanted = ids.length ? ids : item.attachmentViews?.map(v => v.message_id) || [];
+        if (!wanted.length) continue;
+        const views = await Promise.all(wanted.map(id => messageViews.get(id, !pending.some(view=>view.message_id===id) && refreshIds.has(id))));
+        if (disposed) return;
+        if (item.historySeq) for (let index = 0; index < views.length; index++) {
+          const view = views[index];
+          if (view.channel !== 'portal' || view.delivery_status === 'accepted' || view.delivery_status === 'cancelled' ||
+              item.sceneId !== view.scene_id || !sessions.has(view.scene_id)) continue;
+          try {
+            views[index] = await new AttachmentMessages(attachmentRequest(view.scene_id)).update(view.message_id, {delivery_status:'accepted'});
+            messageViews.cache.set(view.message_id, views[index]);
+          } catch { /* History is retained even if the status update is unavailable. */ }
+        }
+        item.attachmentViews = views; item.attachmentEndpoint = queueStore.endpoint;
+        if (views[0]?.channel !== 'portal') item.label = views[0].channel;
+        if (!item.sceneId && views[0]) { item.sceneId = views[0].scene_id; item.sceneLabel = views[0].scene_label; }
+        if (item.historySeq) {
+          state.items = state.items.filter((other: any) => other === item || other.kind !== 'message' || other.historySeq || other.queued ||
+            !other.attachmentViews?.some((v: any) => ids.includes(v.message_id)));
+        }
+      }
+      for (const queued of [...sendQueue]) {
+        if (!queued.saved.attachment || queued.claimed || !restoredSendWasAccepted(queued)) continue;
+        detachQueued(queued);
+        state.items = state.items.filter(item => item !== queued.entry.message || (item.kind === 'message' && !!item.historySeq));
+        await queueStore.write(queued.saved.id);
+      }
+      publish();
+    } catch { /* Unavailable service must not break ordinary chat/history. */ }
+    finally { attachmentSyncing = false; if (!disposed && externallyActive().length) attachmentPoll = setTimeout(()=>void syncAttachmentViews(), 10000); }
+  }
   let queueStoreClosed = false;
   function closeQueueStore() {
     if (queueStoreClosed) return;
@@ -56,14 +125,21 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     if (!disposed && !drainTimer) drainTimer = setTimeout(() => { drainTimer = null; scheduleDrain(); }, 2000);
   }
   function attachQueued(target: any, entry: any, saved: any, persisted = true) {
-    const queued = { session: target, entry, saved, persisted, claimed: false };
+    const queued = { session: target, entry, saved, persisted, claimed: false, cancelled: false, controller: new AbortController() };
+    if (saved.attachment?.messageId) entry.message.attachmentEndpoint = queueStore.endpoint;
     sendQueue.push(queued);
-    entry.message.canInterruptQueued = persisted && saved.phase === "queued";
+    entry.message.canInterruptQueued = persisted && saved.phase === "queued" && !saved.attachment;
     target.local.queued++;
     entry.message.queueNotice = saved.phase === 'sending' ? '发送状态待确认，请先查看场景历史；不会自动重发' : undefined;
     entry.message.cancelQueued = async () => {
-      if (queued.claimed) return;
+      if (queued.claimed && (!saved.attachment || saved.phase === 'sending')) return;
+      queued.cancelled = true;
+      queued.controller.abort();
       queued.claimed = true;
+      if (saved.attachment?.messageId) {
+        try { await new AttachmentMessages(attachmentRequest(saved.scene.sceneId)).update(saved.attachment.messageId, {delivery_status:'cancelled'}); }
+        catch { entry.message.queueNotice = '本地已取消；服务端状态尚未同步'; }
+      }
       try { await queueStore.write(saved.id); }
       catch { queued.claimed = false; entry.message.queueNotice = '无法保存取消操作，请重试'; publish(); return; }
       const index = sendQueue.indexOf(queued);
@@ -74,7 +150,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     };
     entry.message.interruptQueued = () => {
       submission = submission.then(async () => {
-        if (disposed || queued.claimed || !sendQueue.includes(queued) || !queued.persisted || saved.phase !== 'queued') return;
+        if (disposed || queued.claimed || !sendQueue.includes(queued) || !queued.persisted || saved.phase !== 'queued' || saved.attachment) return;
         if ([...sessions.values()].some(other => other !== target && busy(other))) return;
         queued.claimed = true;
         try {
@@ -112,6 +188,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     return true;
   }
   function restoredSendWasAccepted(queued: any) {
+    if (queued.saved.attachment?.messageId) return state.items.some((item: any) => item.kind === 'message' && item.role === 'user' && item.historySeq && messageReferences(item.text).includes(queued.saved.attachment.messageId));
     if (queued.saved.phase !== 'sending') return false;
     const expected = stripSceneTransition(queued.saved.text || '').replace(/\s+/g, ' ').trim();
     if (!expected) return false;
@@ -128,6 +205,10 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
   const busy = (session: any) => typeof session.runtime?.isBusy === "function"
     ? session.runtime.isBusy()
     : ["thinking", "replying", "working", "waiting", "reconnecting"].includes(session.runtime?.sceneActivity());
+  async function queuedSave(next: any) {
+    if (next.cancelled) throw new DOMException('已取消附件发送', 'AbortError');
+    await queueStore.write(next.saved);
+  }
   function scheduleDrain() {
     if (disposed || !queueReady || drainTimer || drainScheduled || dispatching || !sendQueue.length) return;
     drainScheduled = true;
@@ -135,7 +216,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       drainScheduled = false;
       if (disposed || dispatching || [...sessions.values()].some(busy)) { retryDrain(); return; }
       const next = sendQueue[0];
-      if (!next || next.claimed || next.saved.phase === 'sending' || !next.persisted) return;
+      if (!next || next.claimed || ['sending','failed'].includes(next.saved.phase) || !next.persisted) return;
       next.claimed = true;
       dispatching = true;
       try {
@@ -147,6 +228,52 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           if (!active.finished && (!active.origin || active.origin === 'human')) { retryDrain(); return; }
         }
         if (disposed || [...sessions.values()].some(busy)) { retryDrain(); return; }
+        if (next.saved.attachment) {
+          next.saved.phase = 'preparing'; await queueStore.write(next.saved);
+          const request = attachmentRequest(next.saved.scene.sceneId, next.controller.signal);
+          const views = new AttachmentMessages(request);
+          const save = () => queuedSave(next);
+          const show = (view: any) => {
+            if (disposed) return;
+            state.items = state.items.filter((item: any) => item === next.entry.message || item.id !== 'attachment-' + view.message_id);
+            messageViews.cache.set(view.message_id,view);
+            next.entry.message.attachmentViews = [view]; next.entry.message.attachmentEndpoint = queueStore.endpoint;
+            next.entry.message.queueNotice = view.delivery_status === 'pending' ? '附件处理中，完成后发送' : undefined; publish();
+          };
+          const context = await prepareAttachments({key:next.saved.id, text:next.saved.text, files:next.saved.files,
+            sceneId:next.saved.scene.sceneId!, sceneLabel:next.saved.scene.sceneLabel, transfer:next.saved.attachment,
+            request, signal:next.controller.signal, save, show, progress: (file, value) => {
+              next.entry.message.attachmentUploads ||= next.saved.files.map((f: any) => ({name:f.name,size:f.size,mime:f.type,blob:f.blob,progress:f.uploadProgress || (f.attachmentId ? {phase:'complete',loaded:f.size,total:f.size} : undefined)}));
+              next.entry.message.attachmentUploads[next.saved.files.indexOf(file)].progress = value; publish();
+            }});
+          if (disposed || next.cancelled) return;
+          // Another scene can start while parsing. Retain the prepared identifiers and wait.
+          if ([...sessions.values()].some(busy)) { next.saved.phase = 'queued'; await save(); retryDrain(); return; }
+          await next.session.runtime.send(next.entry.text || `[发送了 ${next.entry.files.length} 个文件]`, [], {
+            ...next.entry.sendOptions, queuedMessage:next.entry.message, requestMessage:context,
+            attachmentDelivery: async (status: string) => {
+              if (status === 'sending') {
+                next.controller.signal.throwIfAborted();
+                next.saved.phase = 'sending'; next.saved.attachment.delivery = 'sending'; await save();
+                show(await views.update(next.saved.attachment.messageId!, {delivery_status:'sending'}));
+                next.entry.message.queued = false;
+              } else {
+                next.saved.attachment.delivery = status;
+                if (status === 'accepted' || status === 'unknown') detachQueued(next, true);
+                else { next.saved.phase = 'failed'; next.entry.message.queued = true; }
+                try { await save(); show(await views.update(next.saved.attachment.messageId!, {delivery_status:status})); }
+                catch { next.entry.message.queueNotice = '发送状态尚未同步，请核对历史'; }
+              }
+            },
+          });
+          if (!disposed && next.saved.attachment.delivery === 'failed') throw new Error('附件消息未被接受，请重试或取消');
+          if (!disposed && next.saved.attachment.delivery === 'accepted') await queueStore.write(next.saved.id);
+          else if (!disposed) {
+            detachQueued(next, true);
+            next.entry.message.queueNotice = '发送结果待确认，请核对历史；不会自动重发';
+          }
+          return;
+        }
         next.saved.createdAt = Date.now();
         await queueStore.write({ ...next.saved, phase: 'sending' });
         next.saved.phase = 'sending';
@@ -163,9 +290,18 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         // If refresh interrupts the request, retain the uncertain record instead
         // of risking a duplicate send on the next page load.
         if (!disposed) await queueStore.write(next.saved.id);
-      } catch {
-        if (sendQueue.includes(next)) next.entry.message.queueNotice = '等待连接或本地存储恢复';
-        retryDrain();
+      } catch (error) {
+        if (next.saved.attachment && !disposed && !next.cancelled) {
+          next.saved.phase = next.saved.attachment.delivery === 'sending' || next.saved.attachment.delivery === 'unknown' ? 'sending' : 'failed';
+          try { await queueStore.write(next.saved); } catch { /* Keep existing conservative checkpoint. */ }
+          next.entry.message.queueNotice = error instanceof Error ? error.message : '附件处理失败';
+          next.entry.message.retryLabel = '重试附件处理';
+          if (next.saved.phase === 'failed') next.entry.message.retry = async () => {
+            for (const file of next.saved.files) if (file.parseFailed) { file.jobId = undefined; file.forceParse = true; file.parseFailed = false; }
+            next.saved.phase = 'queued'; await queueStore.write(next.saved);
+            next.entry.message.retry = undefined; next.entry.message.queueNotice = undefined; scheduleDrain(); publish();
+          };
+        } else if (sendQueue.includes(next)) { next.entry.message.queueNotice = '等待连接或本地存储恢复'; retryDrain(); }
       } finally {
         next.claimed = false;
         dispatching = false;
@@ -210,6 +346,8 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       lastActivity = signature;
       options.onSceneActivity?.(activity);
     }
+    const references=(state.items || []).filter((item:any)=>item.kind==='message').flatMap((item:any)=>messageReferences(item.text)).join(',');
+    if(desktopAttachments && queueReady && references!==attachmentSignature){attachmentSignature=references;queueMicrotask(()=>void syncAttachmentViews());}
     state.changed();
     scheduleDrain();
   }
@@ -318,13 +456,29 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         for (const row of saved) {
           const target = sessionFor(row.scene);
           const entry = target.runtime.stageQueuedSend(row.text, row.files, row.sendOptions);
-          if (entry) { entry.message.createdAt = row.createdAt; attachQueued(target, entry, row); }
+          if (entry) {
+            entry.message.createdAt = row.createdAt;
+            if (row.attachment) entry.message.attachmentUploads = row.files.map(f => ({name:f.name,size:f.size,mime:f.type,blob:f.blob,progress:f.uploadProgress || (f.attachmentId ? {phase:'complete',loaded:f.size,total:f.size} : undefined)}));
+            if (row.attachment?.messageId) {
+              try { entry.message.attachmentViews = [await messageViews.get(row.attachment.messageId, true)]; entry.message.attachmentEndpoint = queueStore.endpoint; } catch { /* Retain row for retry. */ }
+            }
+            if (row.phase === 'preparing') row.phase = 'queued';
+            attachQueued(target, entry, row);
+            if (row.phase === 'failed') {
+              entry.message.queueNotice = '上次附件处理失败，请重试或取消';
+              entry.message.retryLabel = '重试附件处理';
+              entry.message.retry = async () => {
+                for (const file of row.files) if (file.parseFailed) { file.jobId = undefined; file.forceParse = true; file.parseFailed = false; }
+                row.phase = 'queued'; await queueStore.write(row); entry.message.retry = undefined; scheduleDrain(); publish();
+              };
+            }
+          }
         }
         await owner.runtime.start();
         for (const queued of [...sendQueue]) {
           if (!restoredSendWasAccepted(queued)) continue;
           detachQueued(queued);
-          state.items = state.items.filter((item: any) => item !== queued.entry.message);
+          state.items = state.items.filter((item: any) => item !== queued.entry.message || !!item.historySeq);
           try { await queueStore.write(queued.saved.id); } catch { /* Reconciliation will retry after the next load. */ }
         }
         queueReady = true;
@@ -334,6 +488,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       }
       publish();
       if (!disposed) activityTimer = setTimeout(syncActivity, 10000);
+      if (!disposed && desktopAttachments) void syncAttachmentViews(true);
     },
     send(...args: any[]) {
       const target = selected;
@@ -354,7 +509,10 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         if (!prepared) return;
         if (disposed) return;
         const othersBusy = [...sessions.values()].some(other => other !== target && busy(other));
-        if (othersBusy || (args[2].mode !== 'interrupt' && (sendQueue.length || busy(target)))) {
+        const files = Array.isArray(args[1]) ? args[1] : sendSnapshot?.files || [];
+        const hasAttachments = desktopAttachments && files.length > 0;
+        if (hasAttachments && !target.local.currentScene.sceneId) { void target.runtime.send(...args); return; }
+        if (hasAttachments || othersBusy || (args[2].mode !== 'interrupt' && (sendQueue.length || busy(target)))) {
           // Older/embedded runtimes may not expose the durable queue hook yet.
           // Keep sending functional while the host is being upgraded; the full
           // Desktop runtime supplies stageQueuedSend and persists the entry.
@@ -366,9 +524,10 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           if (!entry) return;
           const saved: SavedSceneSend = { id: crypto.randomUUID(), endpoint: queueStore.endpoint,
             scene: { ...target.local.currentScene }, text: entry.text, files: entry.files,
-            createdAt: entry.message.createdAt || Date.now(), phase: 'queued', sendOptions: entry.sendOptions };
+            createdAt: entry.message.createdAt || Date.now(), phase: 'queued', sendOptions: entry.sendOptions, ...(hasAttachments ? {attachment:{delivery:'pending'}} : {}) };
           const queued = attachQueued(target, entry, saved, false);
-          try { await queueStore.write(saved); queued.persisted = true; entry.message.canInterruptQueued = true; }
+          if (hasAttachments) entry.message.attachmentUploads = saved.files.map(f => ({name:f.name,size:f.size,mime:f.type,blob:f.blob,progress:f.uploadProgress || (f.attachmentId ? {phase:'complete',loaded:f.size,total:f.size} : undefined)}));
+          try { await queueStore.write(saved); queued.persisted = true; entry.message.canInterruptQueued = !saved.attachment; }
           catch { entry.message.queueNotice = '排队内容未能保存，刷新可能丢失；请取消后重试'; }
           publish();
         } else {
@@ -398,6 +557,8 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     },
     dispose() {
       disposed = true;
+      attachmentLifetime.abort();
+      clearTimeout(attachmentPoll);
       clearTimeout(drainTimer);
       clearTimeout(activityTimer);
       for (const queued of [...sendQueue]) detachQueued(queued);
@@ -416,7 +577,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         if (!disposed) { state.historyRefreshing = historyRefreshes > 0; state.changed(); }
       }
     },
-    refreshOnRegainedAttention: () => Promise.all([...sessions.values()].map(s => s.runtime.refreshOnRegainedAttention())),
+    refreshOnRegainedAttention: async () => {await Promise.all([...sessions.values()].map(s => s.runtime.refreshOnRegainedAttention()));await syncAttachmentViews(true);},
   };
   for (const method of ["stopCurrentTurn", "handleFiles", "removePending"])
     runtime[method] = (...args: any[]) => {

@@ -1,3 +1,6 @@
+import {registerAttachmentSource} from './attachment-source';
+import { MAX_ATTACHMENT_BYTES, LEGACY_WEB_ATTACHMENT_BYTES } from '../../../shared/attachment-limits';
+import { messageReferences } from './attachment-messages';
 import { stripIntelligentUIContext, withIntelligentUIContext, validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import { createSceneRuntime } from "./scene-runtime";
 import { HistoryCache } from "./history-cache";
@@ -993,9 +996,23 @@ function createStreamRuntime(state: any, options: any): any {
   // ---- Files ----
   function handleFiles(fileList: any) {
     for (const file of fileList) {
-      if (file.size > 10 * 1024 * 1024) {
-        addMessage("system", "⚠ File too large: " + file.name);
+      if (pendingFiles.length >= 100) { addMessage('system', '每条消息最多添加 100 个附件'); break; }
+      if (!file.size) { addMessage('system', '不能添加空文件：' + file.name); continue; }
+      const desktop = location.protocol === 'beings:';
+      const maxBytes = desktop ? MAX_ATTACHMENT_BYTES : LEGACY_WEB_ATTACHMENT_BYTES;
+      if (file.size > maxBytes) {
+        addMessage('system', `每个附件最大 ${maxBytes / 1024 / 1024} MiB：${file.name}`);
         continue;
+      }
+      if (desktop) {
+        const pending = {name:file.name, type:file.type, size:file.size, base64:'', blob:file, previewUrl:undefined as string | undefined,sourceToken:undefined as string | undefined};
+        if (/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
+          pending.previewUrl = URL.createObjectURL(file);
+          const url = pending.previewUrl; cleanups.push(() => URL.revokeObjectURL(url));
+        }
+        const reading=registerAttachmentSource(file).then(token=>{pending.sourceToken=token;}).catch(()=>{});
+        pendingFileReads.add(reading);void reading.finally(()=>pendingFileReads.delete(reading));
+        pendingFiles.push(pending); renderPendingFiles(); continue;
       }
       const pending = {
         name: file.name,
@@ -1065,7 +1082,8 @@ function createStreamRuntime(state: any, options: any): any {
     updateSendButton();
   }
   function removePending(idx: any) {
-    pendingFiles.splice(idx, 1);
+    const [removed] = pendingFiles.splice(idx, 1);
+    if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
     renderPendingFiles();
   }
 
@@ -1073,6 +1091,7 @@ function createStreamRuntime(state: any, options: any): any {
   function clearComposer() {
     state.draft = "";
     state.intelligentUIForMessage = false;
+    for (const file of pendingFiles) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
     pendingFiles = [];
     renderPendingFiles();
   }
@@ -1972,12 +1991,13 @@ function createStreamRuntime(state: any, options: any): any {
     let spliceMsg = (text || "").trim();
     if (!spliceMsg && !files.length) return;
     spliceMsg = options.prepareMessage?.(spliceMsg || `[${files.length} file(s)]`) ?? spliceMsg;
-    const requestMessage = withIntelligentUIContext(spliceMsg || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
+    const requestMessage = withIntelligentUIContext((sendOptions.requestMessage ?? spliceMsg) || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
     const localMessage = sendOptions.queuedMessage || addMessage("user", spliceMsg || `[${files.length} file(s)]`);
     noteLocalEcho("user", requestMessage, state.currentScene, localMessage, [spliceMsg]);
     if (!sendOptions.uiAction && !sendOptions.queuedMessage) clearComposer();
     let res;
     try {
+      if (sendOptions.attachmentDelivery) await sendOptions.attachmentDelivery('sending');
       res = await fetch(apiUrl("/api/chat/stream"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1996,10 +2016,12 @@ function createStreamRuntime(state: any, options: any): any {
         }),
       });
     } catch (e: any) {
+      if (sendOptions.attachmentDelivery) await sendOptions.attachmentDelivery('unknown');
       console.warn("splice send failed:", e);
       addMessage("system", "⚠️ 发送失败，稍后重试");
       return;
     }
+    if (sendOptions.attachmentDelivery) await sendOptions.attachmentDelivery(res.ok ? 'accepted' : res.status >= 500 ? 'unknown' : 'failed');
     if (res.status === 202) {
       // Heart accepted this input for splice/yield. The Being decides whether
       // to resume, switch scene or delegate; 202 is not task completion.
@@ -2017,7 +2039,7 @@ function createStreamRuntime(state: any, options: any): any {
       showThinkingIndicator();
       isStreaming = true;
       updateSendButton();
-      await driveChatStream(res, spliceMsg, [], replyBaseline, requestMessage, submittedAt);
+      await driveChatStream(res, spliceMsg, [], replyBaseline, requestMessage, submittedAt, !!sendOptions.attachmentDelivery);
       return;
     }
     // 非 200/202：主动排空 body，别让连接挂着
@@ -2097,7 +2119,11 @@ function createStreamRuntime(state: any, options: any): any {
     currentAbortController = new AbortController();
     const sendController = currentAbortController;
     try {
-      res = await fetchWithRetry(
+      if (sendOptions.attachmentDelivery) await sendOptions.attachmentDelivery('sending');
+      const sendRequest = sendOptions.attachmentDelivery
+        ? (url: string, init: () => RequestInit, _options: unknown) => fetch(url, init())
+        : fetchWithRetry;
+      res = await sendRequest(
         apiUrl("/api/chat/stream"),
         () => {
           return {
@@ -2115,11 +2141,16 @@ function createStreamRuntime(state: any, options: any): any {
         },
       );
     } catch (e: any) {
-      handleStreamError(e, msg, filesToSend, requestMessage);
+      if (sendOptions.attachmentDelivery) {
+        await sendOptions.attachmentDelivery('unknown');
+        pendingReply = null; removeThinkingIndicator(); tuiClear();
+        addMessage('system', '附件消息发送结果不确定，请先核对历史；不会自动重发。');
+      } else handleStreamError(e, msg, filesToSend, requestMessage);
       finalizeSendCleanup();
       return;
     }
 
+    if (sendOptions.attachmentDelivery) await sendOptions.attachmentDelivery(res.ok ? 'accepted' : res.status >= 500 ? 'unknown' : 'failed');
     clearFetchRetryStatus();
     setStatus("thinking");
 
@@ -2146,12 +2177,12 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
 
-    await driveChatStream(res, msg, filesToSend, replyBaseline, requestMessage, submittedAt);
+    await driveChatStream(res, msg, filesToSend, replyBaseline, requestMessage, submittedAt, !!sendOptions.attachmentDelivery);
   }
 
   // 读取循环 + 统一的异常处理 + 统一的收尾。
   // send() 和 spliceSend() 都走这里，保证 isStreaming / 队列 / 按钮在任何路径上都能复位。
-  async function driveChatStream(res: any, msg: any, filesToSend: any, replyBaseline = new Set(state.items), requestMessage = msg, submittedAt = Date.now()) {
+  async function driveChatStream(res: any, msg: any, filesToSend: any, replyBaseline = new Set(state.items), requestMessage = msg, submittedAt = Date.now(), attachmentAccepted = false) {
     let handedOff = false;
     try {
       const result = await consumeChatStream(res, msg, filesToSend);
@@ -2172,7 +2203,8 @@ function createStreamRuntime(state: any, options: any): any {
       }
       return result;
     } catch (e: any) {
-      handleStreamError(e, msg, filesToSend, requestMessage);
+      if (attachmentAccepted) { addMessage('system', '附件消息已被接受，回复连接中断，请刷新历史查看后续回复。'); }
+      else handleStreamError(e, msg, filesToSend, requestMessage);
       return { outcome: "aborted", streamId: lastStreamId, localSeq: liveSeq };
     } finally {
       if (renderTimer) {
@@ -2709,6 +2741,20 @@ function createStreamRuntime(state: any, options: any): any {
     }
   }
   function consumeLocalEcho(role: any, text: any, scene: any, history: any) {
+    if (role === 'user') {
+      const ids = messageReferences(text);
+      if (ids.length) {
+        const matching = state.items.filter((item: any) => item.kind === 'message' && item.role === 'user' && !item.historySeq &&
+          item.attachmentViews?.some((view: any) => ids.includes(view.message_id)));
+        if (matching.length) {
+          const item = matching[0]; item.text = text; item.queued = false;
+          item.attachmentViews = ids.flatMap(id => matching.flatMap((m: any) => m.attachmentViews || []).filter((v: any) => v.message_id === id)).filter((v: any, i: number, all: any[]) => all.findIndex(x => x.message_id === v.message_id) === i);
+          applyHistoryIdentity(item, history);
+          state.items = state.items.filter((other: any) => other === item || !matching.includes(other));
+          changed(); return true;
+        }
+      }
+    }
     const t = normalizeEcho(text);
     if (!t) return false;
     const candidates = localEchoes.map((echo, index) => ({ echo, index })).filter(({ echo }) =>

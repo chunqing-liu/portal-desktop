@@ -470,6 +470,10 @@ body[data-view=chat].has-topic .scene-ribbon{display:flex!important;min-height:0
 .history-setting button[type=submit]:disabled{color:var(--muted);opacity:.65}
 .general-settings-group{padding:12px 0;border-bottom:1px solid var(--line)}
 .general-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:40px;padding:8px 12px;font-size:13px;cursor:pointer}
+.download-setting-row{display:flex;align-items:center;gap:16px;padding:8px 12px;min-width:0}
+.download-setting-info{flex:1;min-width:0;font-size:13px}
+.download-setting-info p{margin:6px 0 0;font-size:12px;line-height:1.5;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.download-setting-change{flex-shrink:0;min-width:60px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:12px;line-height:1.4}
 .general-setting-help{margin:0 12px 12px;font-size:12px;line-height:1.6;color:var(--muted)}
 .notification-switches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0 12px 8px;padding:12px;background:var(--surface);border-radius:10px}
 .notification-switches label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;white-space:nowrap;cursor:pointer}
@@ -1006,3 +1010,68 @@ body[data-view=plugins] .place-sheet-actions{gap:8px;min-width:0}
 .plugin-manage-button:hover{background:var(--surface)}
 .plugin-manage-button svg{width:20px;height:20px;fill:currentColor}
 @media(max-width:640px){body[data-view=plugins] #place-panel.central-place .place-sheet-heading{padding:10px 16px}.place-sheet-actions .plugin-slot-toolbar{flex-wrap:wrap;justify-content:flex-end}}
+
+/* Images belong to the shell top layer, not the sandboxed chat viewport. */
+.client-image-viewer { position:fixed; inset:0; margin:0; width:100vw; height:100vh; max-width:none; max-height:none; padding:72px 32px 32px; border:0; border-radius:0; background:transparent; overflow:hidden; box-sizing:border-box; }
+.client-image-viewer[open] { display:flex; justify-content:center; align-items:center; }
+.client-image-viewer::backdrop { background:rgba(25,28,32,.65); backdrop-filter:blur(12px); }
+.client-image-viewer > img { display:block; max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; box-shadow:0 12px 60px #0003; }
+.client-image-toolbar { position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:flex-start; justify-content:space-between; color:white; -webkit-app-region:no-drag; }
+.client-image-toolbar > button { display:grid; place-items:center; flex:none; box-sizing:border-box; padding:0; line-height:1; width:36px; height:36px; border:0; border-radius:50%; background:#ffffff25; color:white; font-size:26px; cursor:pointer; }
+.client-image-toolbar .attachment-download { display:flex; flex-wrap:wrap; gap:8px; max-width:280px; justify-content:flex-end; }
+.client-image-toolbar .attachment-download button { border:0; background:#ffffff25; color:white; padding:8px 16px; border-radius:20px; font:inherit; cursor:pointer; }
+.client-image-toolbar .attachment-download small,.client-image-toolbar .attachment-download progress { width:100%; font-size:12px; }
+.client-image-toolbar button:hover { background:#ffffff45; }
+
+html[data-platform=darwin] .client-image-toolbar { top:60px; }
+html[data-platform=darwin] .client-image-viewer { padding-top:112px; }
+.client-image-toolbar > button > svg { display:block; }
+
+/* File preview shares the workspace with chat, without a modal backdrop. */
+.workspace-body:has(> .client-file-viewer) > .workspace-stage { flex: 0 1 44%; min-width:280px; }
+.workspace-body:has(> .client-file-viewer) > .client-file-viewer ~ * { display:none; }
+.client-file-viewer { display:flex; flex-direction:column; flex:1 1 56%; min-width:0; min-height:0; border-left:1px solid var(--line); background:var(--bg); color:var(--text); box-sizing:border-box; }
+.workspace-body:has(> .client-file-viewer.maximized) > .workspace-stage { display:none; }
+.client-file-viewer.maximized { flex-basis:100%; border-left:0; }
+.client-file-viewer header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--line); flex:none; }
+
+.client-file-viewer header strong { flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.client-file-viewer button { border:0; border-radius:8px; padding:7px 10px; background:var(--surface); color:inherit; cursor:pointer; font:inherit; display:inline-flex; align-items:center; justify-content:center; }
+.client-file-viewer button:hover { background:var(--hover); }
+.client-file-viewer .file-preview-layout-toggle { width:36px; height:36px; padding:0; flex:none; border-radius:50%; background:transparent; color:var(--secondary); }
+.client-file-viewer .file-preview-layout-toggle:hover,.client-file-viewer .file-preview-layout-toggle[aria-pressed=true] { background:var(--surface); }
+.client-file-viewer .file-preview-layout-toggle svg { display:block; }
+.client-file-actions { display:flex; justify-content:space-between; gap:12px; padding:10px 20px; font-size:12px; color:var(--secondary); flex:none; }
+.client-file-actions .attachment-download { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+.client-file-actions .attachment-download progress { width:100%; }
+.client-file-viewer > iframe { flex:1; min-height:0; width:100%; border:0; background:white; }
+.client-file-body { flex:1; min-height:0; overflow:auto; padding:24px; user-select:text; }
+.client-file-body pre { white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.7 ui-monospace,monospace; }
+.client-file-body table { border-collapse:collapse; font-size:13px; }
+.client-file-body td,.client-file-body th { padding:8px 12px; border:1px solid var(--line); text-align:left; white-space:pre-wrap; }
+.client-file-body section { padding:4px 0; }
+.client-file-body section h3 { font-size:12px; color:var(--secondary); }
+.file-json { font:13px/1.8 ui-monospace,monospace; overflow-wrap:anywhere; }
+.file-json summary { cursor:pointer; }
+.file-json-children { margin-left:20px; }
+.file-json span { color:var(--accent); }
+ .pdf-pages { overflow:auto; flex:1; min-height:0; background:var(--surface); padding:16px; text-align:center; scrollbar-gutter:stable; }
+.pdf-page { width:100%; position:relative; margin:0 auto 16px; background:white; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px #0002; }
+.pdf-page canvas { display:block; width:100%; height:100%; }
+
+.xlsx-preview { flex:1; min-height:0; display:flex; flex-direction:column; background:var(--bg); }
+.xlsx-grid { flex:1; min-height:0; overflow:auto; }
+.xlsx-grid table { border-collapse:separate; border-spacing:0; table-layout:fixed; width:max-content; font-size:14px; }
+.xlsx-grid th,.xlsx-grid td { padding:0; height:32px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+.xlsx-grid th { background:var(--surface); color:var(--secondary); font-size:12px; font-weight:400; text-align:center; }
+.xlsx-grid thead th { position:sticky; top:0; z-index:2; }
+.xlsx-grid tbody th { position:sticky; left:0; z-index:1; }
+.xlsx-grid thead th:first-child { left:0; z-index:3; }
+.client-file-viewer .xlsx-grid td button { display:block; width:100%; height:32px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:left; border-radius:0; padding:5px 8px; background:transparent; }
+.client-file-viewer .xlsx-grid td button:hover { background:var(--hover); }
+.xlsx-tabs { display:flex; flex:none; overflow-x:auto; border-top:1px solid var(--line); }
+.client-file-viewer .xlsx-tabs button { flex:none; border-radius:0; background:transparent; padding:12px 18px; border-top:2px solid transparent; color:var(--secondary); }
+.client-file-viewer .xlsx-tabs button[aria-selected=true] { border-color:#1672df; color:var(--text); font-weight:600; }
+.xlsx-cell-value { display:flex; gap:16px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:12px; max-height:80px; overflow:auto; user-select:text; }
+.xlsx-cell-value span { overflow-wrap:anywhere; }
+.xlsx-limit { margin:0; padding:8px 12px; font-size:12px; color:var(--secondary); }

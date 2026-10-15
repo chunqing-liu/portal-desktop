@@ -64,6 +64,8 @@ export interface BrowserBounds { x: number; y: number; width: number; height: nu
 export type BrowserAction = 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'close';
 export type ChatEditCommand = 'cut' | 'copy' | 'paste';
 export interface DesktopAPI {
+  downloadDirectory?(change?:boolean):Promise<string | undefined>;
+  registerAttachmentSource?(file:File):Promise<string | null>;
   localApps?(): Promise<LocalApp[]>;
   associateApp?(entry: { id: string; name: string }): Promise<boolean>;
   unlinkApp?(id: string): Promise<void>;

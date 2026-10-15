@@ -44,6 +44,9 @@ export function createMainWindow(options: MainWindowOptions) {
       && chatParent?.protocol === 'beings:' && chatParent.hostname === 'chat'
       && ['/', '/loom.html'].includes(chatParent.pathname);
     if (runtimeDocument) return;
+    // Only the shell may embed the bundled, sandboxed slide renderer.
+    const previewURL = new URL('pptx-preview.html', options.shellURL()).href;
+    if (!event.isMainFrame && parentURL === options.shellURL() && url === previewURL) return;
     const chatDocument = parsed.protocol === 'beings:' && parsed.hostname === 'chat' && parsed.pathname === '/';
     if (!chatDocument && url !== options.shellURL()) { event.preventDefault(); options.openExternal(url); }
   });

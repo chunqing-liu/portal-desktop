@@ -1,6 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopAPI, PortalState, TownLiveState } from '../shared/types';
 const api: DesktopAPI = {
+  downloadDirectory: change => ipcRenderer.invoke('beings:download-directory', change === true),
+  registerAttachmentSource: file => ipcRenderer.invoke('beings:attachment-source',webUtils.getPathForFile(file)),
   localApps: () => ipcRenderer.invoke('beings:local-apps'),
   associateApp: entry => ipcRenderer.invoke('beings:associate-app', entry),
   unlinkApp: id => ipcRenderer.invoke('beings:unlink-app', id),
