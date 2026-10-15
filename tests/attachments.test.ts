@@ -66,6 +66,11 @@ describe('attachment main-process boundary', () => {
 });
 describe('versioned parsing', () => {
   const page = {attachment_id:'att_one',parse_result_id:'result_one',complete:true,coverage:{complete:true},total_segments:2};
+  it('keeps uneven segments complete when their combined size fits the budget',async()=>{
+    const long='x'.repeat(70000);
+    const result=await readParsed(async()=>json({...page,segments:[{text:'short'},{text:long}],next_cursor:null}),'att_one','result_one',100000);
+    expect(result.truncated).toBe(false);expect(result.text).toContain(long);
+  });
   it('traverses every page with pinned version, while labeling bounded context as excerpts', async () => {
     const request = vi.fn(async (url:string) => json({...page,segments:[{text:url.includes('cursor=')?'second':'first'}],next_cursor:url.includes('cursor=')?null:'next'}));
     const result = await readParsed(request,'att_one','result_one',5);

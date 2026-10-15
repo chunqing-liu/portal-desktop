@@ -1,3 +1,4 @@
+import {attachmentPreviewRequest} from './attachment-preview-request';
 import {useCallback,useEffect,useRef,useState,type RefObject} from 'react';
 import {createPortal} from 'react-dom';
 import {AttachmentDownload} from '../../chat/components/attachment-download';
@@ -24,17 +25,7 @@ export function AttachmentImageViewer({frame}:{frame:RefObject<HTMLIFrameElement
   const request=useCallback<typeof fetch>(async (input,init)=>{
     const target=frame.current;
     if(!target?.contentWindow || !preview)throw new Error('对话已关闭');
-    const channel=new MessageChannel(),query=new URL(String(input),'https://local').searchParams;
-    return new Promise<Response>((resolve,reject)=>{
-      const abort=()=>{channel.port1.postMessage('abort');reject(new DOMException('Cancelled','AbortError'));};
-      init?.signal?.addEventListener('abort',abort,{once:true});
-      channel.port1.onmessage=event=>{
-        const data=event.data;
-        if(data.error){reject(new Error(data.error));channel.port1.close();return;}
-        resolve(new Response(data.body,{status:data.status,headers:data.headers}));
-      };
-      target.contentWindow!.postMessage({type:'beings:image-download',revision:new URL(target.src).searchParams.get('revision'),id:preview.id,endpoint:preview.endpoint,action:query.get('action') || 'check'},'beings://chat',[channel.port2]);
-    });
+    return attachmentPreviewRequest(target,preview,input,init);
   },[frame,preview]);
   function close(){if(preview)URL.revokeObjectURL(preview.src);setPreview(null);frame.current?.focus();}
   return preview && createPortal(<dialog ref={dialog} className="client-image-viewer" aria-label={`图片预览：${preview.name}`} onClose={close} onClick={e=>{if(e.target===e.currentTarget)dialog.current?.close();}}>

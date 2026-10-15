@@ -2,8 +2,8 @@ import {AttachmentFileMenu} from './attachment-file-menu';
 import {AttachmentAudioMenu} from './attachment-audio-menu';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {transferBytes} from '../services/attachment-transfer';
-export function AttachmentDownload({endpoint, id, artifact, name, children, file, details, compact=false, apiBase='', request=fetch, onPreview}: {
-  onPreview?:()=>void; request?:typeof fetch; apiBase?:string; endpoint: string; id: string; artifact?: string; name: string; children: string; file?:{size:number;mime:string}; details?:ReactNode; compact?:boolean;
+export function AttachmentDownload({endpoint, id, artifact, name, children, file, details, compact=false, apiBase='', request=fetch, onPreview, onDownloaded}: {
+  onDownloaded?:()=>void; onPreview?:()=>void; request?:typeof fetch; apiBase?:string; endpoint: string; id: string; artifact?: string; name: string; children: string; file?:{size:number;mime:string}; details?:ReactNode; compact?:boolean;
 }) {
   const [activeAction,setActiveAction]=useState(''),[error,setError]=useState(''),[downloaded,setDownloaded]=useState(false);
   const [checking,setChecking]=useState(true);
@@ -40,7 +40,7 @@ export function AttachmentDownload({endpoint, id, artifact, name, children, file
             const event=JSON.parse(line);
             if(event.type==='error')throw new Error(event.error);
             if(event.type==='progress'){setProgress(event);setStatus(event.total && event.loaded>=event.total ? '正在校验下载文件…' : '正在下载');}
-            if(event.type==='complete'){complete=true;setDownloaded(true);setStatus('已下载 · 校验通过');}
+            if(event.type==='complete'){complete=true;setDownloaded(true);setStatus('已下载 · 校验通过');onDownloaded?.();}
           }
           if(chunk.done)break;
         }
@@ -63,7 +63,7 @@ export function AttachmentDownload({endpoint, id, artifact, name, children, file
     </AttachmentAudioMenu> : file ? <div className="attachment-file-row">
       <button className="attachment-file-main" type="button" disabled={busy || checking} title={cardAction} aria-label={`${canPreview ? '预览' : primary} ${name}`} onClick={()=>canPreview ? onPreview!() : void action(downloaded ? 'open' : 'download')}>
         <span className="attachment-file-icon" aria-hidden="true">{codeFile ? <span className="attachment-code-icon">&lt;/&gt;</span> : <svg width="20" height="24" viewBox="0 0 24 28" fill="none"><rect x="4" y="2" width="16" height="24" rx="4" stroke="currentColor" strokeWidth="1.6"/><path d="M8 9h8M8 14h6M8 19h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>}</span>
-        <span className="attachment-file-label"><strong>{name}</strong><small>{fileType}</small></span>
+        <span className="attachment-file-label"><strong>{name}</strong><small>{fileType} · {transferBytes(file.size)}</small></span>
         <span className="attachment-file-action" aria-hidden="true">{checking ? '…' : downloaded ? '↗' : '↓'}</span>
       </button>
       <AttachmentFileMenu name={name}>

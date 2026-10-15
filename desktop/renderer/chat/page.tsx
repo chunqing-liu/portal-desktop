@@ -539,16 +539,14 @@ function ChatView({
                   chat
                   onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
                 />}
-                {item.queueNotice && (!item.queued || hasAttachmentMessage(item)) && item.retry && <p className="attachment-error" role="alert">{item.queueNotice}</p>}
-                {item.retry && (
-                  <button
-                    className="retry-btn"
-                    type="button"
-                    onClick={() => void item.retry?.()}
-                  >
-                    {item.retryLabel}
-                  </button>
-                )}
+                {hasAttachmentMessage(item) ? item.retry && <div className="attachment-message-actions">
+                  {item.queueNotice && <span className="attachment-error" role="alert">{item.queueNotice}</span>}
+                  {item.retry && <button className="attachment-retry-action" type="button" onClick={()=>void item.retry?.()}>{item.retryLabel}</button>}
+                  {item.queued && item.cancelQueued && <button className="attachment-dismiss-action" type="button" aria-label="移除失败附件" onClick={()=>void item.cancelQueued?.()}>移除</button>}
+                </div> : <>
+                  {item.queueNotice && !item.queued && item.retry && <p className="attachment-error" role="alert">{item.queueNotice}</p>}
+                  {item.retry && <button className="retry-btn" type="button" onClick={()=>void item.retry?.()}>{item.retryLabel}</button>}
+                </>}
               </div>
             ),
           )}

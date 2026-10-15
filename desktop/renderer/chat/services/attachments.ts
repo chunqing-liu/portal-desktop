@@ -16,7 +16,7 @@ export async function readParsed(request: AttachmentRequest, attachmentId: strin
     for (const segment of page.segments) {
       if (typeof segment.text !== 'string') throw new Error('无效解析片段');
       const part = `\n${JSON.stringify(segment.location || {})}\n${segment.text}\n`;
-      const remaining = Math.min(Math.max(0, budget - text.length), Math.floor(budget / Math.max(1, total!)));
+      const remaining = Math.max(0, budget - text.length);
       text += part.slice(0, remaining); if (part.length > remaining) truncated = true;
       count++;
     }

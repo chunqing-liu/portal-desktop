@@ -218,7 +218,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     queueMicrotask(async () => {
       drainScheduled = false;
       if (disposed || dispatching || [...sessions.values()].some(busy)) { retryDrain(); return; }
-      const next = sendQueue[0];
+      const next = sendQueue.find(next => next.saved.phase !== 'failed');
       if (!next || next.claimed || ['sending','failed'].includes(next.saved.phase) || !next.persisted) return;
       next.claimed = true;
       dispatching = true;
@@ -316,9 +316,11 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
   const localKeys = new Set<PropertyKey>(["currentScene", "activeScene", "draft", "files", "queued", "thinking", "streaming", "stopping", "dotClass"]);
   const sceneStatus = (session: any) => {
     const status = session.runtime?.sceneActivity();
+    const queued = sendQueue.some(next => next.session === session && next.saved.phase !== 'failed');
+    const failed = sendQueue.some(next => next.session === session && next.saved.phase === 'failed');
     const tasks = (state.sceneTasks || []).filter((t: any) => t.sceneId === session.local.currentScene.sceneId);
     if (tasks.some((t: any) => t.status === 'running' || t.status === 'queued')) return 'working';
-    if (status === 'error' || status === 'timeout' || status === 'stopped') return session.local.queued ? 'queued' : status;
+    if (status === 'error' || status === 'timeout' || status === 'stopped') return queued ? 'queued' : status;
     // Creation order is not completion order: an earlier slow task can finish
     // after a stage reply for a later fast task. Inspect every pending result.
     const currentTasks = tasks.filter((t: any) => !session.submittedAt || t.createdAt >= session.submittedAt);
@@ -329,20 +331,21 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           (!t.endedAt || t.endedAt > repliedAt))) return 'error';
     }
     return status && ["queued", "thinking", "replying", "working", "waiting", "reconnecting"].includes(status) ? status :
-      session.local.queued ? "queued" : status;
+      queued ? "queued" : failed ? "error" : status;
   };
   function publish() {
     if (disposed || !selected) return;
     for (const key of localKeys) {
       if (key !== "currentScene" && key !== "draft") (state as any)[key] = selected.local[key];
     }
+    if (state.items) state.items = attachmentTimeline(state.items);
     // Transcript scope never changes which scene the composer can stop.
     state.streaming = selected.runtime?.isSceneStreaming?.() ?? selected.local.streaming;
     const autonomous = [...sessions.values()].find(session => session.runtime?.activeAutonomousOrigin?.());
     state.sbsStreamingOrigin = autonomous?.runtime?.activeAutonomousOrigin?.();
     state.sbsActivityPhase = autonomous?.runtime?.autonomousPhase?.();
-    state.attachmentPending = sendQueue.some(next => next.session === selected && next.saved.attachment && next.saved.phase !== 'sending');
-    state.sendWillQueue = sendQueue.length > 0 || [...sessions.values()].some(busy);
+    state.attachmentPending = sendQueue.some(next => next.session === selected && next.saved.attachment && !['sending','failed'].includes(next.saved.phase));
+    state.sendWillQueue = sendQueue.some(next => next.saved.phase !== 'failed') || [...sessions.values()].some(busy);
     state.canInterruptQueue = ![...sessions.values()].some(session => session !== selected && busy(session));
     const activity = Object.fromEntries([...sessions.entries()].flatMap(([id, session]) => {
       const status = sceneStatus(session);
@@ -519,7 +522,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         const files = Array.isArray(args[1]) ? args[1] : sendSnapshot?.files || [];
         const hasAttachments = desktopAttachments && files.length > 0;
         if (hasAttachments && !target.local.currentScene.sceneId) { void target.runtime.send(...args); return; }
-        if (hasAttachments || othersBusy || (args[2].mode !== 'interrupt' && (sendQueue.length || busy(target)))) {
+        if (hasAttachments || othersBusy || (args[2].mode !== 'interrupt' && (sendQueue.some(next => next.saved.phase !== 'failed') || busy(target)))) {
           // Older/embedded runtimes may not expose the durable queue hook yet.
           // Keep sending functional while the host is being upgraded; the full
           // Desktop runtime supplies stageQueuedSend and persists the entry.
@@ -590,7 +593,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
   runtime.stopCurrentTurn = async () => {
     const target = selected;
     if (target.local.stopping) return;
-    const pending = sendQueue.filter(next => next.session === target && next.saved.attachment && next.saved.phase !== 'sending');
+    const pending = sendQueue.filter(next => next.session === target && next.saved.attachment && !['sending','failed'].includes(next.saved.phase));
     if (!pending.length) {
       if (target.runtime.isSceneStreaming && !target.runtime.isSceneStreaming()) return;
       return target.runtime.stopCurrentTurn();

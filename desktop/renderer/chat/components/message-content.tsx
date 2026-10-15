@@ -1,6 +1,5 @@
 import {AttachmentImageUpload} from './attachment-image-upload';
 import {AttachmentProcessing} from './attachment-processing';
-import {AttachmentTranscript} from './attachment-transcript';
 import {transferBytes} from '../services/attachment-transfer';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import type { Message } from '../models/chat';
@@ -37,7 +36,7 @@ export function AttachmentMessageContent({message}: {message: Message}) {
     {message.attachmentUploads.map((file, index) => {
       const p = file.progress, complete = p?.phase === 'complete';
       const percent = complete ? 100 : Math.min(99, Math.floor((p?.loaded || 0) / (p?.total || file.size) * 100));
-      if (file.blob && /^image\/(png|jpeg|gif|webp)$/.test(file.mime || '')) return <AttachmentImageUpload key={index} src={localImages[index]?.src || ''} name={file.name} percent={percent} complete={complete}/>;
+      if (file.blob && /^image\/(png|jpeg|gif|webp)$/.test(file.mime || '')) return <AttachmentImageUpload key={index} src={localImages[index]?.src || ''} name={file.name} percent={percent} complete={complete} phase={p?.phase}/>;
       return <section className="attachment-card attachment-upload-card" key={index}><div className="attachment-file-row"><span className="attachment-file-icon" aria-hidden="true">↑</span><span className="attachment-file-label"><strong>{file.name}</strong><small>{file.name.split('.').pop()?.toUpperCase()} · {transferBytes(file.size)}</small></span></div>
         <p role="status">{complete ? '上传完成' : p?.phase === 'confirming' ? '正在确认上传' : p?.phase === 'uploading' ? '正在上传' : p ? '正在准备上传' : '等待上传'} · {percent}%</p>
         {!complete && <progress aria-label={`${file.name} 上传进度`} max={100} value={percent} />}
@@ -52,7 +51,6 @@ export function AttachmentMessageContent({message}: {message: Message}) {
     {view.parts.filter(part=>part.type==='attachment').map((part,index)=><AttachmentCard key={part.attachment_id} part={part} endpoint={endpoint} localImage={views.length===1 ? localImages[index] : undefined}/>)}
     <AttachmentProcessing items={[message]} name="" />
     <div className="attachment-message-copy">
-      {view.parts.filter(part=>part.type==='attachment' && /^audio\//.test(part.mime)).map(part=>part.type==='attachment' && <AttachmentTranscript key={part.attachment_id} part={part} endpoint={endpoint}/>)}
       {view.parts.filter(part=>part.type==='text').map((part,i)=><p className="attachment-original-text" key={i}>{part.text}</p>)}
     </div>
     {['unknown','failed','cancelled'].includes(view.delivery_status) && <small role="status">{delivery[view.delivery_status]}</small>}

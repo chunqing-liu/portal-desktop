@@ -2941,6 +2941,7 @@ function createStreamRuntime(state: any, options: any): any {
   }
 
   async function reconcileHistoryOnce({ full = false, preserve = false } = {}) {
+    preserve = preserve || state.items.some((item: {kind:string;historySeq?:number}) => item.kind === "message" && !!item.historySeq);
     lastReconcileSawBeing = false;
     lastHistoryReplyScenes = [];
     try {

@@ -70,7 +70,7 @@ export function ChatSceneIndicator({ scene, sessions = [], activity = {}, connec
     // Selecting a scene keeps navigation visually stable; mutations still lock
     // the editor and list while saving. The ref prevents duplicate requests.
     setBusy(operation !== "select"); setError("");
-    try { await onSession(operation, value, sceneId); setEditing(null); setDeleting(undefined); }
+    try { await onSession(operation, value, sceneId); setEditing(null); setDeleting(undefined); if (!pinned && ["select", "create", "bind"].includes(operation)) collapse(); }
     catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { changing.current = false; setBusy(false); }
   };
@@ -121,6 +121,7 @@ export function ChatSceneIndicator({ scene, sessions = [], activity = {}, connec
             <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></svg>
             <input ref={search} type="search" aria-label="搜索场景" placeholder="搜索" value={query} onChange={event => setQuery(event.target.value)} />
           </label>
+          <button type="button" aria-label="收起场景列表" title="收起场景列表" onClick={collapse}>×</button>
           <details ref={options} className="chat-session-options">
             <summary aria-label="场景列表选项" title="场景列表选项">···</summary>
             <div className="chat-session-options-popover">

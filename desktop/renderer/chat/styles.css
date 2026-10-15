@@ -1779,12 +1779,12 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 :is(.audio-menu > div,.audio-floating-menu) > button { height:auto; border-radius:6px; background:transparent; color:var(--text); }
 :is(.audio-menu > div,.audio-floating-menu) > button:hover { background:var(--hover-overlay); }
 /* Match Muse's waveform transport and icon-led popover. */
-.attachment-audio-card { width:280px; }
+.attachment-audio-card { width:320px; max-width:100%; box-sizing:border-box; padding:12px; border:1px solid var(--border); border-radius:20px; background:var(--bg-soft); }
 .attachment-audio-card .attachment-audio { background:#050505; padding:10px 12px; gap:10px; flex-wrap:nowrap; }
 .attachment-audio-card .attachment-audio > span { font-size:12px; font-weight:600; min-width:30px; text-align:right; color:#999; }
 .audio-waveform { flex:1; min-width:0; position:relative; height:28px; }
-.audio-waveform-bars { display:flex; align-items:center; justify-content:space-between; gap:3px; height:100%; }
-.audio-waveform-bars i { display:block; width:3px; min-width:2px; border-radius:3px; }
+.audio-waveform-bars { display:flex; align-items:center; justify-content:space-between; gap:2px; height:100%; overflow:hidden; }
+.audio-waveform-bars i { display:block; flex:1; min-width:0; max-width:3px; border-radius:3px; }
 .audio-waveform > input { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; }
 .audio-waveform:focus-within { outline:2px solid #aaa; outline-offset:4px; border-radius:4px; }
 .audio-menu > summary { width:26px; height:26px; background:#454545; font-size:16px; }
@@ -1890,3 +1890,17 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .history-page-control { min-height:28px; display:flex; justify-content:center; margin-bottom:12px; overflow-anchor:none; }
 .history-page-loading { display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:12px; }
 .history-page-loading > span { width:12px; height:12px; box-sizing:border-box; border:1.5px solid var(--border); border-top-color:var(--text-dim); border-radius:50%; animation:run-spin .8s linear infinite; }
+
+.attachment-audio-filename { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--text-dim); margin:0 4px 10px; }
+.attachment-processing-status > span:last-of-type { min-width:0; overflow-wrap:anywhere; }
+
+.attachment-audio-card .attachment-audio > span { white-space:nowrap; flex-shrink:0; font-variant-numeric:tabular-nums; }
+.attachment-audio-transcript { margin:12px 4px 0; padding:10px 0 0; border-top:1px solid var(--border); font-size:13px; line-height:1.7; }
+
+.attachment-message-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:6px; max-width:100%; }
+.attachment-message-actions .attachment-error { margin:0; overflow-wrap:anywhere; }
+.attachment-message-actions button { display:inline-flex; align-items:center; justify-content:center; border:0; background:transparent; color:var(--text-dim); cursor:pointer; font:inherit; font-size:12px; border-radius:6px; }
+.attachment-message-actions .attachment-retry-action { padding:4px 6px; }
+.attachment-message-actions .attachment-dismiss-action { padding:4px 6px; flex-shrink:0; }
+.attachment-message-actions button:hover { background:var(--hover-overlay); color:var(--text); }
+.attachment-message-actions button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }

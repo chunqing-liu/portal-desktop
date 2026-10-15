@@ -38,6 +38,17 @@ beforeEach(() => {
 afterEach(()=>{vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();});
 async function start(){const state=new ChatState();const runtime=createChatRuntime(state);const starting=runtime.start();await vi.advanceTimersByTimeAsync(50);await starting;await vi.advanceTimersByTimeAsync(0);return {state,runtime};}
 describe('desktop attachment queue and echo',()=>{
+  it('lets ordinary messages pass a failed attachment while keeping it retryable',async()=>{
+    jobState='failed';const {state,runtime}=await start();try {
+      await runtime.send('bad attachment',[file()]);await vi.advanceTimersByTimeAsync(4000);
+      const failed=state.items.find((m:any)=>m.retry) as any;
+      expect(failed).toBeDefined();expect(state.attachmentPending).toBe(false);
+      await runtime.send('continue without attachment',[]);await vi.advanceTimersByTimeAsync(0);
+      expect(posts).toHaveLength(1);expect(posts[0].message).toContain('continue without attachment');
+      expect(failed.retry).toBeTypeOf('function');expect(rows.size).toBe(1);
+      await failed.cancelQueued();expect(rows.size).toBe(0);
+    }finally{runtime.dispose();}
+  });
   it('merges discovered other-scene attachments chronologically with Heart history',async()=>{
     const now=Date.now();history=[{seq:1,role:'user',content:'最新提问',scene_id:'room',at:new Date(now).toISOString()},{seq:2,role:'assistant',content:'最新回复',scene_id:'room',at:new Date(now+1000).toISOString()}];
     const original=globalThis.fetch;

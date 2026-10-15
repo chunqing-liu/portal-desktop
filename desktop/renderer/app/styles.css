@@ -734,7 +734,7 @@ body:has(.rail-links[data-sorting]) .rail-tooltip{display:none}
 .panel-resize-handle{position:absolute;top:0;bottom:0;width:8px;z-index:90;cursor:col-resize;touch-action:none;outline:none;-webkit-app-region:no-drag}
 .panel-resize-handle.edge-left{left:0}.panel-resize-handle.edge-right{right:0}
 /* Highlight the panel's existing border instead of drawing a second line inside it. */
-:is(#chat-view,.being-info,.plugin-sidebar,.chat-session-panel,#companion-panel,#subagent-model-panel):has(>.panel-resize-handle:is(:hover,:focus-visible,[data-resizing=true])){border-color:var(--secondary)}
+:is(#chat-view,.being-info,.plugin-sidebar,.chat-session-panel,#companion-panel,#subagent-model-panel,.client-file-viewer):has(>.panel-resize-handle:is(:hover,:focus-visible,[data-resizing=true])){border-color:var(--secondary)}
 .panel-resize-handle[data-resizing=true]::after{content:"";position:fixed;inset:0;cursor:col-resize}
 .workspace-content>#chat-view,.plugin-sidebar{position:relative}
 .being-info{flex-shrink:1;max-width:calc(100% - 396px)}
@@ -1032,11 +1032,11 @@ html[data-platform=darwin] .client-image-viewer { padding-top:112px; }
 .client-image-toolbar > button > svg { display:block; }
 
 /* File preview shares the workspace with chat, without a modal backdrop. */
-.workspace-body:has(> .client-file-viewer) > .workspace-stage { flex: 0 1 44%; min-width:280px; }
+.workspace-body:has(> .client-file-viewer) > .workspace-stage { flex:1 1 0; min-width:280px; }
 .workspace-body:has(> .client-file-viewer) > .client-file-viewer ~ * { display:none; }
-.client-file-viewer { display:flex; flex-direction:column; flex:1 1 56%; min-width:0; min-height:0; border-left:1px solid var(--line); background:var(--bg); color:var(--text); box-sizing:border-box; }
+.client-file-viewer { position:relative; display:flex; flex-direction:column; flex:0 0 auto; width:min(var(--file-preview-width,640px),max(0px,calc(100% - 280px))); min-width:0; min-height:0; border-left:1px solid var(--line); background:var(--bg); color:var(--text); box-sizing:border-box; }
 .workspace-body:has(> .client-file-viewer.maximized) > .workspace-stage { display:none; }
-.client-file-viewer.maximized { flex-basis:100%; border-left:0; }
+.client-file-viewer.maximized { flex:1 1 100%; width:100%; border-left:0; }
 .client-file-viewer header { display:flex; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--line); flex:none; }
 
 .client-file-viewer header strong { flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }

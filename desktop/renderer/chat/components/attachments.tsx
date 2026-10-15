@@ -1,3 +1,4 @@
+import {AttachmentTranscript} from './attachment-transcript';
 import {imagePreviewSize,rememberImageSize} from '../services/image-preview-size';
 import {AttachmentFilePreview} from './attachment-file-preview';
 import { AttachmentImage } from './attachment-image';
@@ -33,8 +34,9 @@ export function AttachmentCard({part, endpoint, localImage}: {part: AttachmentPa
     }).catch(() => { if (!controller.signal.aborted) setPreviewError('图片预览暂不可用，可下载原件'); });
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
   }, [endpoint, part.attachment_id, image, localImage]);
-  if(/^audio\//.test(part.mime))return <section className="attachment-audio-card" aria-label={part.name}>
+  if(/^audio\//.test(part.mime))return <section className="attachment-audio-card" aria-label={part.name}><div className="attachment-audio-filename" title={part.name}>{part.name}</div>
     <AttachmentAudio src={attachmentContentURL(endpoint,part.attachment_id,true)} name={part.name} endpoint={endpoint} id={part.attachment_id}/>
+    {part.parse_result_id && <div className="attachment-audio-transcript"><AttachmentTranscript part={part} endpoint={endpoint}/></div>}
     {part.parse_status==='failed' && <p className="attachment-error" role="alert">解析失败，请重试</p>}
   </section>;
   if (image) return <section className="attachment-image-card" aria-label={part.name}>

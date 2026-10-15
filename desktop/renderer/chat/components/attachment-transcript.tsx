@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 import type {AttachmentPart} from '../services/attachment-messages';
 import {parsedPage} from '../services/attachment-view';
 export function AttachmentTranscript({part,endpoint}:{part:AttachmentPart;endpoint:string}) {
-  const [text,setText]=useState(''),[error,setError]=useState(false),[attempt,setAttempt]=useState(0),[expanded,setExpanded]=useState(false);
+  const [text,setText]=useState(''),[error,setError]=useState(false),[attempt,setAttempt]=useState(0);
   useEffect(()=>{
     if(!part.parse_result_id || part.parse_status!=='ready')return;
     const controller=new AbortController();setText('');setError(false);
@@ -22,5 +22,5 @@ export function AttachmentTranscript({part,endpoint}:{part:AttachmentPart;endpoi
     return ()=>controller.abort();
   },[endpoint,part.attachment_id,part.parse_result_id,part.parse_status,attempt]);
   if(!text)return error ? <div className="attachment-transcript-error">语音文字加载失败 <button onClick={()=>setAttempt(attempt+1)}>重试</button></div> : null;
-  return <div className="attachment-transcript" aria-label={`${part.name} 语音文字`}><p>{expanded ? text : text.slice(0,1200)}</p>{text.length>1200 && <button type="button" onClick={()=>setExpanded(!expanded)}>{expanded ? '收起' : '展开全文'}</button>}</div>;
+  return <div className="attachment-transcript" aria-label={`${part.name} 语音文字`}><p>{text}</p></div>;
 }
