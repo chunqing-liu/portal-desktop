@@ -31,6 +31,16 @@ export function createChatBridge(state: ChatState) {
     });
   }
   let removeListener = () => {};
+  let lastActivity: string | null | undefined;
+  const publishActivity = () => {
+    const origin = state.sbsStreamingOrigin || null;
+    const phase = origin ? state.sbsActivityPhase || null : null;
+    const activity = JSON.stringify([origin, phase]);
+    if (disposed || activity === lastActivity) return;
+    lastActivity = activity;
+    send({type:'beings:sbs-activity', origin, phase});
+  };
+  const unsubscribeActivity = state.subscribe(publishActivity);
   async function copyText(text: string): Promise<void> {
     if (!embedded || location.protocol !== 'beings:') return navigator.clipboard.writeText(text);
     if (disposed) throw new Error('Chat closed');
@@ -253,6 +263,7 @@ export function createChatBridge(state: ChatState) {
     window.addEventListener("message", receive);
     removeListener = () => window.removeEventListener("message", receive);
     void refreshSbs();
+    publishActivity();
     send({ type: 'beings:scene-tasks-request' });
   }
   return {
@@ -265,6 +276,7 @@ export function createChatBridge(state: ChatState) {
     start,
     dispose() {
       disposed = true;
+      unsubscribeActivity();
       removeListener();
       waiting.forEach((finish) => finish());
       waiting.clear();

@@ -236,6 +236,7 @@ function createStreamRuntime(state: any, options: any): any {
   let replayTransportOnly = false;
   let autonomousStream = false;
   let autonomousOrigin: string | undefined;
+  let autonomousHandedOff = false;
   function setStreamScene(scene: any) {
     state.activeScene = {
       ...scene,
@@ -291,6 +292,9 @@ function createStreamRuntime(state: any, options: any): any {
     changed();
   }
   function moveRun() {
+    // The aggregate callback summary stays at its original position. Moving it
+    // on each continuation can jump past newer room messages and history anchors.
+    if (currentRun?.autonomousOrigin) return;
     if (currentRun && !currentRun.end && state.items.at(-1) !== currentRun) {
       state.items = state.items.filter((item: any) => item !== currentRun);
       state.items.push(currentRun);
@@ -304,6 +308,8 @@ function createStreamRuntime(state: any, options: any): any {
       currentRun = {
         ...state.activeScene,
         kind: "run",
+        autonomousOrigin: autonomousStream ? autonomousOrigin : undefined,
+        streamId: currentStreamId || undefined,
         id: `run-${options.nextId()}`,
         entries: [],
         start: Date.now(),
@@ -898,7 +904,7 @@ function createStreamRuntime(state: any, options: any): any {
        echoScenesMatch(item, scene) && item.createdAt >= user.createdAt))) return;
     const now = Date.now();
     state.items.push({ ...scene, kind: "separator", id: `marker-${options.nextId()}`,
-      marker: true, continuationMarker: true, continuationTurn: key,
+      marker: true, handoffMarker: true, continuationMarker: true, continuationTurn: key,
       interruptStartedAt: user.createdAt, createdAt: now,
       text: `· 放下手头的事，转向你 · ${formatTime()} ·` });
     changed();
@@ -910,6 +916,7 @@ function createStreamRuntime(state: any, options: any): any {
       kind: "separator",
       id: `marker-${options.nextId()}`,
       marker: true,
+      handoffMarker: /^\[breath yielded/i.test(text || ''),
       text: `· ${breathMarkerLabel(text)} · ${timestamp || formatTime()} ·`,
     };
     const index = Number.isFinite(scene.createdAt) ? state.items.findIndex((item: any) =>
@@ -1303,11 +1310,21 @@ function createStreamRuntime(state: any, options: any): any {
       if ((type === "thinking" || type === "reasoning") &&
           !(data?.text || data?.delta?.text || (typeof data?.delta === "string" && data.delta))) return;
       replayTransportOnly = false;
+      autonomousHandedOff = false;
       if (currentRun?.end) {
-        // The previous segment remains in the transcript. The new segment must
-        // not inherit its tool entries, failure state, or elapsed time.
-        actionLog = [];
-        currentRun = null;
+        // A reply boundary is not a new autonomous callback. Resume its single
+        // activity record, retaining the full tool log and original start time.
+        if (autonomousStream && currentStreamId && currentRun.streamId === currentStreamId &&
+            currentRun.autonomousOrigin === autonomousOrigin) {
+          actionLog = currentRun.entries.map((entry: any) => ({ ...entry }));
+          currentRun.end = undefined;
+          currentRun.outcome = undefined;
+          currentRun.status = undefined;
+          currentRun.waitingForReply = false;
+        } else {
+          actionLog = [];
+          currentRun = null;
+        }
         userStoppedStream = false;
         tuiCurrentState = "思考中";
         tuiCurrentArg = "";
@@ -1984,6 +2001,14 @@ function createStreamRuntime(state: any, options: any): any {
     };
   }
 
+  function ensureUserMessage(queuedMessage: any, text: string) {
+    if (!queuedMessage) return addMessage("user", text);
+    // A history read may have completed while this send was being prepared.
+    if (!state.items.includes(queuedMessage)) state.items.push(queuedMessage);
+    changed();
+    return queuedMessage;
+  }
+
   async function spliceSend(text: any, files = pendingFiles, sendOptions: any = {}) {
     const replyBaseline = new Set(state.items);
     const submittedAt = Date.now();
@@ -1992,7 +2017,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (!spliceMsg && !files.length) return;
     spliceMsg = options.prepareMessage?.(spliceMsg || `[${files.length} file(s)]`) ?? spliceMsg;
     const requestMessage = withIntelligentUIContext((sendOptions.requestMessage ?? spliceMsg) || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
-    const localMessage = sendOptions.queuedMessage || addMessage("user", spliceMsg || `[${files.length} file(s)]`);
+    const localMessage = ensureUserMessage(sendOptions.queuedMessage, spliceMsg || `[${files.length} file(s)]`);
     noteLocalEcho("user", requestMessage, state.currentScene, localMessage, [spliceMsg]);
     if (!sendOptions.uiAction && !sendOptions.queuedMessage) clearComposer();
     let res;
@@ -2093,7 +2118,7 @@ function createStreamRuntime(state: any, options: any): any {
     setStreamScene(state.currentScene);
 
     if (!isManualRetry) {
-      const localMessage = sendOptions.queuedMessage || addMessage("user", msg || `[${filesToSend.length} file(s)]`);
+      const localMessage = ensureUserMessage(sendOptions.queuedMessage, msg || `[${filesToSend.length} file(s)]`);
       // Servers may persist the user body without the transport-only scene cue.
       noteLocalEcho("user", requestMessage || `[${filesToSend.length} file(s)]`, sendingScene, localMessage, [stripSceneTransition(stripIntelligentUIContext(requestMessage))]);
       if (!fromQueue) clearComposer();
@@ -2510,7 +2535,11 @@ function createStreamRuntime(state: any, options: any): any {
 
   // ---- History ----
   function resetMessages() {
-    state.items = state.items.filter((item: any) => item.queued);
+    // Delivery and history acknowledgement are separate: a dequeued user
+    // bubble must survive until its persisted row can take over its identity.
+    state.items = state.items.filter((item: any) => item.queued ||
+      (item.kind === "message" && item.role === "user" && !item.historySeq));
+    localEchoes = localEchoes.filter(echo => state.items.includes(echo.message));
     currentRun = null;
     state.thinking = false;
     lastRole = null;
@@ -2718,7 +2747,7 @@ function createStreamRuntime(state: any, options: any): any {
       changed();
       return;
     }
-    localEchoes.push({ role, texts, scene: { ...scene }, message, notedAt: Date.now() });
+    localEchoes.push({ role, texts, scene: { ...scene }, message, notedAt: Date.now(), historyFloor: lastHistorySeq });
     if (localEchoes.length > 40) localEchoes.shift();
   }
   function echoScenesMatch(a: any = {}, b: any = {}) {
@@ -2758,7 +2787,10 @@ function createStreamRuntime(state: any, options: any): any {
     const t = normalizeEcho(text);
     if (!t) return false;
     const candidates = localEchoes.map((echo, index) => ({ echo, index })).filter(({ echo }) =>
-      !echo.message?.historySeq && echo.role === role && echo.texts.includes(t));
+      !echo.message?.historySeq && state.items.includes(echo.message) && echo.role === role && echo.texts.includes(t) &&
+      // Full rebuilds also revisit old identical user text. It cannot confirm a
+      // submission made after that history cursor was already observed.
+      (role !== "user" || !history.historySeq || history.historySeq > echo.historyFloor));
     // A progress update and the final answer can legitimately have equal text.
     candidates.sort((a, b) => Number(!!a.echo.message?.interim) - Number(!!b.echo.message?.interim));
     const exact = candidates.find(({ echo }) => echoScenesMatch(scene, echoScene(echo)));
@@ -2809,12 +2841,12 @@ function createStreamRuntime(state: any, options: any): any {
   async function restoreSceneHistory(scene: MessageScene) {
     if (!scene.sceneId || !historyCacheSeeded || disposed) return;
     const ids = [scene.sceneId, ...(!scene.strict && scene.legacySceneId ? [scene.legacySceneId] : [])];
-    const cached = (await Promise.all(ids.map(id => historyCache.readScene(id)))).flat().sort((a, b) => a.seq - b.seq);
+    const cached = (await Promise.all(ids.map(id => historyCache.readScene(id,60)))).flat().sort((a, b) => a.seq - b.seq);
     if (disposed) return;
     insertCachedHistory(cached);
   }
 
-  function insertCachedHistory(cached: any[]) {
+  function insertCachedHistory(cached: any[], rebuilding = false) {
     const present = new Set(state.items.map((item: any) => item.historySeq).filter(Boolean));
     let added = false;
     for (const message of cached) {
@@ -2826,13 +2858,13 @@ function createStreamRuntime(state: any, options: any): any {
       const role = message.role === "user" ? "user" : "being";
       if (!isHistoryMarker(message) && (mergePersistedHistory(message) ||
           consumeLocalEcho(role, message.content, messageScene(message), identity) ||
-          (role === "being" && options.isLiveScene?.(messageScene(message))))) continue;
+          (role === "being" && !rebuilding && options.isLiveScene?.(messageScene(message))))) continue;
       const text = isHistoryMarker(message)
         ? `· ${breathMarkerLabel(message.content)} · ${identity.timestamp} ·`
         : cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(message.content)) : message.content);
       if (!text) continue;
       const item = isHistoryMarker(message)
-        ? { ...identity, kind: "separator", id: `marker-${options.nextId()}`, marker: true, text }
+        ? { ...identity, kind: "separator", id: `marker-${options.nextId()}`, marker: true, handoffMarker: /^\[breath yielded/i.test(message.content || ''), text }
         : { ...identity, kind: "message", id: `message-${options.nextId()}`, role, text,
             streaming: false, label: role === "user" ? "you" : beingName, consecutive: false };
       // Insert old records in sequence order without rebuilding live bubbles,
@@ -2849,42 +2881,13 @@ function createStreamRuntime(state: any, options: any): any {
     if (added) changed();
   }
 
-  // 返回一个在**最后一批渲染完成时**才 resolve 的 Promise（修初始化竞态 P1-G / P2-H）
-  function renderHistoryBatched(messages: any) {
-    return new Promise<void>((resolve) => {
-      if (!messages || !messages.length) {
-        resolve();
-        return;
-      }
-      const BATCH = 10;
-      let i = 0;
-      const renderBatch = () => {
-        const end = Math.min(i + BATCH, messages.length);
-        for (; i < end; i++) {
-          const msg = messages[i];
-          const ts = formatHistoryTime(msg.at);
-          if (isHistoryMarker(msg)) {
-            addBreathMarker(msg.content, ts, historyIdentity(msg));
-            continue;
-          }
-          addHistoryMessage(msg);
-        }
-        if (i < messages.length) {
-          // keep scroll locked between batches
-          requestAnimationFrame(renderBatch);
-        } else {
-          state.items.push({
-            kind: "separator",
-            id: `gap-${options.nextId()}`,
-            text: "· · ·",
-          });
-          changed();
-
-          resolve();
-        }
-      };
-      requestAnimationFrame(renderBatch);
-    });
+  // Publish one coherent snapshot. The view windows the DOM itself; publishing
+  // ten rows per frame made it anchor to an incomplete first page and flash.
+  async function renderHistoryBatched(messages: any[]) {
+    if (!messages?.length || disposed) return;
+    insertCachedHistory(messages, true);
+    state.items.push({ kind: "separator", id: `gap-${options.nextId()}`, text: "· · ·" });
+    changed();
   }
 
   // 返回新追加的消息条数。full=true 才清屏（首次加载 / 服务端重启）。
@@ -2943,11 +2946,10 @@ function createStreamRuntime(state: any, options: any): any {
     try {
       let hydrated = false;
       if (!preserve && (full || lastHistorySeq === 0)) {
-        const cached = await historyCache.read();
+        const cached = await historyCache.read(60);
         if (disposed) return 0;
         if (cached) {
           resetMessages();
-          localEchoes = [];
           await renderHistoryBatched(cached.messages);
           lastHistorySeq = Math.max(lastHistorySeq, cached.lastSeq);
           historyCacheSeeded = true;
@@ -2986,7 +2988,6 @@ function createStreamRuntime(state: any, options: any): any {
 
       if (!incremental && !preserve) {
         resetMessages();
-        localEchoes = [];
         toCache = msgs;
         lastHistoryReplyScenes = msgs.filter(m => !isHistoryMarker(m) && m.role !== "user").map(messageScene);
         await renderHistoryBatched(toCache);
@@ -3233,8 +3234,10 @@ function createStreamRuntime(state: any, options: any): any {
     // This runtime may only own the replay transport. Event scene IDs, not
     // the selected desktop scene, determine which runtime has actual work.
     replayTransportOnly = true;
-    autonomousStream = !!data.origin && data.origin !== 'human';
+    autonomousStream = !!data.origin && data.origin !== 'human' && !messageScene(data).sceneId;
     autonomousOrigin = autonomousStream ? data.origin : undefined;
+    autonomousHandedOff = false;
+    replyRunSettled = false;
     if (Object.hasOwn(data, "scene_id")) setStreamScene(messageScene(data));
 
     if (activeStreamPollTimer) {
@@ -3433,7 +3436,31 @@ function createStreamRuntime(state: any, options: any): any {
   }
   function processReplayEvent(eventType: any, eventData: any, seq?: number) {
     traceStreamEvent(seq === undefined ? 'routed' : 'replay', eventType, eventData, seq);
-    if (options.routeEvent?.(eventType, eventData)) return;
+    if (options.routeEvent?.(eventType, eventData)) {
+      // SBS may hand the same transport to a room. Close the previous activity
+      // segment without stopping the shared reader or the room's pending reply.
+      if (autonomousStream && !autonomousHandedOff && PROGRESS_EVENTS.has(eventType) && eventType !== 'message_stop' && eventType !== 'error' &&
+          (eventType !== 'content_block_delta' || eventData.delta?.text)) {
+        solidifyReplayBubble();
+        noteStreamEcho();
+        streamMessage = null;
+        streamText = '';
+        // Keep this segment before the newly routed room's activity. updateRun
+        // moves live runs to the tail and would reorder the history boundary.
+        if (currentRun && !currentRun.end) {
+          currentRun.entries = actionLog.map(entry => ({ ...entry }));
+          currentRun.end = Date.now();
+          currentRun.outcome = 'done';
+          currentRun.status = 'done';
+          currentRun.label = '已切换到场景对话';
+          currentRun.hint = 'SBS 本段活动已结束，后续进展显示在对应场景。';
+        }
+        replayTransportOnly = true;
+        autonomousHandedOff = true;
+        changed();
+      }
+      return;
+    }
     splitStreamProgress(eventType, eventData);
     markProgress(eventType, eventData);
     switch (eventType) {
@@ -3560,6 +3587,10 @@ function createStreamRuntime(state: any, options: any): any {
     }
     solidifyReplayBubble();
     settleReplyBoundary();
+    if (!pendingReply) {
+      updateRun(true);
+      replyRunSettled = true;
+    }
     noteStreamEcho();
     streamMessage = null;
     streamText = "";
@@ -3680,7 +3711,9 @@ function createStreamRuntime(state: any, options: any): any {
     captureSendSnapshot: () => ({ draft: state.draft, files: [...pendingFiles] }),
     prepareSend,
     isBusy: () => (isStreaming && !replayTransportOnly && !autonomousStream) || !!pendingReply || !!pendingRecovery || preparingSend,
-    activeAutonomousOrigin: () => isStreaming ? autonomousOrigin : undefined,
+    isSceneStreaming: () => isStreaming && !autonomousStream && !replayTransportOnly && !replyRunSettled,
+    activeAutonomousOrigin: () => isStreaming && !autonomousHandedOff ? autonomousOrigin : undefined,
+    autonomousPhase: () => livePhase === "tool" ? "working" : livePhase === "text" ? "replying" : "thinking",
     settleHistoryReply: () => { if (pendingReplyArrived()) finishPendingReply(); },
     captureActivity,
     reconcileActivity,
@@ -3705,6 +3738,19 @@ function createStreamRuntime(state: any, options: any): any {
     bindPersisted,
     registerPersistedGroup,
     revealHistory: (rows: any[]) => insertCachedHistory(rows),
+    async loadOlderHistory() {
+      const scene=options.selectedScene?.() || state.currentScene;
+      const scope=state.historyScope, showSbsMessages=state.showSbsMessages;
+      const include=(row:any)=>{const identity=row.kind ? row : messageScene(row);return scope==='all' || inCurrentScene(identity,scene) || (!identity.sceneId && row.role!=='user' && showSbsMessages);};
+      const seqs=state.items.filter((item:any)=>item.historySeq && include(item)).map((item:any)=>item.historySeq);
+      // Search and scene restoration can insert disjoint ranges. Read missing
+      // rows below the newest loaded row so those gaps remain pageable.
+      const present=new Set(seqs);
+      const rows=await historyCache.readBefore(seqs.length?Math.max(...seqs):Infinity,40,
+        row=>!present.has(row.seq) && include(row));
+      if(!disposed)insertCachedHistory(rows,true);
+      return rows.length;
+    },
     restoreSceneHistory,
     reconcileHistory,
     syncHistoryCursor,

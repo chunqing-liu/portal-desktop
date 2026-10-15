@@ -73,6 +73,9 @@ export interface ActivityEntry {
 }
 export interface Run extends MessageScene {
   kind: "run";
+  /** Explicit autonomous origin; a missing scene alone is not evidence of SBS. */
+  autonomousOrigin?: string;
+  streamId?: string;
   id: string;
   entries: ActivityEntry[];
   start: number;
@@ -90,7 +93,7 @@ export interface Run extends MessageScene {
 export type ChatItem =
   | Message
   | Run
-  | ({ kind: "separator"; id: string; text: string; marker?: boolean } & MessageScene);
+  | ({ kind: "separator"; id: string; text: string; marker?: boolean; handoffMarker?: boolean } & MessageScene);
 export interface Preset {
   base_url?: string;
   api?: string;
@@ -194,6 +197,8 @@ export class ChatState extends Store {
   canInterruptQueue = false;
   thinking = false;
   streaming = false;
+  sbsStreamingOrigin?: string;
+  sbsActivityPhase?: string;
   stopping = false;
   attachmentPending = false;
   connection = "connecting";
@@ -223,6 +228,7 @@ export interface ChatRuntime {
   toggleSbs(): Promise<void>;
   loadSbsState(): Promise<boolean | undefined>;
   revealHistory(rows: import("../services/history-cache").HistoryMessage[]): void;
+  loadOlderHistory(): Promise<number>;
   refreshHistory(): Promise<void>;
   refreshOnRegainedAttention(): Promise<void>;
   request(path: string, init?: RequestInit): Promise<Response>;

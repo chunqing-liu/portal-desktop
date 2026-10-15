@@ -377,11 +377,13 @@ describe("scene history refresh", () => {
     state.draft = "A 草稿";
     await runtime.selectScene({ sceneId: "desktop-b", sceneLabel: "B", strict: true });
     expect(state.draft).toBe("");
-    expect(state.streaming).toBe(true);
+    expect(state.streaming).toBe(false);
+    expect(state.items.some(item => item.kind === 'message' && item.sceneId === 'desktop-test' && item.streaming)).toBe(true);
     expect(sceneItems(state.items, "current", state.currentScene)).toEqual([]);
     state.draft = "B 草稿";
     await runtime.selectScene({ ...current, strict: true });
     expect(state.draft).toBe("A 草稿");
+    expect(state.streaming).toBe(true);
     stream.enqueue(new TextEncoder().encode('event: content_block_delta\ndata: {"scene_id":"desktop-test","delta":{"text":"继续"}}\n\n'));
     await vi.advanceTimersByTimeAsync(20);
     expect(state.items.some(item => item.kind === "message" && item.text === "A 回复继续")).toBe(true);
@@ -848,9 +850,32 @@ describe("chat scene scopes", () => {
     const items = [global, local, other, user, marker, run];
     const scene = { sceneId: "room-a", strict: true };
     expect(sceneItems(items, "current", scene, false).map(item => item.id)).toEqual(["local"]);
+    expect(sceneItems(items, "current", scene, true).map(item => item.id)).toEqual(["global", "local", "breath", "activity"]);
+    expect(inCurrentScene(run, scene)).toBe(false);
     expect(sceneItems(items, "all", scene, false)).toBe(items);
     expect(sceneItems(items, "all", scene, true)).toBe(items);
     expect(items).toHaveLength(6);
+  });
+
+  it('does not show an unaddressed handoff as if it were directed to every room', () => {
+    const marker = {kind:'separator',id:'handoff',text:'转向你',marker:true,handoffMarker:true} as ChatItem;
+    const local = {...marker,id:'local',sceneId:'room-a'};
+    const other = {...marker,id:'other',sceneId:'room-b'};
+    const items = [marker,local,other];
+    for (const strict of [true,false]) {
+      expect(sceneItems(items,'current',{sceneId:'room-a',strict},true)).toEqual([local]);
+      expect(sceneItems(items,'current',{sceneId:'room-a',strict},false)).toEqual([local]);
+    }
+    expect(sceneItems(items,'all',{sceneId:'room-a'},true)).toBe(items);
+  });
+
+  it('keeps autonomous process records out of every transcript without deleting runtime data', () => {
+    const callback = {kind:'run',id:'callback',autonomousOrigin:'callback',entries:[],start:0,label:'',hint:'',arg:''} as ChatItem;
+    const local = {kind:'run',id:'local',sceneId:'room-a',entries:[],start:0,label:'',hint:'',arg:''} as ChatItem;
+    const items = [callback,local];
+    for (const scope of ['all','current'] as const) for (const show of [true,false])
+      expect(sceneItems(items,scope,{sceneId:'room-a',strict:true},show)).toEqual([local]);
+    expect(items).toHaveLength(2);
   });
 
   it("remembers SBS visibility per Being and scene across switching and reload", () => {

@@ -50,6 +50,21 @@ async function start(runtime: ReturnType<typeof createChatRuntime>) {
 }
 
 describe("scene history cache fallback", () => {
+  it('loads older cached rows on demand without moving the forward sync cursor',async()=>{
+    vi.mocked(HistoryCache.prototype.readScene).mockResolvedValue([{...old[0],seq:51},{...old[1],seq:52}]);
+    const page=vi.spyOn(HistoryCache.prototype,'readBefore').mockResolvedValue([{seq:1,role:'user',content:'更早的问题',scene_id:'old-room'}]);
+    const state=new ChatState(),runtime=createChatRuntime(state);
+    try{
+      await start(runtime);expect(page).not.toHaveBeenCalled();
+      expect(await runtime.loadOlderHistory()).toBe(1);
+      expect(page).toHaveBeenCalledWith(52,40,expect.any(Function));
+      const include=page.mock.calls[0][2]!;
+      expect(include({seq:0,role:'user',content:'',scene_id:'other'})).toBe(false);
+      expect(visible(state).some((item:any)=>item.text==='更早的问题')).toBe(true);
+      await runtime.refreshHistory();expect(queries.at(-1)?.searchParams.get('after')).toBe('400');
+    }finally{runtime.dispose();}
+  });
+
   it("fills cache gaps inside the initial window and merges overlapping network history once", async () => {
     const middle: HistoryMessage = { seq: 150, role: "user", content: "缓存窗口内的旧场景消息", scene_id: "old-room" };
     vi.mocked(HistoryCache.prototype.read).mockResolvedValue({
@@ -65,8 +80,8 @@ describe("scene history cache fallback", () => {
       await runtime.selectScene(oldScene);
       expect(visible(state).filter(m => m.kind === "message").map(m => m.text))
         .toEqual([old[0].content, old[1].content, middle.content, "接口新增回复"]);
-      expect(HistoryCache.prototype.read).toHaveBeenCalledWith();
-      expect(HistoryCache.prototype.readScene).toHaveBeenCalledWith("old-room");
+      expect(HistoryCache.prototype.read).toHaveBeenCalledWith(60);
+      expect(HistoryCache.prototype.readScene).toHaveBeenCalledWith("old-room",60);
       expect(state.items.filter(item => item.kind === "message" && item.historySeq === 150)).toHaveLength(1);
       expect(state.items.filter(item => item.kind === "message" && item.historySeq === 401)).toHaveLength(1);
     } finally { runtime.dispose(); }
@@ -130,4 +145,27 @@ describe("scene history cache fallback", () => {
       expect(queries.at(-1)?.searchParams.get("after")).toBe("401");
     } finally { runtime.dispose(); }
   });
+});
+
+it('fills disjoint cached history after search without duplicates or moving the sync cursor', async () => {
+  const rows: HistoryMessage[] = Array.from({length:200},(_,i)=>({seq:i+1,role:'being',content:`row ${i+1}`,scene_id:'old-room'}));
+  vi.mocked(HistoryCache.prototype.read).mockResolvedValue({messages:rows.slice(-60),lastSeq:200});
+  vi.mocked(HistoryCache.prototype.readScene).mockResolvedValue(rows.slice(-60));
+  vi.spyOn(HistoryCache.prototype,'readBefore').mockImplementation(async(before,limit,include)=>
+    rows.filter(row=>row.seq<before && (!include || include(row))).slice(-limit));
+  const state=new ChatState(),runtime=createChatRuntime(state);
+  try {
+    await start(runtime);
+    runtime.revealHistory(rows.slice(19,40));
+    state.historyScope='all';
+    const result = state.items.find(item=>item.kind==='message' && item.historySeq===30);
+    expect(await runtime.loadOlderHistory()).toBe(40);
+    expect(state.items.some(item=>item.kind==='message' && item.historySeq===101)).toBe(true);
+    for(let page=0;page<5;page++)await runtime.loadOlderHistory();
+    expect(state.items.filter(item=>item.kind==='message').map(item=>item.historySeq)).toEqual(rows.map(row=>row.seq));
+    expect(state.items.find(item=>item.kind==='message' && item.historySeq===30)).toBe(result);
+    expect(await runtime.loadOlderHistory()).toBe(0);
+    await runtime.refreshHistory();
+    expect(queries.at(-1)?.searchParams.get('after')).toBe('200');
+  }finally{runtime.dispose();}
 });

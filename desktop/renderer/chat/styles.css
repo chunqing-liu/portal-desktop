@@ -1884,3 +1884,7 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 
 /* The drag hint must not become a new drag target and unbalance enter/leave events. */
 #drop-zone { pointer-events:none; }
+
+.history-page-control { min-height:28px; display:flex; justify-content:center; margin-bottom:12px; overflow-anchor:none; }
+.history-page-loading { display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:12px; }
+.history-page-loading > span { width:12px; height:12px; box-sizing:border-box; border:1.5px solid var(--border); border-top-color:var(--text-dim); border-radius:50%; animation:run-spin .8s linear infinite; }

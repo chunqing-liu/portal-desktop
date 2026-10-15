@@ -1,3 +1,5 @@
+import { SbsControl } from "../shared/components/sbs-control";
+import {useHistoryWindow} from './hooks/use-history-window';
 import { AttachmentMessageContent, hasAttachmentMessage, originalMessageText } from "./components/message-content";
 import { SurfaceContext } from '../shared/intelligent-ui/surface-view';
 import { SurfaceTimeline } from '../shared/intelligent-ui/surfaces';
@@ -28,7 +30,8 @@ import {
 import { inCurrentScene, isGlobalBeingMessage, sceneItems, sceneName, type HistoryScope } from "./models/scenes";
 import { useModel } from "../shared/hooks/use-model";
 import { CodeClipboard, Markdown } from "../shared/components/markdown";
-import { RichComposer, type ComposerHandle } from "../shared/components/rich-composer";
+import { type ComposerHandle } from "../shared/components/rich-composer";
+import { ChatComposer } from "./components/composer";
 import { CopyMessage } from '../shared/components/copy-message';
 import { TemperatureGlow, ChatActivity } from "./components/messages";
 import { ChatSettings } from "./components/settings";
@@ -90,7 +93,15 @@ function ChatView({
     media.addEventListener('change', change);
     return () => media.removeEventListener('change', change);
   }, [mobileWeb]);
-  const visibleItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued || !!item.attachmentViews?.length || !!item.attachmentUploads?.length), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
+  const timelineItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued || !!item.attachmentViews?.length || !!item.attachmentUploads?.length), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
+  const historyWindow=useHistoryWindow(timelineItems,JSON.stringify([state.historyScope,state.currentScene.sceneId,state.showSbsMessages]),()=>runtime.loadOlderHistory());
+  const visibleItems=historyWindow.items;
+  const pendingSearchReveal=useRef<number|null>(null);
+  useLayoutEffect(()=>{
+    if(pendingSearchReveal.current===null || state.historyScope!=='all')return;
+    const target=timelineItems.find(item=>item.kind==='message' && item.historySeq===pendingSearchReveal.current);
+    if(target){historyWindow.reveal(target.id);pendingSearchReveal.current=null;}
+  },[timelineItems,state.historyScope]);
   const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId && !hasAttachmentMessage(item));
   const surfaceTimeline = useRef(new SurfaceTimeline());
   const surfaceScope = (sceneId?: string) => JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, sceneId || 'global']);
@@ -207,6 +218,7 @@ function ChatView({
         releaseAnchor();
         scrollLock.current = false;
         state.historyScope = 'all';
+        pendingSearchReveal.current=search.rows[rowIndex].seq;
         bridge.send({type:'beings:history-scope-state',scope:'all'});
         state.changed();
         requestAnimationFrame(()=>requestAnimationFrame(()=>{
@@ -403,17 +415,9 @@ function ChatView({
       </div>
       <div id="app" inert={nativeTouch && panel === 'model'}>
         <header id="header">
-          <button
-            id="sbs-switch"
-            type="button"
-            aria-label="切换 SBS 自主醒来"
-            aria-pressed={state.sbsKnown ? state.sbsEnabled : undefined}
-            disabled={!state.sbsKnown}
-            onClick={() => void runtime.toggleSbs()}
-          >
-            <span id="status-dot" className={state.dotClass} />
-            <span id="sbs-switch-label">SBS</span>
-          </button>
+          <SbsControl known={state.sbsKnown} enabled={state.sbsEnabled} origin={state.sbsStreamingOrigin} phase={state.sbsActivityPhase}
+            showContent={state.showSbsMessages} allScenes={state.historyScope==='all'}
+            onVisibility={show=>state.setShowSbsMessages(show)} onToggle={()=>void runtime.toggleSbs()} />
           <button
             id="being-name"
             type="button"
@@ -456,10 +460,6 @@ function ChatView({
               onChange={event => changeScope(event.target.checked ? "all" : "current")} />
             显示全部场景上下文
           </label>
-          <label className="chat-scope-switch" title={state.historyScope === "all" ? "显示全部场景时始终显示 SBS 消息" : "仅影响当前场景的显示，包含无场景的全局消息"}>
-            <input type="checkbox" checked={state.historyScope === "all" || state.showSbsMessages} disabled={state.historyScope === "all"} onChange={event => state.setShowSbsMessages(event.target.checked)} />
-            显示 SBS 消息
-          </label>
           <span className="chat-scope-caption" title={state.currentScene.sceneId}>
             {state.currentScene.sceneId
               ? state.historyScope === "all" ? `发送到：${currentSceneName}` : currentSceneName
@@ -474,7 +474,7 @@ function ChatView({
           aria-busy={state.historyRefreshing}
           onWheel={reader.onWheel}
           onTouchMove={reader.onTouchMove}
-          onScroll={() => { reader.onScroll(); setSelection(null); }}
+          onScroll={() => { reader.onScroll(); setSelection(null); if(messages.current && messages.current.scrollTop<160 && !scrollLock.current && historyWindow.hasMore)void historyWindow.more(); }}
         >
           {state.historyRefreshing && <div className="chat-refresh-overlay"><div className="chat-refresh-status" role="status"><span aria-hidden="true" />正在刷新对话…</div></div>}
           {!state.historyRefreshing && !visibleItems.some(item => item.kind === "message") && !state.thinking && (
@@ -483,6 +483,9 @@ function ChatView({
               {state.historyScope === "current" && <button type="button" onClick={() => changeScope("all")}>显示全部场景上下文</button>}
             </div>
           )}
+          <div className="history-page-control">
+            {historyWindow.loading && <div className="history-page-loading" role="status"><span aria-hidden="true" />正在加载更早的消息…</div>}
+          </div>
           {visibleItems.map((item) =>
             item.kind === "separator" ? (
               <div
@@ -611,7 +614,8 @@ function ChatView({
             {state.intelligentUIEnabled && <details className="iui-beta-demo"><summary>体验本地交互示例</summary><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></details>}
           </div>}
           <div id="input-row">
-            <RichComposer
+            <ChatComposer
+              state={state}
               key={state.currentScene.sceneId || "global"}
               textareaRef={composer}
               id="input"
@@ -620,11 +624,6 @@ function ChatView({
               placeholder="说点什么…"
               aria-label="message input"
               aria-keyshortcuts={isMac ? "Enter Control+Enter Meta+Enter Shift+Enter" : "Enter Control+Enter Shift+Enter"}
-              value={state.draft}
-              onChange={(value) => {
-                state.draft = value;
-                state.changed();
-              }}
               onCompositionStart={() => {
                 composing.current = true;
               }}

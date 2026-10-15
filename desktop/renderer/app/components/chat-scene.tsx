@@ -6,7 +6,7 @@ import type { HistoryScope } from "../../chat/models/scenes";
 import { PanelResizeHandle, usePanelWidth } from "../../shared/components/panel-resize";
 import { Dialog } from "../../shared/components/dialog";
 
-export function ChatSceneIndicator({ scene, sessions = [], activity = {}, connected, scope, scopeReady, onScope, showSbsMessages, sbsReady, onSbsVisibility, onCopy, onSession, visible = true, onReveal, createRequest = 0 }: {
+export function ChatSceneIndicator({ scene, sessions = [], activity = {}, connected, scope, scopeReady, onScope, onCopy, onSession, visible = true, onReveal, createRequest = 0 }: {
   createRequest?: number;
   activity?: Record<string, ChatSceneActivity>;
   visible?: boolean;
@@ -15,9 +15,6 @@ export function ChatSceneIndicator({ scene, sessions = [], activity = {}, connec
   sessions?: ChatScene[];
   onSession: (operation: "create" | "bind" | "select" | "rename" | "delete", value: string, sceneId?: string) => Promise<void>;
   connected: boolean;
-  showSbsMessages: boolean;
-  sbsReady: boolean;
-  onSbsVisibility: (show: boolean) => void;
   scope: HistoryScope;
   scopeReady: boolean;
   onScope: (scope: HistoryScope) => void;
@@ -164,11 +161,6 @@ export function ChatSceneIndicator({ scene, sessions = [], activity = {}, connec
           <input type="checkbox" checked={scope === "all"} disabled={!scopeReady || !scene}
             onChange={event => onScope(event.target.checked ? "all" : "current")} />
           <span>显示全部场景上下文</span>
-        </label>
-        <label className="chat-session-context-toggle" title={scope === "all" ? "显示全部场景时始终显示 SBS 消息" : "仅影响当前场景的显示，包含无场景的全局消息"}>
-          <input type="checkbox" checked={scope === "all" || showSbsMessages} disabled={scope === "all" || !sbsReady || !scene}
-            onChange={event => onSbsVisibility(event.target.checked)} />
-          <span>显示 SBS 消息</span>
         </label>
         {error && !editing && !deleting && <p role="alert" className="chat-session-error">{error}</p>}
 

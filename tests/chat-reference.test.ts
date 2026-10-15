@@ -119,3 +119,19 @@ it('requests one-click subagent enablement and waits for the trusted shell resul
   await expect(enabled).resolves.toBe(true);
   f.bridge.dispose();
 });
+
+it('publishes SBS activity changes to the header without repeating unchanged state and unsubscribes on close', () => {
+  const f = fixture();
+  const activity = () => f.parent.postMessage.mock.calls.map(call=>call[0]).filter(m=>m.type==='beings:sbs-activity');
+  expect(activity()).toEqual([{type:'beings:sbs-activity',origin:null,phase:null,revision:'fixture'}]);
+  f.state.sbsStreamingOrigin='callback';f.state.changed();f.state.changed();
+  expect(activity().at(-1)).toMatchObject({origin:'callback'});
+  expect(activity()).toHaveLength(2);
+  f.state.sbsActivityPhase='working';f.state.changed();f.state.changed();
+  expect(activity().at(-1)).toMatchObject({origin:'callback',phase:'working'});
+  expect(activity()).toHaveLength(3);
+  f.state.sbsStreamingOrigin=undefined;f.state.changed();
+  expect(activity().at(-1)).toMatchObject({origin:null});
+  f.bridge.dispose();f.state.sbsStreamingOrigin='callback';f.state.changed();
+  expect(activity()).toHaveLength(4);
+});

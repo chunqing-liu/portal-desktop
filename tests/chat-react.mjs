@@ -379,14 +379,14 @@ try {
   await frame.locator('#input').fill('hold'); await frame.locator('#send-btn').click(); await frame.locator('#send-btn.stop').waitFor();
   assert.equal(await frame.locator('.run-stop').count(), 0, 'Stop belongs in the composer');
   await frame.locator('#input').fill('   ');
-  assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '停止生成');
+  assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '停止处理');
   await frame.locator('#input').fill('继续补充');
-  assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '发送消息');
+  assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '立即打断并发送');
   await frame.locator('#input').fill('');
-  await frame.getByRole('button', {name:'停止生成',exact:true}).waitFor();
+  await frame.getByRole('button', {name:'停止处理',exact:true}).waitFor();
   await frame.locator('#file-input').setInputFiles({ name: 'splice.txt', mimeType: 'text/plain', buffer: Buffer.from('splice attachment') });
   await frame.locator('#pending-files.active').waitFor();
-  assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '发送消息', 'Attachments can be sent without text');
+  assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '立即打断并发送', 'Attachments can be sent without text');
   await frame.locator('#input').fill('additional input'); await frame.locator('#send-btn').click();
   await waitUntil(() => requests.at(-1)?.message === 'additional input', 'The interrupting message reaches the server');
   assert.equal(requests.at(-1).attachments[0].data, Buffer.from('splice attachment').toString('base64'));

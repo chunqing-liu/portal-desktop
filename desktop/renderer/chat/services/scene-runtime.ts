@@ -336,8 +336,11 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     for (const key of localKeys) {
       if (key !== "currentScene" && key !== "draft") (state as any)[key] = selected.local[key];
     }
-    // The transcript may contain an active background run in the all-scenes view.
-    state.streaming = [...sessions.values()].some(session => session.local.streaming);
+    // Transcript scope never changes which scene the composer can stop.
+    state.streaming = selected.runtime?.isSceneStreaming?.() ?? selected.local.streaming;
+    const autonomous = [...sessions.values()].find(session => session.runtime?.activeAutonomousOrigin?.());
+    state.sbsStreamingOrigin = autonomous?.runtime?.activeAutonomousOrigin?.();
+    state.sbsActivityPhase = autonomous?.runtime?.autonomousPhase?.();
     state.attachmentPending = sendQueue.some(next => next.session === selected && next.saved.attachment && next.saved.phase !== 'sending');
     state.sendWillQueue = sendQueue.length > 0 || [...sessions.values()].some(busy);
     state.canInterruptQueue = ![...sessions.values()].some(session => session !== selected && busy(session));
@@ -588,7 +591,10 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     const target = selected;
     if (target.local.stopping) return;
     const pending = sendQueue.filter(next => next.session === target && next.saved.attachment && next.saved.phase !== 'sending');
-    if (!pending.length) return target.runtime.stopCurrentTurn();
+    if (!pending.length) {
+      if (target.runtime.isSceneStreaming && !target.runtime.isSceneStreaming()) return;
+      return target.runtime.stopCurrentTurn();
+    }
     target.local.stopping = true; publish();
     try {
       // Abort every selected-scene attachment synchronously before awaiting persistence.
@@ -601,7 +607,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       selected.local.files = state.files;
       return selected.runtime[method](...args);
     };
-  for (const method of ["loadLlmConfig", "applyConfigChange", "toggleSbs", "loadSbsState", "request", "revealHistory"])
+  for (const method of ["loadLlmConfig", "applyConfigChange", "toggleSbs", "loadSbsState", "request", "revealHistory", "loadOlderHistory"])
     runtime[method] = (...args: any[]) => owner.runtime[method](...args);
   return runtime as ChatRuntime;
 }

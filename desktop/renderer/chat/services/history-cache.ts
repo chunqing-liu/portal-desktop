@@ -102,6 +102,21 @@ export class HistoryCache {
     } catch { return null; }
   }
 
+  /** Page backwards without moving the forward synchronization cursor. */
+  async readBefore(before:number,limit:number,include:(message:HistoryMessage)=>boolean=()=>true):Promise<HistoryMessage[]> {
+    try {
+      const db=await this.open();if(!db || this.closed)return [];
+      const tx=db.transaction('messages','readonly'),done=transactionDone(tx),messages:HistoryMessage[]=[];
+      const cursor=tx.objectStore('messages').openCursor(Number.isFinite(before)?IDBKeyRange.upperBound(before,true):null,'prev');
+      cursor.onsuccess=()=>{
+        if(!cursor.result || messages.length>=limit)return;
+        if(include(cursor.result.value))messages.push(cursor.result.value);
+        cursor.result.continue();
+      };
+      await done;return messages.reverse();
+    }catch{return [];}
+  }
+
   /** Read every cached row in a room without changing the global sync cursor. */
   async readScene(sceneId: string, limit = Infinity): Promise<HistoryMessage[]> {
     try {

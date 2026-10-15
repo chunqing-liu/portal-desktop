@@ -42,7 +42,7 @@ export function ChatActivity({
   run: Run;
   sceneLabel?: string;
 }) {
-  const [open, setOpen] = useState(!run.end),
+  const [open, setOpen] = useState(false),
     [now, setNow] = useState(Date.now);
   const passive = run.waitingForReply && !run.scheduling?.tasks.some(task => task.status === 'running' || task.status === 'queued');
   const status = run.status || run.outcome || (passive ? "waiting" : "thinking");
@@ -62,6 +62,7 @@ export function ChatActivity({
       className={`run-activity${run.end || passive ? "" : " running"}`}
       data-outcome={run.outcome}
       data-status={status}
+      data-autonomous-origin={run.autonomousOrigin}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
@@ -82,7 +83,9 @@ export function ChatActivity({
           <span className="run-label" title={run.hint || run.arg}>
             {run.label}
           </span>
-          {sceneLabel && <span className="message-scene" title={run.sceneId}>{sceneLabel}</span>}
+          {run.autonomousOrigin
+            ? <span className="message-scene" title="后台自主活动，与当前场景对话分别显示">{run.autonomousOrigin === 'callback' ? 'SBS 自主回调' : 'SBS 自主活动'}</span>
+            : sceneLabel && <span className="message-scene" title={run.sceneId}>{sceneLabel}</span>}
           <span className="run-elapsed" hidden={passive}>
             总耗时 {" "}
             {duration(

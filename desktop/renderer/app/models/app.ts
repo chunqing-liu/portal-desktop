@@ -46,6 +46,8 @@ export class AppModel extends Store {
   chatHistoryScope: HistoryScope = "current";
   chatHistoryScopeKnown = false;
   chatShowSbsMessages = false;
+  chatSbsOrigin?: string;
+  chatSbsPhase?: string;
   chatSbsSceneId?: string;
   chatSessionCreateRequest = 0;
   chatSceneActivity: Record<string, ChatSceneActivity> = {};
@@ -313,16 +315,19 @@ export class AppModel extends Store {
     this.changed();
   };
   applySnapshot(next: Snapshot, reload = false) {
-    const sameChat = Boolean(this.chatSource &&
+    const sameBeing = Boolean(this.chatSource &&
       this.snapshot?.settings.endpoint === next.settings.endpoint &&
-      this.snapshot?.settings.being === next.settings.being &&
-      this.snapshot?.chatScene?.scene_id === next.chatScene?.scene_id);
+      this.snapshot?.settings.being === next.settings.being);
+    const sameChat = sameBeing && this.snapshot?.chatScene?.scene_id === next.chatScene?.scene_id;
     if (reload || !next.settings.hasToken || (this.snapshot && next.settings.endpoint !== this.snapshot.settings.endpoint)) {
       this.logsRequest = "";
       this.logsLoading = false;
     }
     reload ||= Boolean(this.snapshot && next.settings.endpoint !== this.snapshot.settings.endpoint);
     if (!sameChat || reload) this.chatSbsSceneId = undefined;
+    // SBS belongs to the Being, not the selected room. The existing bridge
+    // only publishes changes, so a scene switch must retain its last status.
+    if (!sameBeing || reload) { this.chatSbsOrigin = undefined; this.chatSbsPhase = undefined; }
     this.snapshot = next;
     this.workspace.snapshot(next);
     if (next.settings.hasToken && (!this.chatSource || reload)) {
@@ -339,6 +344,7 @@ export class AppModel extends Store {
       }
     }
     if (!next.settings.hasToken) {
+      this.chatSbsOrigin = undefined; this.chatSbsPhase = undefined;
       this.chatSceneActivity = {};
       this.readSceneReplies.clear();
       this.sbsKnown = false;

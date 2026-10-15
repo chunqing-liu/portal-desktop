@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {ChatState} from '../desktop/renderer/chat/models/chat';
 import {createChatRuntime} from '../desktop/renderer/chat/services/runtime';
+import {sceneItems} from '../desktop/renderer/chat/models/scenes';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -59,6 +60,13 @@ it.each(['callback', 'beating'])('discovers SBS %s while idle, lets a room inter
     f.setActive(active);
     await vi.advanceTimersByTimeAsync(10020);
     expect(f.state.items.some(i=>i.kind==='message' && i.text==='SBS progress' && !i.sceneId)).toBe(true);
+    expect(f.state.streaming).toBe(false);
+    expect(f.state.sbsStreamingOrigin).toBe(origin);
+    expect(f.state.items.find(i=>i.kind==='run' && !i.sceneId)).toMatchObject({autonomousOrigin:origin});
+    f.state.historyScope = 'all';
+    f.state.changed();
+    await f.runtime.stopCurrentTurn();
+    expect(f.fetcher.mock.calls.some(([url])=>new URL(url).pathname==='/api/stop')).toBe(false);
     f.setPost(()=>Response.json({queued:true},{status:202}));
     await f.runtime.send('human interrupt');
     await vi.advanceTimersByTimeAsync(20);
@@ -66,13 +74,117 @@ it.each(['callback', 'beating'])('discovers SBS %s while idle, lets a room inter
     expect(f.state.items.find(i=>i.kind==='run' && i.sceneId==='room')).toMatchObject({label:
       `${origin === 'callback' ? 'SBS 自主回调进行中；' : 'SBS 自主处理进行中；'}消息已接收，正在切换到当前对话…`});
     expect(f.state.items.some(i=>i.kind==='message' && i.queued)).toBe(false);
-    f.setActive({...active,next_seq:5,events:[
+    f.setActive({...active,next_seq:4,events:[
       {seq:3,event:'content_block_delta',data:{scene_id:'room',delta:{text:'human reply'}}},
+    ]});
+    await vi.advanceTimersByTimeAsync(500);
+    expect(f.state.streaming).toBe(true);
+    expect(f.state.sbsStreamingOrigin).toBeUndefined();
+    expect(f.state.items.find(i=>i.kind==='run' && !i.sceneId)).toMatchObject({end:expect.any(Number),label:'已切换到场景对话'});
+    expect(f.state.items.filter(i=>i.kind==='run' && !i.end)).toHaveLength(1);
+    f.setActive({...active,next_seq:5,events:[
       {seq:4,event:'message_stop',data:{scene_id:'room'}},
     ]});
     await vi.advanceTimersByTimeAsync(5000);
     expect(f.state.items.filter(i=>i.kind==='message' && i.text==='human reply')).toHaveLength(1);
     expect(f.state.items.find(i=>i.kind==='run' && i.sceneId==='room')).toMatchObject({outcome:'done'});
+    expect(f.state.streaming).toBe(false);
+    // A later autonomous segment reuses the same aggregate activity record.
+    f.setActive({...active,next_seq:6,events:[
+      {seq:5,event:'reasoning',data:{scene_id:null,text:'SBS resumes'}},
+    ]});
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.state.sbsStreamingOrigin).toBe(origin);
+    expect(f.state.streaming).toBe(false);
+    expect(f.state.items.filter(i=>i.kind==='run' && !i.end)).toHaveLength(1);
+    f.setActive({...active,finished:true,next_seq:7,events:[
+      {seq:6,event:'message_stop',data:{scene_id:null}},
+    ]});
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.state.sbsStreamingOrigin).toBeUndefined();
+    expect(f.state.items.filter(i=>i.kind==='run' && !i.end)).toHaveLength(0);
+  } finally {f.runtime.dispose();}
+});
+
+it('aggregates callback continuations and tool failures within one stream, but separates the next callback', async () => {
+  const f = await fixture();
+  try {
+    const active = {stream_id:'callback-one',origin:'callback',scene_id:null,finished:false,next_seq:4,events:[
+      {seq:1,event:'tool_use',data:{scene_id:null,name:'first'}},
+      {seq:2,event:'tool_result',data:{scene_id:null,is_error:true,content:'failed'}},
+      {seq:3,event:'message_stop',data:{scene_id:null}},
+    ]};
+    f.setActive(active);
+    await vi.advanceTimersByTimeAsync(10020);
+    const first = f.state.items.find(i=>i.kind==='run')!;
+    expect(first).toMatchObject({end:expect.any(Number),streamId:'callback-one'});
+    const start = first.kind==='run' ? first.start : 0;
+    f.setActive({...active,next_seq:5,events:[
+      {seq:4,event:'tool_use',data:{scene_id:null,name:'second'}},
+    ]});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.state.items.filter(i=>i.kind==='run')).toEqual([first]);
+    expect(first).toMatchObject({end:undefined,start,entries:expect.arrayContaining([
+      expect.objectContaining({name:'first',error:true}), expect.objectContaining({name:'second'})
+    ])});
+    expect(f.state.streaming).toBe(false);
+    f.setActive({...active,finished:true,next_seq:8,events:[
+      {seq:5,event:'tool_result',data:{scene_id:null,content:'done'}},
+      {seq:6,event:'content_block_delta',data:{scene_id:null,delta:{text:'callback result'}}},
+      {seq:7,event:'message_stop',data:{scene_id:null}},
+    ]});
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.state.items.filter(i=>i.kind==='run')).toEqual([first]);
+    expect(first).toMatchObject({end:expect.any(Number),start});
+    expect(first.kind==='run' && first.entries.filter(e=>e.type==='tool')).toHaveLength(2);
+    f.setActive({stream_id:'callback-two',origin:'callback',scene_id:null,finished:false,next_seq:2,events:[
+      {seq:1,event:'reasoning',data:{scene_id:null,text:'separate callback'}},
+    ]});
+    await vi.advanceTimersByTimeAsync(10020);
+    const runs=f.state.items.filter(i=>i.kind==='run');
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatchObject({streamId:'callback-two',entries:[expect.objectContaining({type:'think'})]});
+  } finally {f.runtime.dispose();}
+});
+
+it('identifies SBS before its first delta even when the discovery response omits scene_id', async () => {
+  const f = await fixture();
+  try {
+    f.setActive({stream_id:'sbs-empty',origin:'callback',finished:false,next_seq:1,events:[]});
+    await vi.advanceTimersByTimeAsync(10020);
+    expect(f.state.sbsStreamingOrigin).toBe('callback');
+    expect(f.state.streaming).toBe(false);
+    expect(f.state.items.filter(i=>i.kind==='run' && i.sceneId==='room')).toHaveLength(0);
+    await f.runtime.stopCurrentTurn();
+    expect(f.fetcher.mock.calls.some(([url])=>new URL(url).pathname==='/api/stop')).toBe(false);
+  } finally {f.runtime.dispose();}
+});
+
+it('hands off SBS status even before its first autonomous progress event', async () => {
+  const f = await fixture();
+  try {
+    const active = {stream_id:'sbs-pending',origin:'callback',scene_id:null,finished:false,next_seq:1,events:[]};
+    f.setActive(active);
+    await vi.advanceTimersByTimeAsync(10020);
+    expect(f.state.sbsStreamingOrigin).toBe('callback');
+    f.setActive({...active,next_seq:2,events:[
+      {seq:1,event:'reasoning',data:{scene_id:'room',text:'working on room reply'}},
+    ]});
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f.state.sbsStreamingOrigin).toBeUndefined();
+    expect(f.state.streaming).toBe(true);
+  } finally {f.runtime.dispose();}
+});
+
+it('uses the explicit room identity for a scene reply on an SBS-origin transport', async () => {
+  const f = await fixture();
+  try {
+    f.setActive({stream_id:'sbs-addressed',origin:'callback',scene_id:'room',finished:false,next_seq:2,
+      events:[{seq:1,event:'reasoning',data:{scene_id:'room',text:'room work'}}]});
+    await vi.advanceTimersByTimeAsync(10020);
+    expect(f.state.streaming).toBe(true);
+    expect(f.state.sbsStreamingOrigin).toBeUndefined();
+    expect(f.state.items.find(i=>i.kind==='run')).toMatchObject({sceneId:'room',autonomousOrigin:undefined});
   } finally {f.runtime.dispose();}
 });
 
@@ -286,6 +398,17 @@ it.each([true, false])('shows an ordinary interrupt only on continuation and rec
     await vi.advanceTimersByTimeAsync(20);
     expect(markers()).toHaveLength(1);
     expect(markers()[0]).toMatchObject({historySeq:1});
+  } finally {f.runtime.dispose();}
+});
+
+it('keeps unaddressed persisted handoffs out of the current room SBS view', async () => {
+  const f = await fixture();
+  try {
+    f.history.push({seq:1,from:'system',type:'marker',content:'[breath yielded]',at:new Date().toISOString()});
+    await f.runtime.refreshHistory();
+    expect(f.state.items.find(i=>i.kind==='separator' && i.marker)).toMatchObject({handoffMarker:true});
+    expect(sceneItems(f.state.items,'current',{sceneId:'room',strict:true},true).some(i=>i.kind==='separator' && i.marker)).toBe(false);
+    expect(sceneItems(f.state.items,'all',{sceneId:'room'},true).some(i=>i.kind==='separator' && i.marker)).toBe(true);
   } finally {f.runtime.dispose();}
 });
 

@@ -1,3 +1,4 @@
+import { SbsControl } from "../../shared/components/sbs-control";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AppModel } from "../models/app";
@@ -157,9 +158,6 @@ export function Topbar({ model }: { model: AppModel }) {
         activity={app.chatSceneActivity}
         onSession={(operation, value, sceneId) => app.changeChatSession(operation, value, sceneId)}
         connected={hasToken}
-        showSbsMessages={app.chatShowSbsMessages}
-        sbsReady={hasToken && !app.chatLoading && !!app.chatSbsSceneId && app.chatSbsSceneId === app.snapshot?.chatScene?.scene_id}
-        onSbsVisibility={show => app.changeChatSbsVisibility(show)}
         scope={app.chatHistoryScope}
         scopeReady={hasToken && !app.chatLoading && app.chatHistoryScopeKnown}
         onScope={(scope) => app.changeChatHistoryScope(scope)}
@@ -176,11 +174,10 @@ export function Topbar({ model }: { model: AppModel }) {
         <span id="conversation-name">
           {town.displayName || app.snapshot?.settings.being || "Being"}
         </span>
-        <button className={`sbs-header-switch${app.sbsKnown && app.sbsEnabled ? ' enabled' : ''}`} aria-label="SBS 自主呼吸" aria-pressed={app.sbsKnown ? app.sbsEnabled : undefined}
-          title={app.sbsKnown ? (app.sbsEnabled ? 'SBS 自主呼吸已开启' : 'SBS 自主呼吸已关闭') : 'SBS 状态同步中'}
-          disabled={!hasToken || !app.sbsKnown || app.chatLoading} onClick={()=>app.toggleSbs()}>
-          <span className="sbs-header-dot" aria-hidden="true" />
-        </button>
+        <SbsControl known={hasToken && app.sbsKnown && !app.chatLoading} enabled={app.sbsEnabled}
+          origin={app.chatSbsOrigin} phase={app.chatSbsPhase} showContent={app.chatShowSbsMessages} allScenes={app.chatHistoryScope==='all'}
+          visibilityReady={hasToken && !app.chatLoading && !!app.chatSbsSceneId && app.chatSbsSceneId===app.snapshot?.chatScene?.scene_id}
+          onVisibility={show=>app.changeChatSbsVisibility(show)} onToggle={()=>app.toggleSbs()} />
       </div>
       <div className="topbar-actions">
         <button

@@ -135,6 +135,13 @@ export function useChatBridge(
         else if (message.known === false) app.setSbsEnabled();
         return;
       }
+      if (message.type === 'beings:sbs-activity') {
+        if (message.origin !== null && (typeof message.origin !== 'string' || message.origin.length > 64)) return;
+        app.chatSbsOrigin = message.origin || undefined;
+        app.chatSbsPhase = app.chatSbsOrigin && ["thinking", "working", "replying"].includes(message.phase) ? message.phase : undefined;
+        app.changed();
+        return;
+      }
       if (
         message.type === "beings:open-settings" &&
         !document.querySelector("dialog[open]")

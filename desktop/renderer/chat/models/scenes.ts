@@ -56,10 +56,20 @@ export function isGlobalBeingMessage(item: ChatItem): boolean {
 }
 
 export function sceneItems(items: ChatItem[], scope: HistoryScope, current: MessageScene, showSbsMessages = true): ChatItem[] {
+  // Autonomous process records live in the header; keep their data for recovery.
+  if (items.some(item => item.kind === "run" && item.autonomousOrigin))
+    items = items.filter(item => item.kind !== "run" || !item.autonomousOrigin);
   if (scope === "all") return items;
-  if (!showSbsMessages) items = items.filter(item => !isGlobalBeingMessage(item) && !(!item.sceneId && (item.kind === "run" || (item.kind === "separator" && item.marker === true))));
+  // A yield announces a transition to a particular conversation, not an SBS
+  // message shared by every room. Without a destination, keep it in all-scenes.
+  if (current.sceneId) items = items.filter(item =>
+    !(item.kind === 'separator' && item.handoffMarker && !item.sceneId));
+  // The SBS switch controls shared reply content, independently of header activity.
+  const shared = (item: ChatItem) => isGlobalBeingMessage(item) ||
+    (!item.sceneId && (item.kind === "run" || (item.kind === "separator" && item.marker === true)));
+  if (!showSbsMessages) items = items.filter(item => !shared(item));
   return scope === "current" && current.sceneId
-    ? items.filter(item => inCurrentScene(item, current) || isGlobalBeingMessage(item) || (!item.sceneId && item.kind === "separator" && item.marker === true))
+    ? items.filter(item => inCurrentScene(item, current) || shared(item))
     : items;
 }
 

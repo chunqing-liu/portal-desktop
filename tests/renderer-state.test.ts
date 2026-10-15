@@ -1363,3 +1363,24 @@ describe("pending work on renderer disposal", () => {
     stopAgain();
   });
 });
+
+it('retains Being-wide SBS status through scene switches and clears it on reload or identity change', () => {
+  const app = new AppModel(api().value);
+  const initial = {...state(),chatScene:{scene_id:'room-a',scene_meta:{client:'desktop',scene_label:'A'}}};
+  app.applySnapshot(initial);
+  const source=app.chatSource;
+  app.chatSbsOrigin='callback';app.chatSbsPhase='working';
+  for(const scene_id of ['room-b','room-a','room-c']) {
+    app.applySnapshot({...initial,chatScene:{...initial.chatScene,scene_id}});
+    expect(app.chatSource).toBe(source);
+    expect(app.chatSbsOrigin).toBe('callback');
+    expect(app.chatSbsPhase).toBe('working');
+  }
+  app.applySnapshot(initial,true);
+  expect(app.chatSbsOrigin).toBeUndefined();
+  expect(app.chatSbsPhase).toBeUndefined();
+  app.chatSbsOrigin='callback';app.chatSbsPhase='thinking';
+  app.applySnapshot({...initial,settings:state('river').settings});
+  expect(app.chatSbsOrigin).toBeUndefined();
+  expect(app.chatSbsPhase).toBeUndefined();
+});

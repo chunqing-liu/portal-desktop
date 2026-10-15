@@ -1,3 +1,4 @@
+@import "../shared/components/sbs-control.css";
 @import "../shared/typography.css";
 @import "../shared/model-settings.css";
 /* Suppress native focus rings; controls retain their explicit focus styles. */
@@ -1078,3 +1079,4 @@ html[data-platform=darwin] .client-image-viewer { padding-top:112px; }
 .xlsx-cell-value { display:flex; gap:16px; padding:8px 12px; border-bottom:1px solid var(--line); font-size:12px; max-height:80px; overflow:auto; user-select:text; }
 .xlsx-cell-value span { overflow-wrap:anywhere; }
 .xlsx-limit { margin:0; padding:8px 12px; font-size:12px; color:var(--secondary); }
+@container stage (max-width:620px){.workspace-stage .pair-name{display:flex;grid-column:1;justify-content:flex-start}.workspace-stage .pair-name>span{display:none}}

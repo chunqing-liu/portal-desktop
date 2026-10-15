@@ -29,7 +29,7 @@ try{
   await page.goto(`http://127.0.0.1:${server.address().port}/loom.html?scene_id=queue-test&scene_strict=1`);
   const input=page.getByRole('textbox',{name:'message input'});
   await input.fill('开始任务');await input.press('Enter');
-  await page.getByRole('button',{name:'停止生成',exact:true}).waitFor();
+  await page.getByRole('button',{name:'停止处理',exact:true}).waitFor();
   await input.fill('稍后发送');await input.press('Control+Enter');
   await page.locator('.composer-queue-item').filter({hasText:'稍后发送'}).waitFor();
   await input.fill('优先处理');await page.getByRole('button',{name:'加入队列',exact:true}).click();
