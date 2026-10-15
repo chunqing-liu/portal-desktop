@@ -23,12 +23,12 @@ const bundle = await build({
       createRoot(document.getElementById('root')).render(<Topbar model={model} />);`,
     resolveDir: process.cwd(), loader: 'tsx',
   },
-  bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic',
+  bundle: true, write: false, outfile: 'menu.js', format: 'iife', platform: 'browser', jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' },
 });
-const css = await readShellStyles();
+const css = await readShellStyles() + '\n' + (bundle.outputFiles.find(file => file.path.endsWith('.css'))?.text || '');
 const server = createServer((request, response) => {
-  if (request.url === '/menu.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles[0].contents); return; }
+  if (request.url === '/menu.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles.find(file => file.path.endsWith('.js')).contents); return; }
   if (request.url === '/app.css') { response.setHeader('Content-Type', 'text/css'); response.end(css); return; }
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
   response.end('<!doctype html><link rel="stylesheet" href="/app.css"><div id="root"></div><button id="outside" style="position:fixed;right:24px;top:24px">Outside</button><script src="/menu.js"></script>');
