@@ -55,9 +55,9 @@ export interface SceneTask { id: string; sceneId: string; status: "queued" | "ru
 export interface SceneTaskSnapshot { endpoint: string; tasks: SceneTask[]; subagentReady?: boolean; subagentConfigured?: boolean; subagentEnabled?: boolean }
 export interface Snapshot { settings: Settings; portal: PortalState; background?: BackgroundState; chatScene?: ChatScene; chatSessions?: ChatScene[]; notice?: string }
 export interface ClientStartup { supported: boolean; enabled: boolean; message: string }
-export interface NotificationPreferences { enabled: boolean; mail: boolean; firesides: boolean; bonfire: boolean }
+export interface NotificationPreferences { enabled: boolean; mail: boolean; firesides: boolean; bonfire: boolean; scenes: boolean }
 export interface NotificationSettings { preferences: NotificationPreferences; supported: boolean; message: string }
-export interface NotificationTarget { channel: TownChannel; firesideId?: string }
+export type NotificationTarget = { channel: TownChannel; firesideId?: string } | { channel: 'scenes'; sceneId: string; endpoint: string };
 export interface BrowserState { open: boolean; address: string; title: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; error?: string }
 export interface DiagnosticReport { version: string; build: string; platform: string; pid: number; startedAt: string; checkedAt: string; checks: { name: string; status: 'ok' | 'warning' | 'error'; detail: string }[]; logs: string[] }
 export interface BrowserBounds { x: number; y: number; width: number; height: number; visible: boolean }
@@ -75,6 +75,7 @@ export interface DesktopAPI {
   clientStartup(enabled?: boolean): Promise<ClientStartup>;
   notifications(patch?: Partial<NotificationPreferences>): Promise<NotificationSettings>;
   testNotification(): Promise<void>;
+  notifySceneActivity(endpoint: string, activity: Record<string, ChatSceneActivity>): Promise<void>;
   takeNotificationTarget(): Promise<NotificationTarget | null>;
   onNotificationOpen(callback: () => void): () => void;
   quit(): Promise<void>;

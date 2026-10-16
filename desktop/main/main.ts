@@ -373,9 +373,17 @@ async function ready() {
   }));
   if (!app.isPackaged && MAIN_WINDOW_VITE_DEV_SERVER_URL)
     handle('beings:notification-test', () => notifications.test());
+  handle('beings:scene-notification', (endpoint: unknown, activity: unknown) => {
+    if (typeof endpoint !== 'string' || endpoint !== store.connection?.endpoint || !activity || typeof activity !== 'object' || Array.isArray(activity)) return;
+    const entries = Object.entries(activity);
+    const allowed = new Set(['queued','thinking','replying','working','waiting','reconnecting','timeout','done','error','stopped']);
+    if (entries.length > 500 || !entries.every(([id,status]) => id.length > 0 && id.length <= 256 && typeof status === 'string' && allowed.has(status))) return;
+    notifications.receiveSceneActivity(endpoint, activity as Record<string, import('../shared/types').ChatSceneActivity>);
+  });
   handle('beings:notification-target', () => {
     const pending = pendingNotification;
     pendingNotification = undefined;
+    if (pending?.target.channel === 'scenes' && pending.target.endpoint !== store.connection?.endpoint) return null;
     return pending?.generation === townLive.state.generation ? pending.target : null;
   });
   handle('beings:quit', () => { setImmediate(() => app.quit()); });

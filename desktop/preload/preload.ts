@@ -36,6 +36,7 @@ const api: DesktopAPI = {
   clientStartup: enabled => ipcRenderer.invoke('beings:client-startup', enabled),
   notifications: patch => ipcRenderer.invoke('beings:notifications', patch),
   testNotification: () => ipcRenderer.invoke('beings:notification-test'),
+  notifySceneActivity: (endpoint, activity) => ipcRenderer.invoke('beings:scene-notification', endpoint, activity),
   takeNotificationTarget: () => ipcRenderer.invoke('beings:notification-target'),
   onNotificationOpen: callback => {
     const listener = () => callback();

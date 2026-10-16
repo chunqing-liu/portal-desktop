@@ -53,6 +53,8 @@ export class AppModel extends Store {
   chatSceneActivity: Record<string, ChatSceneActivity> = {};
   private readSceneReplies = new Set<string>();
   setChatSceneActivity(activity: Record<string, ChatSceneActivity>) {
+    const endpoint = this.snapshot?.settings.endpoint;
+    if (endpoint) void this.api.notifySceneActivity?.(endpoint, activity).catch(() => {});
     for (const id of this.readSceneReplies) if (activity[id] !== "done") this.readSceneReplies.delete(id);
     const current = this.snapshot?.chatScene?.scene_id;
     if (this.view === "chat" && this.chatHistoryScope === "current" && current && activity[current] === "done") this.readSceneReplies.add(current);
@@ -645,6 +647,12 @@ export class AppModel extends Store {
       this.closeSettings();
       this.diagnosticsOpen = false;
       this.searchOpen = false;
+      if (target.channel === "scenes") {
+        if (target.endpoint !== this.snapshot?.settings.endpoint) return;
+        await this.changeChatSession("select", target.sceneId);
+        this.navigate("chat");
+        return;
+      }
       if (target.channel === "mail") this.town.tabs.mail = "inbox";
       if (target.channel === "firesides") {
         if (target.firesideId) this.town.selectedRing = target.firesideId;

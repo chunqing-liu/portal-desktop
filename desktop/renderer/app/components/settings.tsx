@@ -285,6 +285,7 @@ export function ClientSettings({ model }: { model: AppModel }) {
                 ["mail", "私信", "私信通知"],
                 ["firesides", "围炉", "围炉通知"],
                 ["bonfire", "篝火", "篝火通知"],
+                ["scenes", "场景对话完成", "场景对话完成通知"],
               ] as const).map(([key, title, help]) => (
                 <label key={key}>
                   <span>{title}</span>

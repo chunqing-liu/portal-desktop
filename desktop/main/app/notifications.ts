@@ -1,8 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { NotificationPreferences, NotificationSettings, NotificationTarget } from '../../shared/types';
+import type { ChatSceneActivity, NotificationPreferences, NotificationSettings, NotificationTarget } from '../../shared/types';
 
-const defaults: NotificationPreferences = { enabled: false, mail: false, firesides: false, bonfire: false };
+const defaults: NotificationPreferences = { enabled: false, mail: false, firesides: false, bonfire: false, scenes: false };
 export interface NativeNotification {
   on(event: 'click' | 'close' | 'failed', callback: () => void): unknown;
   show(): void;
@@ -20,6 +20,8 @@ interface Options {
 export class DesktopNotifications {
   private preferences = { ...defaults };
   private warning = '';
+  private sceneEndpoint = '';
+  private processingScenes = new Set<string>();
   private generation = -1;
   private active = new Map<NativeNotification, NotificationTarget | undefined>();
   private recent = new Map<string, number>();
@@ -44,7 +46,7 @@ export class DesktopNotifications {
   get state(): NotificationSettings {
     const supported = this.options.supported();
     return { preferences: { ...this.preferences }, supported, message: this.warning || (supported
-      ? '后台提醒，不展示正文。需配对 Town 并允许系统通知。'
+      ? '后台提醒，不展示正文。请允许系统通知；私信、围炉和篝火需配对 Town。'
       : '当前系统暂不支持桌面通知。') };
   }
   async save(patch: unknown) {
@@ -63,6 +65,7 @@ export class DesktopNotifications {
   reset(generation: number) {
     if (this.generation === generation) return;
     this.generation = generation;
+    this.processingScenes.clear();
     this.clear();
   }
   clear() {
@@ -73,20 +76,38 @@ export class DesktopNotifications {
     this.active.delete(notification);
     try { notification.close(); } catch { /* OS may already have dismissed it. */ }
   }
+  receiveSceneActivity(endpoint: string, activity: Record<string, ChatSceneActivity>) {
+    if (endpoint !== this.sceneEndpoint) { this.sceneEndpoint = endpoint; this.processingScenes.clear(); }
+    for (const sceneId of this.processingScenes) if (!Object.hasOwn(activity,sceneId)) this.processingScenes.delete(sceneId);
+    for (const [sceneId, status] of Object.entries(activity)) {
+      if (['thinking','replying','working','waiting'].includes(status)) this.processingScenes.add(sceneId);
+      else if (status !== 'reconnecting') {
+        const completed = status === 'done' && this.processingScenes.has(sceneId);
+        this.processingScenes.delete(sceneId);
+        if (completed) this.receive({channel:'scenes', sceneId, endpoint});
+      }
+    }
+  }
   receive(target: NotificationTarget) {
     if (!this.preferences.enabled || !this.preferences[target.channel] || !this.options.supported() || this.options.focused()) return;
     const now = (this.options.now || Date.now)();
-    // Bound bursts per channel without timers or deferred notifications after disabling.
-    const last = this.recent.get(target.channel);
-    if (last !== undefined && now - last < 5000) return;
-    this.recent.set(target.channel, now);
+    // Town channels throttle bursts; scene completion is deduplicated by its state transition.
+    const key = target.channel === 'scenes' ? JSON.stringify([target.channel,target.endpoint,target.sceneId]) : target.channel;
+    const last = this.recent.get(key);
+    if (target.channel !== 'scenes' && last !== undefined && now - last < 5000) return;
+    this.recent.set(key, now);
+    if (this.recent.size > 500) this.recent.delete(this.recent.keys().next().value!);
+    if (target.channel === 'scenes') {
+      this.show({title:'场景对话完成',body:'场景对话已处理完成，点击查看回复。'}, target);
+      return;
+    }
     const label = { mail: '私信', firesides: '围炉', bonfire: '篝火' }[target.channel];
     this.show({ title: label, body: `收到新的${label}消息，点击查看。` }, target);
   }
   test() {
     if (!this.preferences.enabled) throw new Error('请先开启桌面通知。');
     if (!this.options.supported()) throw new Error('当前系统暂不支持桌面通知。');
-    if (!this.show({ title: '测试通知', body: '桌面通知已送出。你可以分别设置私信、围炉和篝火提醒。' }))
+    if (!this.show({ title: '测试通知', body: '桌面通知已送出。你可以分别设置私信、围炉、篝火和场景对话完成提醒。' }))
       throw new Error(this.warning);
   }
   private show(content: { title: string; body: string }, target?: NotificationTarget) {

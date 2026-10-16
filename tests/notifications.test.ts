@@ -24,7 +24,7 @@ async function fixture() {
 }
 it('persists independent preferences before Being pairing, validates patches and preserves disabled categories', async () => {
   const { service, directory, options } = await fixture();
-  expect(service.state.preferences).toEqual({ enabled: false, mail: false, firesides: false, bonfire: false });
+  expect(service.state.preferences).toEqual({ enabled: false, mail: false, firesides: false, bonfire: false, scenes: false });
   await service.save({ enabled: true, mail: true, firesides: false });
   await service.save({ enabled: false });
   const restored = new DesktopNotifications(directory, options); await restored.load();
@@ -81,12 +81,12 @@ it('allows foreground test notifications and handles native failures without thr
   options.focused.mockReturnValue(false); options.create.mockImplementation(() => { throw new Error('OS failed'); });
   expect(() => service.receive({ channel: 'mail' })).not.toThrow();
 });
-it.each(['enabled', 'mail', 'firesides', 'bonfire'] as const)('keeps the %s switch checked during a slow save and blocks duplicate writes', async key => {
+it.each(['enabled', 'mail', 'firesides', 'bonfire', 'scenes'] as const)('keeps the %s switch checked during a slow save and blocks duplicate writes', async key => {
   let finish!: (settings: NotificationSettings) => void;
   const notifications = vi.fn(() => new Promise<NotificationSettings>(resolve => { finish = resolve; }));
   const model = new AppModel({ notifications } as unknown as DesktopAPI);
   model.notificationSettings = { supported: true, message: '',
-    preferences: { enabled: key !== 'enabled', mail: false, firesides: false, bonfire: false } };
+    preferences: { enabled: key !== 'enabled', mail: false, firesides: false, bonfire: false, scenes: false } };
   const saving = model.changeNotifications({ [key]: true });
   expect(model.notificationSettings.preferences[key]).toBe(true);
   expect(model.notificationsBusy).toBe(true);
@@ -101,7 +101,7 @@ it.each(['enabled', 'mail', 'firesides', 'bonfire'] as const)('keeps the %s swit
 it('restores the saved notification settings and shows an error if persistence fails', async () => {
   let fail!: (error: Error) => void;
   const model = new AppModel({ notifications: () => new Promise<NotificationSettings>((_, reject) => { fail = reject; }) } as unknown as DesktopAPI);
-  const previous = { supported: true, message: '', preferences: { enabled: true, mail: true, firesides: false, bonfire: false } };
+  const previous = { supported: true, message: '', preferences: { enabled: true, mail: true, firesides: false, bonfire: false, scenes: false } };
   model.notificationSettings = previous;
   const saving = model.changeNotifications({ mail: false });
   expect(model.notificationSettings.preferences.mail).toBe(false);
@@ -127,4 +127,94 @@ it('opens pending notifications after initialization, choosing the inbox instead
   await model.initialize(); expect(show).toHaveBeenLastCalledWith('firesides', undefined);
   expect(model.town.selectedRing).toBe('42');
   expect(model.town.ringSearch).toBe('');
+});
+
+it('notifies once on scene completion, excludes restored history and failures, and separates simultaneous scenes', async () => {
+  const { service, options, created } = await fixture();
+  await service.save({enabled:true, scenes:true});
+  const endpoint='https://example.test/alice';
+  service.receiveSceneActivity(endpoint,{old:'done'});
+  expect(created).toHaveLength(0);
+  service.receiveSceneActivity(endpoint,{a:'working',b:'replying',c:'thinking'});
+  service.receiveSceneActivity(endpoint,{a:'done',b:'done',c:'error'});
+  service.receiveSceneActivity(endpoint,{a:'done',b:'done',c:'error'});
+  expect(created).toHaveLength(2);
+  expect(options.create).toHaveBeenCalledWith({title:'场景对话完成',body:'场景对话已处理完成，点击查看回复。'});
+  created[0].emit('click');
+  expect(options.open).toHaveBeenCalledWith({channel:'scenes',sceneId:'a',endpoint});
+  service.receiveSceneActivity(endpoint,{c:'thinking'});
+  service.receiveSceneActivity('https://example.test/bob',{c:'done'});
+  expect(created).toHaveLength(2);
+});
+it('does not replay scene notifications after foreground completion or enabling the switch', async () => {
+  const {service, options, created}=await fixture();
+  const endpoint='https://example.test/alice';
+  service.receiveSceneActivity(endpoint,{a:'replying'});
+  service.receiveSceneActivity(endpoint,{a:'done'});
+  await service.save({enabled:true,scenes:true});
+  service.receiveSceneActivity(endpoint,{a:'done'});
+  expect(created).toHaveLength(0);
+  options.focused.mockReturnValue(true);
+  service.receiveSceneActivity(endpoint,{a:'replying'});
+  service.receiveSceneActivity(endpoint,{a:'done'});
+  options.focused.mockReturnValue(false);
+  service.receiveSceneActivity(endpoint,{a:'done'});
+  expect(created).toHaveLength(0);
+  service.receiveSceneActivity(endpoint,{a:'replying'});
+  service.receiveSceneActivity(endpoint,{a:'done'});
+  expect(created).toHaveLength(1);
+  await service.save({scenes:false});
+  created[0].emit('click');
+  expect(options.open).not.toHaveBeenCalled();
+});
+it('opens the completed scene when its notification is clicked', async () => {
+  const endpoint='https://example.test/alice';
+  const model=new AppModel({appearance:async()=> 'light', snapshot:async()=>({settings:{hasToken:false,endpoint},portal:{}}),
+    takeNotificationTarget:async()=>({channel:'scenes',endpoint,sceneId:'finished'})} as unknown as DesktopAPI);
+  const select=vi.spyOn(model,'changeChatSession').mockResolvedValue();
+  await model.initialize();
+  expect(select).toHaveBeenCalledWith('select','finished');
+  expect(model.view).toBe('chat');
+});
+it('forwards completion before the currently viewed scene is marked read', async () => {
+  const notifySceneActivity=vi.fn(async()=>{});
+  const model=new AppModel({notifySceneActivity} as unknown as DesktopAPI);
+  model.snapshot={settings:{endpoint:'https://example.test/alice'},chatScene:{scene_id:'a'}} as any;
+  model.setChatSceneActivity({a:'replying'});
+  model.setChatSceneActivity({a:'done'});
+  expect(notifySceneActivity).toHaveBeenLastCalledWith('https://example.test/alice',{a:'done'});
+  expect(model.chatSceneActivity.a).toBeUndefined();
+});
+it('does not suppress a second completed turn in the same scene within five seconds', async()=>{
+  const {service,created}=await fixture();
+  await service.save({enabled:true,scenes:true});
+  for(let i=0;i<2;i++){
+    service.receiveSceneActivity('endpoint',{a:'replying'});
+    service.receiveSceneActivity('endpoint',{a:'done'});
+  }
+  expect(created).toHaveLength(2);
+});
+it('does not treat cancelling a queued message as a new completed reply',async()=>{
+  const {service,created}=await fixture();
+  await service.save({enabled:true,scenes:true});
+  service.receiveSceneActivity('endpoint',{a:'done'});
+  service.receiveSceneActivity('endpoint',{a:'queued'});
+  service.receiveSceneActivity('endpoint',{a:'done'});
+  expect(created).toHaveLength(0);
+});
+it('retains an observed reply through reconnection without notifying historical recovery',async()=>{
+  const {service,created}=await fixture();
+  await service.save({enabled:true,scenes:true});
+  service.receiveSceneActivity('endpoint',{a:'replying'});
+  service.receiveSceneActivity('endpoint',{a:'reconnecting',old:'reconnecting'});
+  service.receiveSceneActivity('endpoint',{a:'done',old:'done'});
+  expect(created).toHaveLength(1);
+});
+it('clears observed work when notification identity changes',async()=>{
+  const {service,created}=await fixture();
+  await service.save({enabled:true,scenes:true});
+  service.receiveSceneActivity('endpoint',{a:'replying'});
+  service.reset(2);
+  service.receiveSceneActivity('endpoint',{a:'done'});
+  expect(created).toHaveLength(0);
 });

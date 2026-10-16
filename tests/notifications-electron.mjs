@@ -46,7 +46,7 @@ try {
   await page.locator('#notification-mail').check();
   await page.locator('#notification-bonfire').check();
   await page.waitForFunction(async () => (await window.beings.notifications()).preferences.bonfire);
-  assert.deepEqual(JSON.parse(await readFile(path.join(directory, 'notifications.json'), 'utf8')), { enabled: true, mail: true, firesides: false, bonfire: true });
+  assert.deepEqual(JSON.parse(await readFile(path.join(directory, 'notifications.json'), 'utf8')), { enabled: true, mail: true, firesides: false, bonfire: true, scenes: false });
   assert.equal(await app.evaluate(() => {
     globalThis.restoreNotificationWrites();
     return globalThis.notificationDelayedWrites;
@@ -115,7 +115,7 @@ try {
   app = await launchDesktop({ executablePath: await desktopExecutable(), env: { ...process.env, PORTAL_DESKTOP_USER_DATA: directory } });
   const reopened = await app.firstWindow();
   const settings = await reopened.evaluate(() => window.beings.notifications());
-  assert.deepEqual(settings.preferences, { enabled: true, mail: true, firesides: true, bonfire: true });
+  assert.deepEqual(settings.preferences, { enabled: true, mail: true, firesides: true, bonfire: true, scenes: false });
   console.log('PASS: actual Electron settings, persistence across restart, native notification requests, SSE category/self filtering and click-to-inbox/fireside navigation. Profile:', directory);
 } finally {
   await app?.close();
