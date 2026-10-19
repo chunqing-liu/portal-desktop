@@ -134,6 +134,47 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     entry.message.canInterruptQueued = persisted && saved.phase === "queued" && !saved.attachment;
     target.local.queued++;
     entry.message.queueNotice = saved.phase === 'sending' ? '发送状态待确认，请先查看场景历史；不会自动重发' : undefined;
+    entry.message.editQueued = async (text: string) => {
+      if (queued.claimed || saved.phase !== 'queued' || saved.attachment || !sendQueue.includes(queued)) return;
+      const nextText = String(text || '').trim();
+      if (!nextText) return;
+      entry.text = nextText;
+      entry.message.text = nextText;
+      saved.text = nextText;
+      try { await queueStore.write(saved); publish(); }
+      catch { entry.message.queueNotice = '无法保存编辑，请重试'; publish(); }
+    };
+    entry.message.moveQueued = async (offset: number) => {
+      const peers = sendQueue.filter(item => item.session === queued.session);
+      const destination = Math.max(0, Math.min(peers.length - 1, peers.indexOf(queued) + (offset < 0 ? -1 : 1)));
+      await entry.message.reorderQueued?.(peers[destination]?.entry.message.id || '');
+    };
+    entry.message.reorderQueued = async (targetId: string) => {
+      if (queued.claimed || saved.phase !== 'queued' || !sendQueue.includes(queued)) return;
+      const current = sendQueue.indexOf(queued);
+      const peers = sendQueue.filter(item => item.session === queued.session);
+      const peerIndex = peers.indexOf(queued), destination = peers.findIndex(item => item.entry.message.id === targetId);
+      if (destination < 0) return;
+      if (destination === peerIndex) return;
+      const other = peers[destination];
+      const movingDown = peerIndex < destination;
+      sendQueue.splice(current, 1);
+      const targetIndex = sendQueue.indexOf(other) + (movingDown ? 1 : 0);
+      sendQueue.splice(targetIndex, 0, queued);
+      // The composer derives its rows from state.items, so mirror the queue
+      // order there while leaving history and other scenes untouched.
+      const queueItems = state.items.filter((item: any) => sendQueue.some(candidate => candidate.entry.message === item));
+      const ordered = sendQueue.filter(item => item.session === queued.session).map(item => item.entry.message);
+      const sceneQueueItems = queueItems.filter((item: any) => ordered.includes(item));
+      if (sceneQueueItems.length) {
+        let cursor = 0;
+        state.items = state.items.map((item: any) => sceneQueueItems.includes(item) ? ordered[cursor++] : item);
+      }
+      try {
+        await Promise.all(sendQueue.map((item, index) => { item.saved.order = index; return queueStore.write(item.saved); }));
+        publish(); scheduleDrain();
+      } catch { entry.message.queueNotice = '无法保存排序，请重试'; publish(); }
+    };
     entry.message.cancelQueued = async () => {
       if (queued.claimed && (!saved.attachment || saved.phase === 'sending')) return;
       queued.cancelled = true;
@@ -534,7 +575,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
           if (!entry) return;
           const saved: SavedSceneSend = { id: crypto.randomUUID(), endpoint: queueStore.endpoint,
             scene: { ...target.local.currentScene }, text: entry.text, files: entry.files,
-            createdAt: entry.message.createdAt || Date.now(), phase: 'queued', sendOptions: entry.sendOptions, ...(hasAttachments ? {attachment:{delivery:'pending'}} : {}) };
+            createdAt: entry.message.createdAt || Date.now(), order: sendQueue.length, phase: 'queued', sendOptions: entry.sendOptions, ...(hasAttachments ? {attachment:{delivery:'pending'}} : {}) };
           const queued = attachQueued(target, entry, saved, false);
           if (hasAttachments) entry.message.attachmentUploads = saved.files.map(f => ({name:f.name,size:f.size,mime:f.type,blob:f.blob,progress:f.uploadProgress || (f.attachmentId ? {phase:'complete',loaded:f.size,total:f.size} : undefined)}));
           try { await queueStore.write(saved); queued.persisted = true; entry.message.canInterruptQueued = !saved.attachment; }

@@ -57,6 +57,9 @@ export interface Message extends MessageScene {
   cancelQueued?: () => void;
   canInterruptQueued?: boolean;
   interruptQueued?: () => void | Promise<void>;
+  editQueued?: (text: string) => void | Promise<void>;
+  moveQueued?: (offset: number) => void | Promise<void>;
+  reorderQueued?: (targetId: string) => void | Promise<void>;
 }
 export interface ActivityEntry {
   type: string;

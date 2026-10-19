@@ -71,6 +71,46 @@ export function ChatApp({ connection, keywordNavigation = true, mobileWeb = fals
     </ChatErrorBoundary>
   );
 }
+let activeQueueDragId: string | null = null;
+let activeQueueTargetId: string | null = null;
+function QueueRow({ item, index, allowInterrupt, onEdit, onReorder }: { item: Message; index: number; allowInterrupt: boolean; onEdit: (item: Message) => void; onReorder: (sourceId: string, targetId: string) => void }) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const previousRect = useRef<DOMRect | null>(null);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const nextRect = row.getBoundingClientRect();
+    const previous = previousRect.current;
+    if (previous && Math.abs(previous.top - nextRect.top) > 1) {
+      row.animate([{ transform: `translateY(${previous.top - nextRect.top}px)` }, { transform: 'translateY(0)' }], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
+    previousRect.current = nextRect;
+  }, [index]);
+  const clearDrag = () => { activeQueueDragId = null; activeQueueTargetId = null; rowRef.current?.classList.remove('dragging'); };
+  return <div ref={rowRef} className="composer-queue-item" key={item.id} data-queue-id={item.id} draggable onDragStart={event => {
+    if (!(event.target as HTMLElement).closest('.composer-queue-drag-handle')) { event.preventDefault(); return; }
+    activeQueueDragId = item.id; activeQueueTargetId = item.id;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.id);
+    const ghost = document.createElement('span'); ghost.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0'; document.body.appendChild(ghost);
+    event.dataTransfer.setDragImage(ghost, 0, 0); requestAnimationFrame(() => ghost.remove());
+    rowRef.current?.classList.add('dragging');
+  }} onDragOver={event => {
+    event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+    const sourceId = activeQueueDragId || event.dataTransfer.getData('text/plain');
+    if (!sourceId || sourceId === item.id || sourceId === activeQueueTargetId) return;
+    activeQueueTargetId = item.id;
+    onReorder(sourceId, item.id);
+  }} onDrop={event => { event.preventDefault(); clearDrag(); }} onDragEnd={clearDrag}>
+    <span className="composer-queue-drag-handle" title="拖动排序" aria-label="拖动排序"><svg className="composer-queue-icon" width="16" height="20" viewBox="0 0 16 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1.3"/><circle cx="10" cy="4" r="1.3"/><circle cx="4" cy="10" r="1.3"/><circle cx="10" cy="10" r="1.3"/><circle cx="4" cy="16" r="1.3"/><circle cx="10" cy="16" r="1.3"/></svg></span>
+    <span className="composer-queue-content" title={item.text}>{item.text}</span>
+    {item.queueNotice && <span className="composer-queue-notice" role="status" title={item.queueNotice} aria-label={item.queueNotice}>!</span>}
+    <button className="composer-queue-text-action" type="button" aria-label={`编辑排队消息：${item.text}`} title="在输入框编辑" onClick={() => onEdit(item)} disabled={!item.editQueued}>编辑</button>
+    {item.retry && <button type="button" onClick={() => void item.retry?.()}>{item.retryLabel}</button>}
+    <button className="composer-queue-steer" type="button" aria-label="调整方向" disabled={!allowInterrupt || !item.canInterruptQueued} title="调整方向：立即打断并发送这条消息" onClick={() => void item.interruptQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5v5a3 3 0 0 0 3 3h13m-5-5 5 5-5 5" /></svg><span>调整方向</span></button>
+    <button type="button" title="删除排队消息" aria-label={`取消排队：${item.text}`} onClick={() => item.cancelQueued?.()}>×</button>
+  </div>;
+}
 function ChatView({
   state,
   runtime,
@@ -86,6 +126,7 @@ function ChatView({
 }) {
   useModel(state);
   const [nativeTouch, setNativeTouch] = useState(() => mobileWeb && matchMedia('(max-width: 760px), (hover: none) and (pointer: coarse)').matches);
+  const [editingQueued, setEditingQueued] = useState<Message | null>(null);
   useEffect(() => {
     if (!mobileWeb) return;
     const media = matchMedia('(max-width: 760px), (hover: none) and (pointer: coarse)');
@@ -103,6 +144,14 @@ function ChatView({
     if(target){historyWindow.reveal(target.id);pendingSearchReveal.current=null;}
   },[timelineItems,state.historyScope]);
   const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId && !hasAttachmentMessage(item));
+  useEffect(() => {
+    if (editingQueued && !queuedMessages.includes(editingQueued)) setEditingQueued(null);
+  }, [editingQueued, queuedMessages]);
+  useLayoutEffect(() => {
+    if (!editingQueued) return;
+    const frame = requestAnimationFrame(() => composer.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editingQueued]);
   const surfaceTimeline = useRef(new SurfaceTimeline());
   const surfaceScope = (sceneId?: string) => JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, sceneId || 'global']);
   const surfaceBlocks = surfaceTimeline.current.build(visibleItems.filter((item): item is Message => item.kind === 'message' && item.role === 'being').map(item => ({
@@ -119,10 +168,16 @@ function ChatView({
   const scopeScroll = useRef<Partial<Record<HistoryScope, { top: number; locked: boolean }>>>({});
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const queueShortcut = isMac ? "⌘ Enter / Ctrl Enter" : "Ctrl Enter";
-  const sendLabel = state.sendWillQueue ? (state.canInterruptQueue ? "立即打断并发送" : "加入队列") : "发送消息";
+  const sendLabel = editingQueued ? "保存修改" : state.sendWillQueue ? (state.canInterruptQueue ? "立即打断并发送" : "加入队列") : "发送消息";
   const showStop = (state.streaming || state.attachmentPending) && !state.draft.trim() && state.files.length === 0;
   function sendDraft(mode?: "interrupt") {
     if (state.stopping) return;
+    if (editingQueued) {
+      const text = state.draft.trim();
+      if (!text) return;
+      void Promise.resolve(editingQueued.editQueued?.(text)).then(() => { state.draft = ""; state.changed(); setEditingQueued(null); composer.current?.focus(); });
+      return;
+    }
     releaseAnchor();
     scrollLock.current = true;
     void runtime.send(state.draft, null, { mode });
@@ -559,18 +614,13 @@ function ChatView({
           {state.banner}
         </div>
         <ChatIndex items={visibleItems.map(item=>item.kind==='message' && hasAttachmentMessage(item) ? {...item,text:originalMessageText(item)} : item)} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} highlight={setHighlighted} />
+        {queuedMessages.length > 0 && <div className="composer-queue-wrap">
+          <div className="composer-queue" aria-label={`待发送消息，共 ${queuedMessages.length} 条`}>
+            {queuedMessages.map((item, index) => <QueueRow item={item} index={index} allowInterrupt={state.canInterruptQueue && !state.stopping} onEdit={item => { state.draft = item.text; state.changed(); setEditingQueued(item); }} onReorder={(sourceId, targetId) => { const source = queuedMessages.find(candidate => candidate.id === sourceId); void source?.reorderQueued?.(targetId); }} key={item.id} />)}
+          </div>
+        </div>}
         <div id="input-area">
           {state.intelligentUIForMessage && state.intelligentUITargetTitle && <div className="iui-context-target" role="status"><span>修改「{state.intelligentUITargetTitle}」<small>将携带原界面和当前选择</small></span><button type="button" aria-label="取消本条界面修改" onClick={() => state.setIntelligentUIForMessage(false)}>×</button></div>}
-          {queuedMessages.length > 0 && <div className="composer-queue" aria-label={`待发送消息，共 ${queuedMessages.length} 条`}>
-            {queuedMessages.map(item => <div className="composer-queue-item" key={item.id}>
-              <svg className="composer-queue-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 4v11a3 3 0 0 0 3 3h13m-4-4 4 4-4 4M9 6h7M9 10h4" /></svg>
-              <span className="composer-queue-content" title={item.text}>{item.text}</span>
-              {item.retry && <button type="button" onClick={() => void item.retry?.()}>{item.retryLabel}</button>}
-              {item.queueNotice && <span className="composer-queue-notice" role="status" title={item.queueNotice} aria-label={item.queueNotice}>!</span>}
-              <button className="composer-queue-steer" type="button" aria-label="调整方向" disabled={!state.canInterruptQueue || !item.canInterruptQueued || state.stopping} title="调整方向：立即打断并发送这条消息" onClick={() => void item.interruptQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5v5a3 3 0 0 0 3 3h13m-5-5 5 5-5 5" /></svg><span>调整方向</span></button>
-              <button type="button" title="删除排队消息" aria-label={`取消排队：${item.text}`} onClick={() => item.cancelQueued?.()}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7" /></svg></button>
-            </div>)}
-          </div>}
           <JumpToLatest items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} />
           <div
             id="pending-files"
@@ -610,6 +660,7 @@ function ChatView({
             <p className="iui-beta-description">启用后，可在输入框底部选择“本条使用智能 UI”。只为选中的消息附加界面能力和当前选择，发送后自动取消。</p>
             {state.intelligentUIEnabled && <details className="iui-beta-demo"><summary>体验本地交互示例</summary><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></details>}
           </div>}
+          {editingQueued && <div className="composer-editing-queue" role="status"><span>正在编辑排队消息</span><button type="button" onClick={() => { state.draft = ""; state.changed(); setEditingQueued(null); composer.current?.focus(); }}>取消编辑</button></div>}
           <div id="input-row">
             <ChatComposer
               state={state}
@@ -655,7 +706,7 @@ function ChatView({
               ＋
             </button>
             {state.intelligentUIEnabled && <div className="iui-message-option"><button type="button" aria-label="本条使用智能 UI" aria-pressed={state.intelligentUIForMessage} onClick={() => state.setIntelligentUIForMessage(!state.intelligentUIForMessage)}>智能 UI <small>仅本条 · {state.intelligentUIForMessage ? "已开启" : "已关闭"}</small></button></div>}
-            {state.sendWillQueue && (state.draft.trim() || state.files.length > 0) && <div className="composer-queue-hint"><button type="button" title={`加入队列（${queueShortcut}）`} aria-label="加入队列" disabled={state.stopping} onClick={() => sendDraft()}>排队 <span aria-hidden="true">{isMac ? "⌘ ↵" : "Ctrl ↵"}</span></button></div>}
+            {state.sendWillQueue && !editingQueued && (state.draft.trim() || state.files.length > 0) && <div className="composer-queue-hint"><button type="button" title={`加入队列（${queueShortcut}）`} aria-label="加入队列" disabled={state.stopping} onClick={() => sendDraft()}>排队 <span aria-hidden="true">{isMac ? "⌘ ↵" : "Ctrl ↵"}</span></button></div>}
             <button
               className={`btn-icon${showStop ? " stop" : ""}`}
               id="send-btn"

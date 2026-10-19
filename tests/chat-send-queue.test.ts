@@ -31,6 +31,11 @@ it('queues same-scene input, allows priority interruption and cancellation, then
     expect(state.queued).toBe(3);
     expect(rows.size).toBe(3);
     const [first, priority, cancel] = state.items;
+    await first.editQueued?.('edited first');
+    expect(first.text).toBe('edited first');
+    expect([...rows.values()].some(row => row.text === 'edited first')).toBe(true);
+    await cancel.moveQueued?.(-1);
+    expect(state.items.map((item:any) => item.text)).toEqual(['edited first', 'cancel', 'priority']);
     await cancel.cancelQueued();
     expect(state.queued).toBe(2);
     await priority.interruptQueued();
@@ -49,7 +54,7 @@ it('queues same-scene input, allows priority interruption and cancellation, then
     activity.a = false;
     runtime.updateSceneTasks([]);
     await vi.advanceTimersByTimeAsync(2100);
-    expect(sent.mock.calls.map(call=>call[0])).toEqual(['priority','direct','first','other-scene']);
+    expect(sent.mock.calls.map(call=>call[0])).toEqual(['priority','direct','edited first','other-scene']);
     expect(sent.mock.calls[2][1]).toEqual(files);
     expect(rows.size).toBe(0);
     expect(state.items.filter((item:any)=>item.queued)).toHaveLength(0);

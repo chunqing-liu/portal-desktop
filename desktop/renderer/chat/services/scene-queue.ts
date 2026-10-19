@@ -7,6 +7,8 @@ export interface SavedSceneSend {
   text: string;
   files: Attachment[];
   createdAt: number;
+  /** Stable ordering within the local outbox. Older rows fall back to createdAt. */
+  order?: number;
   phase: 'queued' | 'preparing' | 'sending' | 'failed';
   attachment?: import('./attachments').AttachmentTransfer;
   sendOptions?: { intelligentUI?: boolean; uiAction?: import('../../shared/intelligent-ui/surfaces').UIInteraction; uiSnapshot?: string };
@@ -29,12 +31,12 @@ export class SceneQueueStore {
   }
   async read(): Promise<SavedSceneSend[]> {
     if (!(globalThis as typeof globalThis & { indexedDB?: IDBFactory }).indexedDB)
-      return [...this.memory.values()].filter(row => row.endpoint === this.endpoint).sort((a, b) => a.createdAt - b.createdAt);
+      return [...this.memory.values()].filter(row => row.endpoint === this.endpoint).sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const request = db.transaction('sends').objectStore('sends').getAll();
       request.onsuccess = () => resolve((request.result as SavedSceneSend[])
-        .filter(row => row.endpoint === this.endpoint).sort((a, b) => a.createdAt - b.createdAt));
+        .filter(row => row.endpoint === this.endpoint).sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt)));
       request.onerror = () => reject(request.error);
     });
   }

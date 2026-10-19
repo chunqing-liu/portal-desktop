@@ -1189,6 +1189,12 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 #send-btn:hover:not(:disabled),#input-row:has(#input:not(:placeholder-shown)) #send-btn:hover:not(:disabled){background:var(--chat-sent);opacity:.75}
 @media(max-width:680px){#messages{padding:18px 20px 20px}#input-area{width:calc(100% - 28px);margin-bottom:14px;padding:10px 12px 7px}.message.being .content{max-width:96%;padding:13px 16px}.message.user .content{max-width:92%}}
 @media(prefers-reduced-motion:reduce){#input-area{transition:none}}
+
+/* The outbox is visually attached to the composer, like one combined card. */
+.composer-queue-wrap{position:relative;z-index:1;width:calc(100% - 56px);max-width:780px;margin:0 auto -1px}
+.composer-queue-wrap .composer-queue{border-radius:18px 18px 0 0;background:var(--bg-soft);box-shadow:0 3px 12px #00000004}
+#input-area.has-queue{position:relative;z-index:0;border-top-color:transparent;border-radius:0 0 18px 18px}
+@media(max-width:680px){.composer-queue-wrap{width:calc(100% - 36px)}}
 /* Keep the composer inside a resized iframe while viewport events settle. */
 #app{max-height:100%}
 
@@ -1522,11 +1528,17 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .iui-update-reference button { border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; padding: 4px; }
 .iui-update-reference button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.composer-queue{padding:0;margin-bottom:8px;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:14px;background:var(--bg-soft)}
-.composer-queue-item{display:flex;align-items:center;gap:8px;height:36px;padding:0 8px;font-size:13px;min-width:0;color:var(--text)}
+.composer-queue-wrap{width:calc(100% - 56px);max-width:780px;margin:0 auto}.composer-queue{display:block;width:calc(100% - 56px);max-width:100%;margin:0 auto;box-sizing:border-box;padding:0;max-height:120px;overflow-x:hidden;overflow-y:auto;border:1px solid var(--border);border-radius:14px;background:var(--bg-soft)}
+.composer-queue-item{display:flex;align-items:center;gap:6px;height:36px;box-sizing:border-box;padding:2px 8px;font-size:13px;min-width:0;color:var(--text)}
+.composer-queue-item{touch-action:none;transition:background .18s ease,box-shadow .18s ease}.composer-queue-item.dragging{opacity:.8;background:var(--bg-soft);box-shadow:0 3px 10px color-mix(in srgb,var(--text) 12%,transparent);user-select:none}
+.composer-queue-drag-handle{display:grid;place-items:center;flex:0 0 26px;height:26px;border-radius:6px;color:var(--text-dim);cursor:grab;touch-action:none}.composer-queue-drag-handle:hover{background:var(--bg-soft);color:var(--text)}.composer-queue-item.dragging .composer-queue-drag-handle{cursor:grabbing}
+.composer-editing-queue{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:12px}
+.composer-editing-queue button{border:0;background:transparent;color:var(--text);font:inherit;cursor:pointer;padding:3px 6px}
 .composer-queue-item+.composer-queue-item{border-top:1px solid var(--border)}
 .composer-queue-icon{flex-shrink:0;color:var(--text-dim)}
 .composer-queue-content{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.composer-queue-edit{flex:1;min-width:0;min-height:28px;max-height:80px;resize:vertical;padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font:inherit}
+.composer-queue-text-action{width:auto!important;min-width:38px!important;white-space:nowrap!important;padding:4px 7px!important}
 .composer-queue-notice{flex-shrink:0;cursor:help;font-size:12px}
 .composer-queue button,.composer-queue-hint button{flex-shrink:0;border:0;background:transparent;color:var(--text-dim);font:inherit;font-size:12px;cursor:pointer;padding:4px;border-radius:5px}
 .composer-queue button{display:grid;place-items:center;width:28px;height:28px}
@@ -1535,6 +1547,7 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .composer-queue button:hover,.composer-queue-hint button:hover{background:var(--bg-soft);color:var(--text)}
 .composer-queue button:disabled,.composer-queue-hint button:disabled{opacity:.4;cursor:default}
 .composer-queue-hint{position:absolute;right:42px;bottom:0;height:36px;display:flex;align-items:center;justify-content:flex-end;z-index:1;white-space:nowrap}
+@media(max-width:680px){.composer-queue-wrap{width:calc(100% - 36px)}}
 #input-area #input-row{position:relative}
 
 /* Agent composition: bounded design tokens, with native responsive controls. */
@@ -1904,3 +1917,9 @@ label.chat-scope-switch input{margin:0;accent-color:var(--accent)}
 .attachment-message-actions .attachment-dismiss-action { padding:4px 6px; flex-shrink:0; }
 .attachment-message-actions button:hover { background:var(--hover-overlay); color:var(--text); }
 .attachment-message-actions button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+/* Queue and composer share an edge and read as one fused control. */
+.composer-queue-wrap{position:relative;z-index:1;width:calc(100% - 40px);max-width:880px;margin:0 auto -1px}
+.composer-queue-wrap .composer-queue{border-radius:22px 22px 0 0;background:var(--bg-soft);box-shadow:0 5px 22px #0000000b}
+#input-area.has-queue{position:relative;z-index:0;border-top-color:transparent;border-radius:0 0 30px 30px}
+@media(max-width:680px){.composer-queue-wrap{width:calc(100% - 28px)}}
