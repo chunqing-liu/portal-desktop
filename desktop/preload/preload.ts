@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { DesktopAPI, PortalState, TownLiveState } from '../shared/types';
 const api: DesktopAPI = {
+  checkLocalFiles: paths => ipcRenderer.invoke('beings:local-files-check', paths),
+  revealLocalFile: path => ipcRenderer.invoke('beings:local-file-reveal', path),
+  previewLocalFile: path => ipcRenderer.invoke('beings:local-file-preview', path),
+  releaseLocalFilePreview: id => ipcRenderer.invoke('beings:local-file-release', id),
   downloadDirectory: change => ipcRenderer.invoke('beings:download-directory', change === true),
   registerAttachmentSource: file => ipcRenderer.invoke('beings:attachment-source',webUtils.getPathForFile(file)),
   localApps: () => ipcRenderer.invoke('beings:local-apps'),

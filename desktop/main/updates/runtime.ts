@@ -124,7 +124,7 @@ export class RuntimeUpdater {
       item.service.label === previous.label)?.enabled ?? (await this.background.refresh()).enabled;
     const root = path.join(this.background.runtimeDirectory, randomUUID());
     if (generatedConfig) config = path.join(root, 'portal.toml');
-    const candidate: Service = { label: previous.label, file: previous.file, root, existing: false,
+    const candidate: Service = { label: previous.label, file: previous.file, root, existing: false, beingEndpoint: previous.beingEndpoint,
       name: settings.portalName, environment: { ...previous.environment, HEART_PORTAL_CLIENT_FILE: path.join(this.directory, '.portal-client.json') }, bundleId: bundle.id, configPath: config, generatedConfig: Boolean(generatedConfig), cwd: settings.workspace,
       fingerprint: fingerprint({ ...settings, portalConfigPath: generatedConfig ? undefined : config }, connection) };
     await mkdir(root, { recursive: true, mode: 0o700 });

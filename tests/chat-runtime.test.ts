@@ -35,6 +35,30 @@ const response = (value: unknown) =>
 const flush = () => vi.advanceTimersByTimeAsync(0);
 
 describe("React chat runtime lifecycle", () => {
+  it('reconciles a server-stored scene Portal notice with the original local message', async () => {
+    vi.stubGlobal('location', new URL('beings://chat/loom.html?scene_id=desktop-fixture'));
+    const scene = { scene_id: 'desktop-fixture', scene_meta: { client: 'test', scene_label: '桌面', portal_name: 'laptop', portal_status: 'connected' as const } };
+    let saved = '';
+    const proxy = new ChatProxy(() => parseConnection('https://fixture.test/alice/?token=fixture'), async (url, init) => {
+      if (String(url).includes('/chat/stream')) {
+        saved = (await new Request('https://fixture.test', init).json()).message;
+        return new Response('event: message_stop\ndata: {}\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      return response({ messages: saved ? [{ seq: 1, role: 'user', content: saved, scene_id: scene.scene_id }] : [] });
+    }, scene, undefined, true);
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => proxy.handle(new Request(url, init)));
+    const state = new ChatState(), runtime = createChatRuntime(state);
+    state.currentScene = { sceneId: scene.scene_id };
+    try {
+      await runtime.send('生成页面');
+      await flush();
+      expect(saved).toContain('本机 Portal：laptop');
+      await runtime.refreshHistory();
+      const messages = state.items.filter(item => item.kind === 'message' && item.role === 'user');
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ text: '生成页面', historySeq: 1 });
+    } finally { runtime.dispose(); proxy.abortAll(); }
+  });
   it("preserves catalog switch errors and candidates without replacing confirmed configuration", async () => {
     const failure = { ok: false, error: 'model not found', candidates: ['vendor/valid'] };
     vi.stubGlobal('fetch', vi.fn(async () => Response.json(failure, { status: 404 })));
@@ -184,6 +208,9 @@ describe("React chat runtime lifecycle", () => {
 
   it.each(["current", "all"] as const)("keeps desktop send parameters through scope switches, ordinary sends, retries and splices starting in %s", async initialScope => {
     vi.stubGlobal("location", new URL("beings://chat/loom.html?scene_id=desktop-fixture&scene_label=桌面·PC"));
+    // Real desktop chat runs inside a parent frame. It must still send the
+    // user's text without appending local-file preview instructions.
+    vi.stubGlobal("parent", {});
     const scene = { scene_id: "desktop-fixture", scene_meta: { client: "portal-desktop/0.1.2", scene_label: "桌面·PC" } };
     const sent: Record<string, unknown>[] = [];
     let stream!: ReadableStreamDefaultController<Uint8Array>;

@@ -164,7 +164,7 @@ export function App({ model }: { model: AppModel }) {
             </section>}
             </div>
           </div>
-          <AttachmentFileViewer key={`${app.chatSource}:${JSON.stringify(app.snapshot?.chatScene)}`} frame={frame}/>
+          <AttachmentFileViewer key={`${app.chatSource}:${app.snapshot?.chatScene?.scene_id || ''}`} frame={frame}/>
           {!app.subagentSettingsOpen && <BeingInfo app={app} />}
           {app.subagentSettingsOpen && <SubagentModelSettings app={app} />}
           <Companion model={app.workspace} />

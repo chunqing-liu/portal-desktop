@@ -2,6 +2,7 @@ import { ATTACHMENT_TRANSFER_TIMEOUT_MS } from '../../shared/attachment-limits';
 import { attachmentRoute, handleAttachment } from './attachments';
 import type { Connection } from './connection';
 import type { ChatScene } from '../../shared/types';
+import { stripScenePortalNotice, withScenePortalNotice } from '../../shared/scene-portal-context';
 
 const routes: Record<string, string[]> = {
   '/health': ['GET'], '/api/status': ['GET'], '/api/history': ['GET'],
@@ -34,8 +35,12 @@ export function upstreamRequest(request: Request, connection: Connection) {
 export class ChatProxy {
   onAttachmentUploaded?: (token:string, endpoint:string, id:string, checksum:string) => Promise<void>;
   private requests = new Set<AbortController>();
-  constructor(private getConnection: () => Connection | null, private fetchUpstream: typeof fetch, private scene?: ChatScene | (() => ChatScene | undefined), private resolveScene?: (id: string) => ChatScene | undefined) {}
+  private noticeSequence = 0;
+  private portalRevision = 0;
+  private acceptedNotice?: { key: string; sequence: number };
+  constructor(private getConnection: () => Connection | null, private fetchUpstream: typeof fetch, private scene?: ChatScene | (() => ChatScene | undefined), private resolveScene?: (id: string) => ChatScene | undefined, private notifyScenePortal = false) {}
   abortAll() { for (const controller of this.requests) controller.abort(); this.requests.clear(); }
+  portalStateChanged() { this.portalRevision++; }
   async handle(request: Request): Promise<Response> {
     const connection = this.getConnection();
     let scene = typeof this.scene === "function" ? this.scene() : this.scene;
@@ -106,6 +111,7 @@ export class ChatProxy {
     const cleanup = () => { this.requests.delete(controller); request.signal.removeEventListener('abort', abort); };
     // Header timeout only. Long-running chat streams must remain open.
     const timeout = setTimeout(abort, 30_000);
+    let notice: { key: string; sequence: number } | undefined;
     try {
       let body: ArrayBuffer | string | undefined = ['POST', 'PATCH'].includes(request.method) ? await request.arrayBuffer() : undefined;
       if (isChatSend) {
@@ -119,7 +125,13 @@ export class ChatProxy {
         }
         // The main process owns send identity, regardless of the visible history
         // scope or any scene fields supplied by the renderer, splices or retries.
-        // Scene protocol fields never become part of the user's message text.
+        // The short Portal cue is opt-in for desktop sends, and is generated
+        // from main-process identity rather than renderer-supplied metadata.
+        if (this.notifyScenePortal && scene && typeof message.message === 'string') {
+          notice = { key: JSON.stringify([connection.endpoint, scene, this.portalRevision]), sequence: ++this.noticeSequence };
+          message.message = stripScenePortalNotice(message.message);
+          if (notice.key !== this.acceptedNotice?.key) message.message = withScenePortalNotice(message.message, scene);
+        }
         body = JSON.stringify({ ...message, ...scene });
         upstream.headers.set('content-type', 'application/json');
       }
@@ -128,6 +140,9 @@ export class ChatProxy {
         body,
         signal: controller.signal,
       });
+      // A failed request must not consume the notice. Ignore late responses
+      // from older sends so they cannot replace the latest accepted context.
+      if (response.ok && notice && notice.sequence > (this.acceptedNotice?.sequence || 0)) this.acceptedNotice = notice;
       clearTimeout(timeout);
       const headers = new Headers({ 'Cache-Control': 'no-store', 'Content-Type': response.headers.get('content-type') || 'application/json' });
       if (!response.body || response.status === 204 || response.status === 304) {

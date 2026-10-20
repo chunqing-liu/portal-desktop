@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { LocalFileAction } from './local-file-link';
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ChatEditCommand } from "../../../shared/types";
 
 type TextField = HTMLInputElement | HTMLTextAreaElement;
 type Context = {
-  x: number; y: number; editable: boolean; selected: boolean; canSelect: boolean;
+  file?: string; x: number; y: number; editable: boolean; selected: boolean; canSelect: boolean;
   field: TextField | null; container: HTMLElement; portal: HTMLElement; restore(): void;
 };
 
@@ -15,6 +16,7 @@ export function EditContextMenu({ edit, onOpenChange, rootSelector = ".chat-root
   rootSelector?: string;
   selectionSelector?: string;
 }) {
+  const previewLocalFile = useContext(LocalFileAction);
   const [context, setContext] = useState<Context | null>(null);
   const [error, setError] = useState<{ message: string; portal: HTMLElement } | null>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -50,7 +52,7 @@ export function EditContextMenu({ edit, onOpenChange, rootSelector = ".chat-root
         }
       };
       setError(null);
-      setContext({ x: event.clientX, y: event.clientY, editable,
+      setContext({ file: event.target.closest<HTMLElement>("[data-local-file]")?.dataset.localFile, x: event.clientX, y: event.clientY, editable,
         selected: field ? end > start : !!selection?.toString(),
         canSelect: !!(field ? field.value : container.textContent), field, container, portal, restore });
     };
@@ -131,6 +133,7 @@ export function EditContextMenu({ edit, onOpenChange, rootSelector = ".chat-root
           items[next]?.focus();
         }
       }}>
+      {context.file && previewLocalFile && <><button role="menuitem" type="button" onClick={() => { previewLocalFile(context.file!); setContext(null); }}>预览文件</button><div role="separator" /></>}
       {context.editable && <button role="menuitem" type="button" disabled={!context.selected} onClick={() => void run("cut")}>
         <span>剪切</span><kbd>{modifier}X</kbd>
       </button>}

@@ -1,3 +1,5 @@
+import { LocalFileAction, LocalFileLink } from './local-file-link';
+import { localFileReference } from '../../../shared/local-file';
 import { IntelligentUI } from "../intelligent-ui/view";
 import hljs, { type Emitter } from "highlight.js";
 import { Fragment, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -137,6 +139,7 @@ export const Markdown = memo(function Markdown({
   intelligentUI?: boolean;
   streaming?: boolean;
 }) {
+  const previewLocalFile = useContext(LocalFileAction);
   const tokens = useMemo(
     () => {
       const language = richCode && detectStructuredText(content);
@@ -200,6 +203,8 @@ export const Markdown = memo(function Markdown({
     );
   }
   function code(value: string, language?: string): ReactNode {
+    const local = previewLocalFile && language === undefined ? localFileReference(value) : undefined;
+    if (local) return <LocalFileLink path={local} inlineCode>{value}</LocalFileLink>;
     const href = safeLink(value.trim());
     return onPlace && href && /^https?:\/\/[^\s<>"'`]+$/i.test(value.trim()) ? (
       <a
@@ -294,7 +299,8 @@ export const Markdown = memo(function Markdown({
           const link = token as Tokens.Link,
             href = safeLink(unescapeText(link.href)),
             target = onPlace ? placeFromURL(link.href) : null;
-          node = (
+          const local = previewLocalFile ? localFileReference(unescapeText(link.href), true) : undefined;
+          node = local ? <LocalFileLink path={local} card={/\.html?$/i.test(local)}>{render(link.tokens, false)}</LocalFileLink> : (
             <a
               href={href}
               title={

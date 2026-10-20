@@ -1046,6 +1046,8 @@ html[data-platform=darwin] .client-image-viewer { padding-top:112px; }
 .client-file-viewer .file-preview-layout-toggle:hover,.client-file-viewer .file-preview-layout-toggle[aria-pressed=true] { background:var(--surface); }
 .client-file-viewer .file-preview-layout-toggle svg { display:block; }
 .client-file-actions { display:flex; justify-content:space-between; gap:12px; padding:10px 20px; font-size:12px; color:var(--secondary); flex:none; }
+.local-file-actions { flex-wrap:wrap; align-items:center; }
+.local-file-actions > div { display:flex; flex-wrap:wrap; gap:8px; }
 .client-file-actions .attachment-download { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .client-file-actions .attachment-download progress { width:100%; }
 .client-file-viewer > iframe { flex:1; min-height:0; width:100%; border:0; background:white; }

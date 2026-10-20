@@ -43,9 +43,9 @@ export interface SaveSettings {
   portalEnvironmentPath?: string;
 }
 export type PortalPhase = 'running' | 'stopped' | 'starting' | 'connected' | 'reconnecting' | 'stopping' | 'external' | 'error';
-export interface PortalState { phase: PortalPhase; pid?: number; managed?: boolean; runtimePath?: string; conflict?: boolean; message: string; logs: string[] }
+export interface PortalState { phase: PortalPhase; pid?: number; managed?: boolean; runtimePath?: string; conflict?: boolean; portalName?: string; beingEndpoint?: string; message: string; logs: string[] }
 export interface BackgroundState { supported: boolean; installed: boolean; enabled: boolean; running: boolean; existing: boolean; label?: string; pid?: number; message: string }
-export interface ChatScene { scene_id: string; scene_meta: { client: string; scene_label: string } }
+export interface ChatScene { scene_id: string; scene_meta: { client: string; scene_label: string; portal_name?: string; portal_status?: PortalPhase } }
 export type ChatSceneActivity = 'queued' | 'thinking' | 'replying' | 'working' | 'waiting' | 'reconnecting' | 'timeout' | 'done' | 'error' | 'stopped';
 export const CHAT_SCENE_ACTIVITY_LABELS: Record<ChatSceneActivity, string> = {
   queued: '排队中', thinking: '思考中', replying: '回复中', working: '执行中', waiting: '等待最终回复',
@@ -64,6 +64,10 @@ export interface BrowserBounds { x: number; y: number; width: number; height: nu
 export type BrowserAction = 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'close';
 export type ChatEditCommand = 'cut' | 'copy' | 'paste';
 export interface DesktopAPI {
+  checkLocalFiles?(paths: string[]): Promise<boolean[]>;
+  revealLocalFile?(path: string): Promise<import('./local-file').LocalFileRevealResult | boolean>;
+  previewLocalFile?(path: string): Promise<import('./local-file').LocalFilePreview>;
+  releaseLocalFilePreview?(id: string): Promise<void>;
   downloadDirectory?(change?:boolean):Promise<string | undefined>;
   registerAttachmentSource?(file:File):Promise<string | null>;
   localApps?(): Promise<LocalApp[]>;

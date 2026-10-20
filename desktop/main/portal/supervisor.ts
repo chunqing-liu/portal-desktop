@@ -83,7 +83,7 @@ export class PortalSupervisor extends EventEmitter {
   private launch() {
     if (!this.wanted || !this.run) return;
     const { settings, connection, configPath, environment } = this.run;
-    this.publish({ phase: 'starting', message: '正在启动本机 Portal…', pid: undefined, managed: true, runtimePath: undefined, conflict: false });
+    this.publish({ phase: 'starting', message: '正在启动本机 Portal…', pid: undefined, managed: true, runtimePath: undefined, conflict: false, portalName: settings.portalName, beingEndpoint: connection.endpoint });
     const startedAt = Date.now();
     const nonce = randomUUID();
     this.launchNonce = nonce;
@@ -138,7 +138,7 @@ export class PortalSupervisor extends EventEmitter {
         // observers may temporarily replace the public state while takeover or
         // background discovery runs; a connected foreground Portal must still
         // expose the PID and ownership of the child this supervisor launched.
-        this.publish({ ...portalSampleState(sample, Boolean(ready)), pid: child.pid, managed: true, runtimePath: root, conflict: false });
+        this.publish({ ...portalSampleState(sample, Boolean(ready)), pid: child.pid, managed: true, runtimePath: root, conflict: false, portalName: settings.portalName, beingEndpoint: connection.endpoint });
       } finally { polling = false; }
     }, 1000);
     statusTimer.unref?.();

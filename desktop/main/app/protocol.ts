@@ -1,4 +1,5 @@
 import { app, dialog, protocol, session, shell } from 'electron';
+import type { LocalFilePreviews } from './local-file-preview';
 import {AttachmentDownloads} from '../chat/downloads';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,10 +20,11 @@ const CHAT_ASSETS = new Set(['loom.html', 'chat.js', 'highlight.css', 'chat.css'
 export function registerLocalProtocol(assets: string, proxy: ChatProxy, plugins?: PluginRegistry, downloads = new AttachmentDownloads(app.getPath('userData'), async current => {
   const result=await dialog.showOpenDialog({title:'选择附件下载位置',defaultPath:current || app.getPath('downloads'),properties:['openDirectory','createDirectory']});
   return result.canceled ? undefined : result.filePaths[0];
-}, file => shell.openPath(file), file => shell.showItemInFolder(file))) {
+}, file => shell.openPath(file), file => shell.showItemInFolder(file)), localFiles?: LocalFilePreviews) {
   proxy.onAttachmentUploaded = (token,endpoint,id,checksum) => downloads.bindSource(token,endpoint,id,checksum);
   protocol.handle('beings', async request => {
     const url = new URL(request.url);
+    if (url.hostname === 'preview' && localFiles) return localFiles.resource(request);
     if (url.hostname === 'chat' && url.pathname === '/api/local-downloads') return downloads.handle(request,proxy);
     if (url.hostname === 'plugins' && request.method === 'GET' && plugins) return plugins.document(url);
     if (url.hostname === 'chat' && (url.pathname.startsWith('/api/') || url.pathname === '/health')) return proxy.handle(request);

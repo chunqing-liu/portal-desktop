@@ -56,7 +56,7 @@ export async function portableCommand(binary: string, action: 'stop' | 'status' 
 }
 const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 16);
-export interface Service { label: string; file: string; root: string; existing: boolean; kind?: 'portable'; login?: boolean; name?: string; environmentPath?: string; environment?: Record<string, string>; fingerprint?: string; bundleId?: string; configPath?: string; generatedConfig?: boolean; cwd?: string; binary?: string }
+export interface Service { label: string; file: string; root: string; existing: boolean; kind?: 'portable'; login?: boolean; name?: string; beingEndpoint?: string; environmentPath?: string; environment?: Record<string, string>; fingerprint?: string; bundleId?: string; configPath?: string; generatedConfig?: boolean; cwd?: string; binary?: string }
 export function fingerprint(settings: Settings, connection: Connection) {
   return hash(JSON.stringify([connection.link, settings.portalBinary, settings.portalConfigPath, settings.portalName,
     settings.workspace, settings.portalEnvironmentPath, settings.allowExec, settings.kitsEnabled, 'client-tools-v5-scene-context']));
@@ -238,6 +238,11 @@ export class BackgroundPortal {
       try { await access(this.service.file); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') this.service = null; else throw error; }
     }
+    // Older records lack the endpoint. Only infer it when the complete launch
+    // configuration (including connection credentials) still matches.
+    if (this.service && !this.service.beingEndpoint && connection && this.service.fingerprint === fingerprint(settings, connection)) {
+      this.service.beingEndpoint = connection.endpoint;
+    }
     return this.refresh();
   }
   async refresh(): Promise<BackgroundState> {
@@ -277,6 +282,7 @@ if ([string]$t.State -eq 'Running' -and (Test-Path -LiteralPath $pidFile)) {
     await this.refresh();
     if (!this.service) return { phase: 'stopped', message: this.state.message, logs: [] };
     const root = this.service.root;
+    const identity = { portalName: this.service.name, beingEndpoint: this.service.beingEndpoint };
     const logName = this.service.existing ? 'portal-runtime' : 'portal';
     const text = await tail(path.join(root, logName + '.log'));
     const errors = await tail(path.join(root, logName + '.err.log'));
@@ -298,12 +304,12 @@ if ([string]$t.State -eq 'Running' -and (Test-Path -LiteralPath $pidFile)) {
     if (this.state.enabled && !this.state.running) {
       const failure = (await tail(path.join(root, '.portal-start-failure'))).trim();
       const conflict = failure === 'conflict' || /another (legacy )?Portal instance is already running/.test(errors);
-      return { phase: failure || conflict ? 'error' : 'reconnecting', conflict, managed: !this.service.existing, runtimePath: root, logs,
+      return { ...identity, phase: failure || conflict ? 'error' : 'reconnecting', conflict, managed: !this.service.existing, runtimePath: root, logs,
         message: conflict ? '同一个 Being 已有本机 Portal 在运行，已停止重复启动。请先停止原服务，再点击启动 Portal。'
           : failure ? 'Portal 连续启动失败，已停止自动重试。请检查运行日志，修正后点击启动 Portal。'
           : '后台 Portal 已退出，正在等待恢复；可点击「重启 Portal」立即重试，无需重启电脑。' };
     }
-    return { ...state, phase: !this.state.enabled || !this.state.running ? 'stopped' : state.phase,
+    return { ...identity, ...state, phase: !this.state.enabled || !this.state.running ? 'stopped' : state.phase,
       pid: this.state.pid, managed: !this.service.existing, runtimePath: root,
       message: !this.state.enabled ? this.state.message : this.state.running ? state.message : '后台 Portal 当前未运行；尚未确认自动恢复', logs };
   }
@@ -324,7 +330,7 @@ if ([string]$t.State -eq 'Running' -and (Test-Path -LiteralPath $pidFile)) {
     let registrationChanged = false;
     let wasEnabled = false;
     let oldPlist: string | undefined;
-    const service: Service = { label: this.label, root, existing: false, name: settings.portalName, fingerprint: signature,
+    const service: Service = { label: this.label, root, existing: false, name: settings.portalName, beingEndpoint: connection.endpoint, fingerprint: signature,
       environment: { HEART_PORTAL_CLIENT_FILE: path.join(this.directory, '.portal-client.json') },
       file: this.platform === 'darwin' ? path.join(this.home, 'Library/LaunchAgents', this.label + '.plist') : '' };
     try {

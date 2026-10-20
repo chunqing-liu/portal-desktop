@@ -110,6 +110,7 @@ it.skipIf(process.platform === 'win32')('renders connection progress without exp
   const metadata = JSON.parse(await readFile(path.join(f.root, 'profile/portal-service.json'), 'utf8'));
   await writeFile(path.join(metadata.root, 'portal.log'), 'Portal relay handshake OK\nsecret-credential\n');
   expect((await f.service.portalState()).phase).toBe('starting');
+  expect(await f.service.portalState()).toMatchObject({ portalName: f.settings.portalName, beingEndpoint: f.connection.endpoint });
   await writeFile(path.join(metadata.root, '.portal-status-nonce'), 'test-nonce');
   const sample = { schema: 1, pid: 12345, nonce: 'test-nonce', boot_id: 'test-boot', sequence: 1, state: 'connected', updated_at_ms: Date.now() };
   await writeFile(path.join(metadata.root, '.portal-connection-status.json'), JSON.stringify(sample));

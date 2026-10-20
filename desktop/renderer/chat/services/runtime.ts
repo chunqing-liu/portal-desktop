@@ -1,7 +1,8 @@
+import { stripLocalFileContext, stripClientMessageContext } from './local-file-context';
 import {registerAttachmentSource} from './attachment-source';
 import { MAX_ATTACHMENT_BYTES, LEGACY_WEB_ATTACHMENT_BYTES } from '../../../shared/attachment-limits';
 import { messageReferences } from './attachment-messages';
-import { stripIntelligentUIContext, withIntelligentUIContext, validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
+import { withIntelligentUIContext, validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import { createSceneRuntime } from "./scene-runtime";
 import { HistoryCache } from "./history-cache";
 import { chatHistoryLimit } from '../../../shared/chat-history';
@@ -795,7 +796,7 @@ function createStreamRuntime(state: any, options: any): any {
     scene: any = role === "being" ? state.activeScene : state.currentScene,
   ) {
     if (disposed) return null;
-    if (!streaming && role !== "system") text = cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(text)) : text);
+    if (!streaming && role !== "system") text = cleanContent(role === "user" ? stripSceneTransition(stripClientMessageContext(text)) : text);
     if (!text && !streaming) return null; // skip empty after cleaning
 
     const ts = timestamp || formatTime();
@@ -2016,7 +2017,7 @@ function createStreamRuntime(state: any, options: any): any {
     let spliceMsg = (text || "").trim();
     if (!spliceMsg && !files.length) return;
     spliceMsg = options.prepareMessage?.(spliceMsg || `[${files.length} file(s)]`) ?? spliceMsg;
-    const requestMessage = withIntelligentUIContext((sendOptions.requestMessage ?? spliceMsg) || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
+    const requestMessage = stripLocalFileContext(withIntelligentUIContext((sendOptions.requestMessage ?? spliceMsg) || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction));
     const localMessage = ensureUserMessage(sendOptions.queuedMessage, spliceMsg || `[${files.length} file(s)]`);
     noteLocalEcho("user", requestMessage, state.currentScene, localMessage, [spliceMsg]);
     if (!sendOptions.uiAction && !sendOptions.queuedMessage) clearComposer();
@@ -2107,8 +2108,8 @@ function createStreamRuntime(state: any, options: any): any {
       : [...pendingFiles];
     if (!msg && !filesToSend.length) return;
     if (!isManualRetry) msg = options.prepareMessage?.(msg || `[${filesToSend.length} file(s)]`) ?? msg;
-    const requestMessage = isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withIntelligentUIContext(sendOptions.requestMessage ??
-      options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction);
+    const requestMessage = stripLocalFileContext(isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withIntelligentUIContext(sendOptions.requestMessage ??
+      options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction));
     turnContext = sceneTransitionNotice(requestMessage);
     replyRunSettled = false;
     pendingReply = { baseline: replyBaseline, submittedAt, phase: "processing" };
@@ -2120,7 +2121,7 @@ function createStreamRuntime(state: any, options: any): any {
     if (!isManualRetry) {
       const localMessage = ensureUserMessage(sendOptions.queuedMessage, msg || `[${filesToSend.length} file(s)]`);
       // Servers may persist the user body without the transport-only scene cue.
-      noteLocalEcho("user", requestMessage || `[${filesToSend.length} file(s)]`, sendingScene, localMessage, [stripSceneTransition(stripIntelligentUIContext(requestMessage))]);
+      noteLocalEcho("user", requestMessage || `[${filesToSend.length} file(s)]`, sendingScene, localMessage, [stripSceneTransition(stripClientMessageContext(requestMessage))]);
       if (!fromQueue) clearComposer();
     }
     setStatus("thinking");
@@ -2706,7 +2707,7 @@ function createStreamRuntime(state: any, options: any): any {
       item.historySeq === Number(row.seq) && item.role === (row.role === "user" ? "user" : "being"));
     if (!message) return false;
     applyHistoryIdentity(message, historyIdentity(row));
-    message.persistedText = cleanContent(row.role === "user" ? stripSceneTransition(stripIntelligentUIContext(row.content)) : row.content);
+    message.persistedText = cleanContent(row.role === "user" ? stripSceneTransition(stripClientMessageContext(row.content)) : row.content);
     if (!message.streaming) message.text = message.persistedText;
     changed();
     return true;
@@ -2771,6 +2772,7 @@ function createStreamRuntime(state: any, options: any): any {
   }
   function consumeLocalEcho(role: any, text: any, scene: any, history: any) {
     if (role === 'user') {
+      text = stripSceneTransition(stripClientMessageContext(text || ''));
       const ids = messageReferences(text);
       if (ids.length) {
         const matching = state.items.filter((item: any) => item.kind === 'message' && item.role === 'user' && !item.historySeq &&
@@ -2861,7 +2863,7 @@ function createStreamRuntime(state: any, options: any): any {
           (role === "being" && !rebuilding && options.isLiveScene?.(messageScene(message))))) continue;
       const text = isHistoryMarker(message)
         ? `· ${breathMarkerLabel(message.content)} · ${identity.timestamp} ·`
-        : cleanContent(role === "user" ? stripSceneTransition(stripIntelligentUIContext(message.content)) : message.content);
+        : cleanContent(role === "user" ? stripSceneTransition(stripClientMessageContext(message.content)) : message.content);
       if (!text) continue;
       const item = isHistoryMarker(message)
         ? { ...identity, kind: "separator", id: `marker-${options.nextId()}`, marker: true, handoffMarker: /^\[breath yielded/i.test(message.content || ''), text }

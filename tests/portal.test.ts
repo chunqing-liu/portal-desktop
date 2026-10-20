@@ -47,6 +47,7 @@ describe('Portal supervision', () => {
   it.skipIf(process.platform === 'win32')('writes scoped config, keeps secrets off argv, ignores log spoofing, reads structured status and stops only its child', async () => {
     const f = await fixture();
     await f.portal.start(settings, connection); await f.portal.start(settings, connection);
+    expect(f.portal.state).toMatchObject({ portalName: settings.portalName, beingEndpoint: connection.endpoint });
     expect(f.spawn).toHaveBeenCalledTimes(1);
     const call = f.spawn.mock.calls[0] as unknown as [string, string[], any];
     expect(call[1].join(' ')).not.toContain(connection.token);

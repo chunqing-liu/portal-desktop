@@ -144,3 +144,7 @@ macOS arm64：类型检查通过；单元测试 179 项通过、9 项按平台�
 同场景发送队列：`npm run test:chat-send-queue` 使用独立 HTTP fixture 和 Chrome 验证输入框上方排队列表、取消、立即打断、单次回显、草稿保留及移动端宽度；`tests/chat-send-queue.test.ts` 验证同场景 FIFO 自动续发、优先发送、附件保留及跨场景禁止打断。现有 `intelligent-ui-queue.test.ts` 继续覆盖持久化恢复与界面状态快照。
 
 发送快捷键：Enter 立即发送（同场景执行中插入新指令）；Ctrl+Enter 排队，macOS 也支持 Command+Enter；Shift+Enter 换行。`test:chat-send-queue` 同时验证快捷键、中文输入法确认不误发送，以及打断后保留其他待发送消息。
+
+本地文件预览：`npm run test:local-file-preview` 使用独立临时 Electron 实例验证当前对话中的文件链接、右键预览、HTML 相对 CSS/JS、沙箱隔离、源码切换、编辑后刷新和聊天草稿保留。实现及 Portal harness 源码对照见 [LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md](LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md)。
+
+2026-10-20 提交前验证：TypeScript 类型检查通过；完整 Vitest 953 项通过、28 项原生/平台测试跳过；Portal `tools::` 95 项通过。本地预览另覆盖旧 preload、缺失定位 IPC、文件删除和点击期间焦点变化。系统定位回调在 Electron fixture 中记录路径，不弹出真实 Finder；未做 Windows 原生验收。

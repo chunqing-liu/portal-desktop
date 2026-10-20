@@ -1,3 +1,4 @@
+import { LocalFileAction, requestLocalFilePreview } from '../shared/components/local-file-link';
 import { SbsControl } from "../shared/components/sbs-control";
 import {useHistoryWindow} from './hooks/use-history-window';
 import { AttachmentMessageContent, hasAttachmentMessage, originalMessageText } from "./components/message-content";
@@ -417,6 +418,7 @@ function ChatView({
   return (
     <SurfaceContext.Provider value={{ blocks: surfaceBlocks }}>
     <CodeClipboard.Provider value={bridge.copyText}>
+    <LocalFileAction.Provider value={location.protocol === "beings:" && parent !== window ? requestLocalFilePreview : undefined}>
     <div
       className={`chat-root${parent === window ? " standalone-chat" : ""}`}
       style={
@@ -775,6 +777,7 @@ function ChatView({
         一起看这段 ↗
       </button>
     </div>
+    </LocalFileAction.Provider>
     </CodeClipboard.Provider>
     </SurfaceContext.Provider>
   );

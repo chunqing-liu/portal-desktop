@@ -31,6 +31,11 @@ export function createMainWindow(options: MainWindowOptions) {
   window.webContents.on('will-frame-navigate', event => {
     const url = event.url;
     const parsed = new URL(url);
+    // Generated pages cannot navigate into the shell/chat or out to another application.
+    if (event.frame?.url.startsWith('beings://preview/')) { event.preventDefault(); return; }
+    const localPreview = !event.isMainFrame && parsed.protocol === 'beings:' && parsed.hostname === 'preview'
+      && event.frame?.parent?.url === options.shellURL();
+    if (localPreview) return;
     const pluginDocument = !event.isMainFrame && parsed.protocol === 'beings:' && parsed.hostname === 'plugins' && /^\/[a-f0-9-]{36}\.html$/.test(parsed.pathname);
     if (pluginDocument) return;
     // Plugin documents cannot navigate to host pages, external sites or custom protocols.

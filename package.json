@@ -48,6 +48,7 @@
     "test:chat-react": "npm run build:chat && node tests/chat-react.mjs",
     "test:chat-layout": "npm run build:chat && node tests/chat-layout.mjs",
     "test:chat-scroll": "npm run build:chat && node tests/chat-scroll.mjs",
+    "test:local-file-preview": "node tests/local-file-preview-electron.mjs",
     "test:chat-context-menu": "npm run build:chat && node tests/chat-context-menu.mjs",
     "test:chat-send-queue": "npm run build:chat && node tests/chat-send-queue.mjs",
     "test:chat-sessions": "npm run build:chat && node tests/chat-sessions-electron.mjs",

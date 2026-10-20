@@ -1,3 +1,5 @@
+import { LocalFilePreviews } from './app/local-file-preview';
+import { withScenePortal } from './chat/scene-portal';
 import {AttachmentDownloads} from './chat/downloads';
 import { subagentReady } from './portal/subagent-ready';
 import { SceneTaskObserver } from './portal/subagent-tasks';
@@ -271,7 +273,8 @@ async function ready() {
     chatSessions = sessions;
   }
   catch { chatSceneNotice = '桌面场景标识未能读取或保存，暂时无法发送消息。请检查客户端配置目录后重启。'; }
-  proxy = new ChatProxy(() => store.connection, (url, init) => init?.body instanceof ReadableStream ? fetch(url, init) : net.fetch(url as string, init), () => chatSessions?.current(store.connection?.endpoint) || chatScene, id => chatSessions?.list(store.connection?.endpoint).find(scene => scene.scene_id === id));
+  const sceneWithPortal = (scene: ChatScene | undefined) => withScenePortal(scene, portal.state, store.connection?.endpoint);
+  proxy = new ChatProxy(() => store.connection, (url, init) => init?.body instanceof ReadableStream ? fetch(url, init) : net.fetch(url as string, init), () => sceneWithPortal(chatSessions?.current(store.connection?.endpoint) || chatScene), id => sceneWithPortal(chatSessions?.list(store.connection?.endpoint).find(scene => scene.scene_id === id)), true);
   const assets = app.isPackaged ? path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`) : path.resolve('desktop/generated');
   const currentPluginScene = () => chatSessions?.current(store.connection?.endpoint) || chatScene;
   const pluginContextKey = () => JSON.stringify([store.connection?.endpoint, store.connection?.token, townLive.state.generation, currentPluginScene()]);
@@ -301,7 +304,8 @@ async function ready() {
     const result=await dialog.showOpenDialog(window!,{title:'下载设置 · 选择保存位置',message:'所有附件将保存到此位置。可在客户端设置 → 通用 → 下载中更改。',defaultPath:current || app.getPath('downloads'),properties:['openDirectory','createDirectory']});
     return result.canceled ? undefined : result.filePaths[0];
   },file=>shell.openPath(file),file=>shell.showItemInFolder(file));
-  registerLocalProtocol(assets, proxy, plugins, attachmentDownloads);
+  const localFiles = new LocalFilePreviews(() => store.settings.workspace);
+  registerLocalProtocol(assets, proxy, plugins, attachmentDownloads, localFiles);
   configureLocalSession();
   const clientContext = new ClientContextReader(shellURL());
   const clientCommands = new ClientCommandServer(path.join(directory, '.portal-client.json'),
@@ -352,6 +356,10 @@ async function ready() {
       catch (error) { throw new Error(errorLog.report(channel, error)); }
     });
   };
+  handle('beings:local-file-preview', (reference: unknown) => localFiles.preview(reference));
+  handle('beings:local-files-check', (references: unknown) => localFiles.available(references));
+  handle('beings:local-file-reveal', (reference: unknown) => localFiles.reveal(reference, file => shell.showItemInFolder(file)));
+  handle('beings:local-file-release', (id: unknown) => localFiles.release(id));
   handle('beings:download-directory', (change: boolean) => attachmentDownloads.downloadDirectory(change === true));
   handle('beings:attachment-source', (filename: string) => attachmentDownloads.registerSource(filename));
   handle('beings:plugins-window-open', (id, view, command) => pluginWindows!.open(id, view, command));
@@ -532,7 +540,7 @@ async function ready() {
   handle('beings:install-update', installUpdate);
   handle('beings:cancel-update', () => { updateDownload?.abort(); });
   handle('beings:update-state', () => updates.state);
-  const snapshot = () => ({ settings: store.settings, portal: portal.state, background: background.state, chatScene: chatSessions?.current(store.connection?.endpoint) || chatScene, chatSessions: chatSessions?.list(store.connection?.endpoint), notice: [startupNotice && errorLog.report('startup-notice', startupNotice), chatSceneNotice].filter(Boolean).join('\n') || undefined });
+  const snapshot = () => ({ settings: store.settings, portal: portal.state, background: background.state, chatScene: sceneWithPortal(chatSessions?.current(store.connection?.endpoint) || chatScene), chatSessions: chatSessions?.list(store.connection?.endpoint).map(scene => sceneWithPortal(scene)!), notice: [startupNotice && errorLog.report('startup-notice', startupNotice), chatSceneNotice].filter(Boolean).join('\n') || undefined });
   handle('beings:chat-session', (operation: string, value: string, endpoint: string, sceneId?: string) => exclusive(async () => {
     if (!chatSessions || !store.connection) throw new Error('请先连接 Being，或检查场景目录。');
     if (endpoint !== store.connection.endpoint) throw new Error('Being 连接已切换，请重试。');
@@ -778,7 +786,10 @@ async function ready() {
     browser?.open(store.connection.link);
   }));
   let handlingConflict = false;
+  let portalNoticeIdentity = '';
   portal.on('state', state => {
+    const identity = JSON.stringify([state.portalName, state.beingEndpoint, state.phase, state.pid]);
+    if (identity !== portalNoticeIdentity) { portalNoticeIdentity = identity; proxy.portalStateChanged(); }
     if (state.phase === 'error' || state.phase === 'external') {
       if (state.logs.length) errorLog.report('portal-runtime', state.logs.slice(-60).join('\n'));
       state = { ...state, message: errorLog.report('portal-state', state.message, 'Portal 启动未完成，请查看日志后重试。') };
