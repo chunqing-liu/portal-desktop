@@ -1,3 +1,4 @@
+import { PluginIconEditor } from './icon';
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopPluginAPI, PluginSession } from '../../shared/plugins';
 import { PLUGIN_CAPABILITIES } from '../../shared/plugins';
@@ -49,7 +50,9 @@ export function PluginCard({ model, plugin }: { model: PluginsModel; plugin: imp
       <div className="plugin-view-list">
         <div className="plugin-view-heading"><span>页面入口</span><span>显示位置</span></div>
         {plugin.manifest.contributes.views.map(view => <div className="plugin-view-placement" key={view.id}>
-          <button disabled={!plugin.enabled || plugins.busy} className="secondary" onClick={() => plugins.open(plugin.manifest.id, view.id)}>{view.id === plugin.manifest.contributes.settingsView ? "插件设置" : view.title}</button>
+          <div className="plugin-view-entry"><button disabled={!plugin.enabled || plugins.busy} className="secondary" onClick={() => plugins.open(plugin.manifest.id, view.id)}>{view.id === plugin.manifest.contributes.settingsView ? "插件设置" : view.title}</button>
+            <PluginIconEditor model={plugins} id={plugin.manifest.id} view={view.id} title={view.title} overridden={plugin.iconOverrides?.[view.id] !== undefined} />
+          </div>
           <select aria-label={`${view.title}显示位置`} disabled={plugins.busy}
           value={plugins.placement(plugin.manifest.id, view.id)} onChange={e => void plugins.setPlacement(plugin.manifest.id, view.id, e.target.value as import('../../shared/plugins').PluginPlacement)}>
             <option value="page">默认页面</option><option value="navigation">左侧导航栏</option><option value="window">独立窗口</option>

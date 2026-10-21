@@ -1,3 +1,4 @@
+import { PluginIcon } from "../../plugins/icon";
 import { useNavigationSort } from "./use-navigation-sort";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { PrivacyContent } from "../../chat/components/panels";
@@ -89,12 +90,12 @@ export function WorkspaceNavigation({ app }: { app: AppModel }) {
   }, [moreOpen]);
   const entries = [
     ...destinations.map(([key, label, path]) => ({
-      key, label, path, active: app.view === key, plugin: false,
+      key, label, path, icon: undefined, active: app.view === key, plugin: false,
       unread: key === "bonfire" || key === "firesides" || key === "mail" ? town.unread(key) : false,
       open: () => app.navigate(key),
     })),
     ...plugins.navigationViews().map(({ plugin, view }) => ({
-      key: `plugin:${plugin.id}:${view.id}`, label: view.title,
+      key: `plugin:${plugin.id}:${view.id}`, label: view.title, icon: plugins.icon(plugin.id, view.id),
       path: "M8 3h8v5h5v8h-5v5H8v-5H3V8h5V3Z", plugin: true, unread: false,
       active: app.view === "plugins" && plugins.selected?.id === plugin.id && plugins.selected.view === view.id,
       open: () => plugins.open(plugin.id, view.id, undefined, "navigation"),
@@ -122,7 +123,7 @@ export function WorkspaceNavigation({ app }: { app: AppModel }) {
         const entry = entries.find(entry => entry.key === key)!;
         return <RailButton key={key} navigationKey={key} label={entry.label} active={entry.active}
 
-          plugin={entry.plugin} unread={entry.unread} onClick={entry.open}><Icon path={entry.path} /></RailButton>;
+          plugin={entry.plugin} unread={entry.unread} onClick={entry.open}>{entry.plugin ? <PluginIcon icon={entry.icon} /> : <Icon path={entry.path} />}</RailButton>;
       })}
       <RailButton id="rail-more-trigger" label={moreOpen ? "收起更多功能" : "更多功能"} expanded={moreOpen}
         active={entries.some(entry => !pins.includes(entry.key) && entry.active)}
@@ -135,7 +136,7 @@ export function WorkspaceNavigation({ app }: { app: AppModel }) {
       <header><div><strong>更多功能</strong><p>将常用功能固定到左侧</p></div><button aria-label="收起更多功能" onClick={() => closeMore(true)}>×</button></header>
       <div className="rail-more-list">{entries.map(entry => <div className="rail-more-row" key={entry.key}>
         <button className="rail-more-destination" aria-current={entry.active ? "page" : undefined} data-plugin-navigation={entry.plugin || undefined}
-          onClick={() => { closeMore(); entry.open(); }}><Icon path={entry.path} /><span>{entry.label}</span>{entry.unread && <i aria-label="有新动态" />}</button>
+          onClick={() => { closeMore(); entry.open(); }}>{entry.plugin ? <PluginIcon icon={entry.icon} /> : <Icon path={entry.path} />}<span>{entry.label}</span>{entry.unread && <i aria-label="有新动态" />}</button>
         <button className="rail-pin-button" aria-label={`${pins.includes(entry.key) ? "取消固定" : "固定到左侧"}：${entry.label}`}
           aria-pressed={pins.includes(entry.key)} title={pins.includes(entry.key) ? "取消固定" : "固定到左侧"} onClick={() => togglePin(entry.key)}>
           <Icon path="m9 3 6 0-1 6 4 4v2h-5v6l-1-2-1 2v-6H6v-2l4-4-1-6Z" />

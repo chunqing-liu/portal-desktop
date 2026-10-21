@@ -11,6 +11,7 @@ const api: DesktopAPI = {
   associateApp: entry => ipcRenderer.invoke('beings:associate-app', entry),
   unlinkApp: id => ipcRenderer.invoke('beings:unlink-app', id),
   plugins: {
+    setIcon: (id, view, icon) => ipcRenderer.invoke('beings:plugins-icon', id, view, icon),
     setPlacement: (id, view, placement) => ipcRenderer.invoke('beings:plugins-placement', id, view, placement),
     openWindow: (id, view, command) => ipcRenderer.invoke('beings:plugins-window-open', id, view, command),
     replyHostRequest: (id, value, error) => ipcRenderer.invoke('beings:plugins-host-reply', id, value, error),

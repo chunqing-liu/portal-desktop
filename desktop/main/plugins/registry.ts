@@ -1,7 +1,8 @@
+import { MAX_PLUGIN_ICON_BYTES, PLUGIN_ICON_TYPES, isPluginIconPath, parsePluginIcon } from '../../shared/plugin-icon';
 import { PluginAgentStore } from './agent-store';
 import { agentKeys, agentObject, agentText } from '../../shared/plugin-agent';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parsePluginManifest, pluginId, type InstalledPlugin, type PluginLibrary, type PluginPlacement } from '../../shared/plugins';
 import { PLUGIN_SDK } from '../../shared/plugin-sdk';
@@ -11,6 +12,8 @@ import type { PluginEventTopic } from '../../../plugins/sdk';
 
 const MAX_HTML = 8 * 1024 * 1024;
 const MAX_DATA = 1024 * 1024;
+// One plugin icon, eight view icons and eight local overrides, all Base64 encoded.
+const MAX_PACKAGE = MAX_HTML * 6 + 65536 + 17 * (Math.ceil(MAX_PLUGIN_ICON_BYTES / 3) * 4 + 40);
 export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-downloads";
 interface Package extends InstalledPlugin { html: string }
 interface Session { id: string; view: string; command?: string; slot?: string; html: string; csp: string; calls: number; since: number; key: string; controller: AbortController; subscriptions: Map<number, PluginEventTopic> }
@@ -21,8 +24,24 @@ async function boundedRead(file: string, limit: number) {
   if (Buffer.byteLength(text) > limit) throw new Error('插件文件超出大小限制。');
   return text;
 }
+async function loadIcon(directory: string, icon: string): Promise<string> {
+  if (!isPluginIconPath(icon)) return parsePluginIcon(icon, false);
+  const root = await realpath(directory);
+  const file = path.join(root, icon);
+  const resolved = await realpath(file);
+  if (!resolved.startsWith(root + path.sep)) throw new Error('插件图标必须位于插件目录内。');
+  const info = await lstat(file);
+  if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_PLUGIN_ICON_BYTES) throw new Error('插件图标必须是不超过 256 KB 的普通图片文件。');
+  const data = await readFile(file);
+  if (!data.length || data.length > MAX_PLUGIN_ICON_BYTES) throw new Error('插件图标为空或超过 256 KB。');
+  return parsePluginIcon(`data:${PLUGIN_ICON_TYPES[path.extname(icon).slice(1).toLowerCase()]};base64,${data.toString('base64')}`, false);
+}
 export async function readPlugin(directory: string): Promise<Pick<Package, 'manifest' | 'html' | 'sha256'>> {
   const manifest = parsePluginManifest(JSON.parse((await boundedRead(path.join(directory, 'desktop.plugin.json'), 65536)).replace(/^\uFEFF/, '')));
+  if (manifest.icon !== undefined) manifest.icon = await loadIcon(directory, manifest.icon);
+  for (const view of manifest.contributes.views) {
+    if (view.icon !== undefined) view.icon = await loadIcon(directory, view.icon);
+  }
   const html = await boundedRead(path.join(directory, manifest.entry), MAX_HTML);
   if (!html.trim()) throw new Error('插件页面为空。');
   return { manifest, html, sha256: createHash('sha256').update(JSON.stringify(manifest)).update(html).digest('hex') };
@@ -46,7 +65,7 @@ export class PluginRegistry {
     finally { await rm(temporary, { force: true }); }
   }
   private async package(id: string): Promise<Package> {
-    const value = JSON.parse(await boundedRead(this.file('packages', id), MAX_HTML * 6 + 65536));
+    const value = JSON.parse(await boundedRead(this.file('packages', id), MAX_PACKAGE));
     value.manifest = parsePluginManifest(value.manifest);
     if (value.manifest.id !== id || typeof value.html !== 'string' || Buffer.byteLength(value.html) > MAX_HTML || typeof value.enabled !== 'boolean' || !['local', 'grove'].includes(value.source?.kind)) throw new Error('插件安装记录已损坏。');
     const hash = createHash('sha256').update(JSON.stringify(value.manifest)).update(value.html).digest('hex');
@@ -76,6 +95,16 @@ export class PluginRegistry {
       const value = await this.package(id);
       await this.atomic(this.file('packages', id), { ...value, enabled });
       this.revoke(id);
+    });
+  }
+  setIcon(id: string, view: string, icon: string | null) {
+    return this.serialize(async () => {
+      const value = await this.package(id);
+      if (!value.manifest.contributes.views.some(v => v.id === view)) throw new Error('插件页面不存在。');
+      const iconOverrides = { ...value.iconOverrides };
+      if (icon === null) delete iconOverrides[view];
+      else iconOverrides[view] = parsePluginIcon(icon, false);
+      await this.atomic(this.file('packages', id), { ...value, iconOverrides });
     });
   }
   setPlacement(id: string, view: string, placement: PluginPlacement) {

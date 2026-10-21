@@ -315,8 +315,9 @@ declare global {
 | `name` / `description` / `author` | 必填的非空字符串 |
 | `version` | 插件版本，如 `1.0.0` 或 `1.0.0-beta.1` |
 | `entry` | 包根目录中的 HTML 文件名，如 `index.html` |
+| `icon` | 可选插件默认导航图标，支持 Emoji、短文字或包内图片相对路径 |
 | `capabilities` | 按需声明下表中的能力，可为空数组 |
-| `contributes.views` | 1–8 个页面，每项包含 `id` 和 `title` |
+| `contributes.views` | 1–8 个页面，每项包含 `id`、`title`，可选 `icon` 覆盖插件图标 |
 | `contributes.commands` | 可选命令入口，每项包含 `id`、`title`、`view` |
 | `contributes.settingsView` | 可选设置页，值为已声明的 view ID |
 | `contributes.agent` | 可选的插件行为契约与字段定义，需要 `agent.read` 和 `minSdkVersion: "1.4.0"` |
@@ -327,6 +328,28 @@ declare global {
 所有视图共用 `entry`，通过 `grove.view` 区分页面；`grove.command` 和 `grove.slot` 标识命令或插槽入口。命令从 `Ctrl/⌘ + Shift + P` 面板打开，设置页由插件自行绘制。
 
 插槽的 `location` 支持 `right-sidebar` 和 `resource-actions`，均在侧栏中打开目标 view；可用 `resourceKinds` 筛选资源类型。工作区资源仍需对应的 Town 读取权限。
+
+### 左侧导航图标
+
+在 `desktop.plugin.json` 顶层设置默认 `icon`，或在 `contributes.views` 中给每个页面单独设置：
+
+```json
+{
+  "icon": "assets/plugin.png",
+  "contributes": {
+    "views": [
+      { "id": "board", "title": "看板", "icon": "🌟" },
+      { "id": "settings", "title": "设置", "icon": "assets/settings.svg" }
+    ]
+  }
+}
+```
+
+以上为清单片段，其余必填字段仍需保留。图标支持不超过 16 个 Unicode 码点的 Emoji / 短文字（不含空白、路径分隔符和 `< > : .`），或 PNG、JPEG、WebP、SVG 图片。每张图片最大 256 KB；路径仅使用英文字母、数字、下划线、连字符和目录分隔符，必须位于插件包内。也可使用对应 MIME 类型的 Base64 data URL。不支持网络图片 URL。发布时将图片一并放入压缩包；安装会复制图标内容，之后不依赖源目录。
+
+清单文件仍限制为 64 KB，较大的图片请使用文件路径。
+
+用户可在「工具库 → Plugin → 页面入口 → 图标」中上传图片或填写 Emoji，并通过「恢复默认」移除本机覆盖。显示优先级为：本机自定义 → 页面 `icon` → 插件 `icon` → 客户端默认图标。选择「左侧导航栏」后，该图标同时用于「更多功能」列表和固定到左侧的入口。图标声明是可选的，已有插件无需修改。
 
 ### 能力与方法
 

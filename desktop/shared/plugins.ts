@@ -1,3 +1,4 @@
+import { parsePluginIcon } from './plugin-icon';
 import { parseAgentContract } from './plugin-agent';
 import type { PluginAgentContract } from '../../plugins/sdk';
 export type { GroveSDK, PluginBeingContext } from '../../plugins/sdk';
@@ -36,8 +37,9 @@ export interface PluginManifest {
   description: string;
   author: string;
   entry: string;
+  icon?: string;
   capabilities: PluginCapability[];
-  contributes: { agent?: PluginAgentContract; views: { id: string; title: string }[]; commands?: PluginCommand[]; settingsView?: string; slots?: PluginSlot[] };
+  contributes: { agent?: PluginAgentContract; views: { id: string; title: string; icon?: string }[]; commands?: PluginCommand[]; settingsView?: string; slots?: PluginSlot[] };
 }
 export interface InstalledPlugin {
   manifest: PluginManifest;
@@ -46,6 +48,7 @@ export interface InstalledPlugin {
   sha256: string;
   installedAt: string;
   placements?: Record<string, PluginPlacement>;
+  iconOverrides?: Record<string, string>;
   visibleSidebarSlots?: string[];
 }
 export type PluginPlacement = 'page' | 'navigation' | 'window';
@@ -64,6 +67,7 @@ declare global { interface Window { beingsPluginWindow?: PluginWindowAPI } }
 export interface PluginLibrary { plugins: InstalledPlugin[]; problems: string[] }
 export interface PluginSession { token: string; url: string }
 export interface DesktopPluginAPI {
+  setIcon?(id: string, view: string, icon: string | null): Promise<void>;
   setSidebarSlotVisible?(id: string, slot: string, visible: boolean): Promise<void>;
   setPlacement?(id: string, view: string, placement: PluginPlacement): Promise<void>;
   openWindow?(id: string, view: string, command?: string): Promise<void>;
@@ -120,11 +124,13 @@ export function parsePluginManifest(raw: unknown): PluginManifest {
   if (m.capabilities.some(c => c.startsWith('agent.')) && !agent) throw new Error('插件协作能力需要声明行为契约。');
   if (agent && (!m.capabilities.includes('agent.read') || !['1.4.0', '1.5.0'].includes(m.minSdkVersion || ''))) throw new Error('行为契约需要 agent.read 和 SDK 1.4.0。');
   if (!Array.isArray(m.contributes?.views) || !m.contributes.views.length || m.contributes.views.length > 8) throw new Error('插件需要声明 1–8 个页面入口。');
+  if (m.icon !== undefined) parsePluginIcon(m.icon);
   const ids = new Set<string>();
   for (const view of m.contributes.views) {
     if (!view) throw new Error('插件页面声明无效。');
     pluginId(view.id);
     if (ids.has(view.id) || typeof view.title !== 'string' || !view.title.trim() || view.title.length > 60) throw new Error('插件页面名称无效或 ID 重复。');
+    if (view.icon !== undefined) parsePluginIcon(view.icon);
     ids.add(view.id);
   }
   const commands = m.contributes.commands;
@@ -151,5 +157,5 @@ export function parsePluginManifest(raw: unknown): PluginManifest {
       slotIds.add(slot.id);
     }
   }
-  return { schemaVersion: 1, apiVersion: 1, ...(m.minSdkVersion ? { minSdkVersion: m.minSdkVersion } : {}), id: m.id, name: m.name, version: m.version, description: m.description, author: m.author, entry: m.entry, capabilities: [...m.capabilities], contributes: { ...(agent ? { agent } : {}), views: m.contributes.views.map(v => ({ id: v.id, title: v.title })), ...(commands ? { commands: commands.map(c => ({ id: c.id, title: c.title, view: c.view })) } : {}), ...(m.contributes.settingsView ? { settingsView: m.contributes.settingsView } : {}), ...(slots ? { slots: slots.map(s => ({ id: s.id, title: s.title, view: s.view, location: s.location, ...(s.resourceKinds ? { resourceKinds: [...s.resourceKinds] } : {}) })) } : {}) } };
+  return { schemaVersion: 1, apiVersion: 1, ...(m.minSdkVersion ? { minSdkVersion: m.minSdkVersion } : {}), id: m.id, name: m.name, version: m.version, description: m.description, author: m.author, entry: m.entry, ...(m.icon !== undefined ? { icon: m.icon } : {}), capabilities: [...m.capabilities], contributes: { ...(agent ? { agent } : {}), views: m.contributes.views.map(v => ({ id: v.id, title: v.title, ...(v.icon !== undefined ? { icon: v.icon } : {}) })), ...(commands ? { commands: commands.map(c => ({ id: c.id, title: c.title, view: c.view })) } : {}), ...(m.contributes.settingsView ? { settingsView: m.contributes.settingsView } : {}), ...(slots ? { slots: slots.map(s => ({ id: s.id, title: s.title, view: s.view, location: s.location, ...(s.resourceKinds ? { resourceKinds: [...s.resourceKinds] } : {}) })) } : {}) } };
 }

@@ -58,6 +58,16 @@ export class PluginsModel extends Store {
   placement(id: string, view: string): PluginPlacement {
     return this.library.plugins.find(p => p.manifest.id === id)?.placements?.[view] || 'page';
   }
+  icon(id: string, view: string) {
+    const plugin = this.library.plugins.find(p => p.manifest.id === id);
+    return plugin?.iconOverrides?.[view] ?? plugin?.manifest.contributes.views.find(v => v.id === view)?.icon ?? plugin?.manifest.icon;
+  }
+  setIcon(id: string, view: string, icon: string | null) {
+    return this.act(async () => {
+      if (!this.api?.setIcon) throw new Error('当前客户端不支持自定义图标。');
+      await this.api.setIcon(id, view, icon);
+    });
+  }
   navigationViews() {
     return this.library.plugins.filter(p => p.enabled).flatMap(p => p.manifest.contributes.views
       .filter(v => p.placements?.[v.id] === 'navigation').map(view => ({ plugin: p.manifest, view })));

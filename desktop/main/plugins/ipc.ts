@@ -52,6 +52,7 @@ export function registerPluginsIpc(options: {
     } finally { await rm(temporary, { recursive: true, force: true }); }
   }));
   handle('beings:plugins-sidebar-slot-visible', (id, slot, visible) => registry.setSidebarSlotVisible(id, slot, visible));
+  handle('beings:plugins-icon', (id, view, icon) => registry.setIcon(id, view, icon));
   handle('beings:plugins-placement', (id, view, placement) => registry.setPlacement(id, view, placement));
   handle('beings:plugins-enable', async (id: string, enabled: boolean) => { await registry.setEnabled(id, enabled); options.closeWindows?.(id); });
   handle('beings:plugins-remove', (id: string) => exclusive(async () => {
