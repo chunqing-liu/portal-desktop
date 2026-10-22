@@ -9,14 +9,22 @@ const receipt = {type:'being.image-generation',version:1,being_id:'fixture',jobs
 const history = Array.from({length:1000},(_,i)=>({seq:i+1,role:i%2?'being':'user',scene_id:'perf',content:`row ${i+1}\n\n历史第二段\n\n历史第三段`,at:'2026-10-22T01:00:00Z'}));
 for(const seq of [965,999])history[seq-1].content=`[attachment-message:v1:${id(seq)}]`;
 history[966]={...history[966],role:'being',content:'```json\n'+JSON.stringify(receipt)+'\n```'};
-let stream, answer='', historyCalls=0;const resources=[];
-const emit=(event,data)=>stream.write(`event: ${event}\ndata: ${JSON.stringify({...data,scene_id:'perf'})}\n\n`);
+let stream, answer='', historyCalls=0;const resources=[], liveEvents=[];
+const emit=(event,data)=>{
+  const payload={...data,scene_id:'perf'};
+  if(event!=='meta')liveEvents.push({seq:liveEvents.length+1,event,data:payload});
+  return stream.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+};
 const server=createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');const json=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};
   if(url.pathname==='/api/history'){historyCalls++;const after=url.searchParams.get('after');return json({messages:(after===null?history.slice(-100):history.filter(row=>row.seq>Number(after))).slice().reverse()});}
   if(url.pathname==='/api/status')return json({being_name:'fixture'});
   if(url.pathname==='/api/llm/config')return json({sbs_enabled:false});
-  if(url.pathname==='/api/stream/active'){res.writeHead(204);return res.end();}
+  if(url.pathname==='/api/stream/active'){
+    if(stream&&!stream.writableEnded)return json({stream_id:'perf-stream',scene_id:'perf',origin:'human',finished:false,next_seq:liveEvents.length+1,
+      events:liveEvents.filter(item=>item.seq>Number(url.searchParams.get('after')||0))});
+    res.writeHead(204);return res.end();
+  }
   if(url.pathname==='/health')return res.end('OK fixture');
   if(url.pathname.startsWith('/api/attachment-messages/')){const message_id=url.pathname.split('/').at(-1);resources.push(message_id);return json({version:1,message_id,channel:'portal',scene_id:'perf',created_at:Date.now(),delivery_status:'accepted',parts:[{type:'text',text:'row '+parseInt(message_id.slice(4),16)}]});}
   if(url.pathname.startsWith('/api/image-generations/')){resources.push('generation');return json({id:'gen_perf',client_request_id:'perf',status:'failed',error_code:'fixture',availability:'expired',outputs:[],required_action:null});}
