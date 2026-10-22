@@ -23,6 +23,12 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
     {entry.error && actions.onContinue && <button type="button" onClick={() => actions.onContinue?.(surfaceRepairPrompt(surface, entry.error))}>让 Being 修正</button>}
   </div>;
   const version = surface.versions.find(v => v.revision === selectedRevision) || latest;
+  const activate = () => {
+    if (selectedRevision !== null || !snapshot.current) return false;
+    const [text, values, apps] = snapshot.current;
+    actions.onSnapshot?.(text, values, apps, true);
+    return true;
+  };
   return <div id={anchor} className="iui-surface">
     {surface.versions.length > 1 && <label className="iui-version-picker">界面版本 <select aria-label="界面版本" value={selectedRevision ?? 'latest'} onChange={event => setSelectedRevision(event.target.value === 'latest' ? null : Number(event.target.value))}>
       <option value="latest">最新 · 第 {latest!.revision} 版</option>
@@ -32,15 +38,16 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
       storageKey={selectedRevision === null ? JSON.stringify(['surface', surface.scope, surface.id]) : undefined}
       submitDisabled={!latest || selectedRevision !== null}
       onEdit={actions.onEdit && latest && selectedRevision === null ? () => {
-        if (!snapshot.current) return;
-        const [text, values, apps] = snapshot.current;
-        actions.onSnapshot?.(text, values, apps, true);
-        actions.onEdit?.();
+        if (activate()) actions.onEdit?.();
+      } : undefined}
+      onContinue={actions.onContinue ? text => {
+        if (!latest || selectedRevision !== null) return;
+        // Generated buttons and nested apps must opt into the same context as “修改”.
+        if (activate()) actions.onEdit?.();
+        actions.onContinue?.(text);
       } : undefined}
       onActivate={() => {
-        if (selectedRevision !== null || !snapshot.current) return;
-        const [text, values, apps] = snapshot.current;
-        actions.onSnapshot?.(text, values, apps, true);
+        activate();
       }}
       onSnapshot={(text, values, apps) => {
         if (selectedRevision !== null) return;

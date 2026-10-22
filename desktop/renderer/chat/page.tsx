@@ -592,7 +592,7 @@ function ChatView({
                   messageId={item.id}
                   intelligentUI={item.role === "being"}
                   storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id]) + (blockId ? `:${blockId}` : '')}
-                  onContinue={text => { state.draft = text; state.changed(); composer.current?.focus(); }}
+                  onContinue={text => { state.draft = [state.draft.trim(), text].filter(Boolean).join('\n\n'); state.changed(); composer.current?.focus(); }}
                   onEdit={inCurrentScene(item, state.currentScene) ? () => {
                     state.setIntelligentUIEnabled(true);
                     state.setIntelligentUIForMessage(true);

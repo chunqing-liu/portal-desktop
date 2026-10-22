@@ -131,6 +131,48 @@ try{
   await page.waitForFunction(()=>document.querySelector('select[aria-label="界面版本"] option')?.textContent.includes('第 3 版'));
   const selected=JSON.parse(sends.at(-1).message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s)[1]);
   assert.equal(selected.surfaceId,'wardrobe');assert.equal(selected.values.temp,29);
+  // Generated continue buttons, including those inside apps, select their source and preserve the draft.
+  const continueApp = `let choice=1;function render(){ui.render({version:1,title:'继续模拟',state:{choice},body:[{id:'choice',type:'number',label:'继续模拟人数',bind:'choice',min:1,max:10},{id:'next',type:'button',label:'继续模拟计划',action:'continue',value:'细化模拟'}]});}ui.onEvent(e=>{choice=Number(e.value);render();});render();`;
+  history.push({seq:history.length+1,role:'being',scene_id:'surface-test',content:ui([
+    {op:'begin',version:2,surfaceId:'continue-demo',title:'继续操作计划'},
+    {op:'state',key:'budget',initial:10},
+    {op:'node',node:{id:'budget',type:'number',label:'继续预算',bind:'budget',min:0,max:100}},
+    {op:'node',node:{id:'simulation',type:'app',code:continueApp}},
+    {op:'node',node:{id:'next',type:'button',label:'继续外层计划',action:'continue',value:'细化外层'}},
+    {op:'commit'},
+  ])});
+  await page.reload();
+  const continueSurface=page.locator('.iui-surface').filter({has:page.getByRole('heading',{name:'继续操作计划',exact:true})});
+  const composer=page.getByRole('textbox',{name:'message input'});
+  await continueSurface.getByRole('spinbutton',{name:'继续预算',exact:true}).fill('23');
+  await continueSurface.getByRole('spinbutton',{name:'继续模拟人数',exact:true}).fill('6');
+  await page.waitForFunction(()=>[...document.querySelectorAll('.iui-app input[type=number]')].some(el=>el.value==='6'));
+  for (const [index, [button, description]] of [['继续外层计划','细化外层'],['继续模拟计划','细化模拟']].entries()) {
+    // Deliberately select another artifact first to catch stale context reuse.
+    await page.locator('.iui-surface').filter({has:page.getByRole('slider',{name:'温度'})}).getByRole('button',{name:'修改',exact:true}).click();
+    await page.getByRole('button',{name:'取消本条界面修改',exact:true}).click();
+    await composer.fill('保留已有要求');
+    const before=sends.length;
+    await continueSurface.getByRole('button',{name:'展开界面',exact:true}).click();
+    await continueSurface.getByRole('button',{name:button,exact:true}).click();
+    assert.equal(sends.length,before,'Continue must wait for user submission');
+    assert.equal(await page.getByRole('dialog',{name:'继续操作计划',exact:true}).count(),0);
+    await page.waitForFunction(()=>document.activeElement?.matches('#input, #input [contenteditable], [role=textbox][contenteditable]'));
+    const draft=await composer.evaluate(el=>el.value??el.editor.getMarkdown());
+    assert.ok(draft.startsWith('保留已有要求\n\n'+description),draft);
+    assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'true');
+    await page.locator('.iui-context-target').getByText('修改「继续操作计划」').waitFor();
+    await page.locator('#send-btn').click();
+    await page.waitForFunction(revision=>[...document.querySelectorAll('select[aria-label="界面版本"]')].some(el=>el.closest('.iui-surface')?.textContent.includes('继续操作计划') && el.options[0].textContent.includes(`第 ${revision} 版`)),index+2);
+    const action=JSON.parse(sends.at(-1).message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s)[1]);
+    assert.equal(action.surfaceId,'continue-demo');
+    assert.equal(action.revision,index+1);
+    assert.equal(action.values.budget,23);
+    assert.equal(action.apps.simulation.values.choice,6);
+  }
+  await continueSurface.getByRole('combobox',{name:'界面版本'}).selectOption('1');
+  assert.equal(await continueSurface.getByRole('button',{name:'继续外层计划',exact:true}).isDisabled(),true);
+  assert.equal(await continueSurface.getByRole('button',{name:'继续模拟计划',exact:true}).isDisabled(),true);
   assert.deepEqual(errors,[]);
   console.log('PASS: per-message UI context, in-place patch, input preservation, version preview, and history reload.');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
