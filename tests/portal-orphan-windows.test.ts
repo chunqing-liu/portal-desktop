@@ -45,7 +45,7 @@ it('does not fall back to killing unverified Windows processes when inspection f
   }
 });
 
-it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground engine after its client crashes and rejects stale identities', async () => {
+it.skipIf(process.platform !== 'win32').each([false, true])('handles a crashed Windows foreground owner (detached orphan fixture: %s)', async detached => {
   const root = await mkdtemp(path.join(os.tmpdir(), "portal-orphan 中文 ' ")); roots.push(root);
   const binary = path.resolve('resources/heart-portal.exe');
   const library = path.join(root, 'supervisor.cjs');
@@ -53,7 +53,7 @@ it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground e
   const settings = { endpoint: '', being: '', hasToken: true, portalName: 'windows-orphan', portalBinary: binary,
     workspace: root, autoStart: false, allowExec: false, kitsEnabled: false };
   const input = path.join(root, 'fixture.json');
-  await writeFile(input, JSON.stringify({ root, settings, connection }));
+  await writeFile(input, JSON.stringify({ root, settings, connection, detached }));
   let parent: ChildProcess | undefined, engine: number | undefined;
   const replacement = new PortalSupervisor(root);
   try {
@@ -64,7 +64,7 @@ it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground e
       // disappear with their owner. Deliberately detach this fixture so the
       // crash actually leaves an orphan for the recovery adapter to inspect.
       const {spawn} = require('node:child_process');
-      const portal = new PortalSupervisor(f.root, (file, args, options) => spawn(file, args, {...options, detached:true}));
+      const portal = new PortalSupervisor(f.root, (file, args, options) => spawn(file, args, {...options, detached:f.detached}));
       (async () => { await portal.start(f.settings, f.connection); await portal.waitReady(); console.log(portal.state.pid); })()
         .catch(error => { console.error(error); process.exit(1); });
       setInterval(() => {}, 1000);
@@ -78,6 +78,12 @@ it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground e
     const recovery = new OrphanPortalRecovery(root);
     expect(await recovery.conflicts(connection)).toEqual([]); // Live client owns it.
     const exited = once(parent, 'exit'); parent.kill('SIGKILL'); await exited;
+    if (!detached) {
+      await vi.waitFor(() => expect(() => process.kill(engine!, 0)).toThrow(), {timeout:5000});
+      expect(await recovery.conflicts(connection)).toEqual([]);
+      engine = undefined;
+      return;
+    }
     expect(() => process.kill(engine!, 0), 'The fixture must leave a live orphan after the owner exits').not.toThrow();
     expect(await new OrphanPortalRecovery(path.join(root, 'other')).conflicts(connection)).toEqual([]);
     expect(await recovery.conflicts(parseConnection('http://127.0.0.1:1/other/?token=fixture'))).toEqual([]);
