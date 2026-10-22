@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { OrphanPortalRecovery } from '../desktop/main/portal/orphan';
 import { parseConnection } from '../desktop/main/chat/connection';
-import { command, type Command } from '../desktop/main/portal/background';
+import { command, windowsPowerShellScript, type Command } from '../desktop/main/portal/background';
 import { foregroundRecordFile, saveForegroundRecord, type ForegroundRecord } from '../desktop/main/portal/foreground-record';
 import { PortalSupervisor } from '../desktop/main/portal/supervisor';
 
@@ -77,7 +77,24 @@ it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground e
     expect(await new OrphanPortalRecovery(path.join(root, 'other')).conflicts(connection)).toEqual([]);
     expect(await recovery.conflicts(parseConnection('http://127.0.0.1:1/other/?token=fixture'))).toEqual([]);
     const targets = await recovery.conflicts(connection);
-    expect(targets).toHaveLength(1);
+    if (targets.length !== 1) {
+      // Report only identity comparisons and clock values, never command lines,
+      // connection links or the engine's environment.
+      const source = windowsPowerShellScript(`
+        $profilePath='${root.replaceAll("'", "''")}';
+        $record=Get-Content -LiteralPath (Join-Path $profilePath 'portal-foreground.json') -Raw -Encoding UTF8 | ConvertFrom-Json;
+        $item=Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$record.pid)";
+        $ownerProcess=Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$record.parentPid)";
+        $status=Get-Content -LiteralPath (Join-Path $profilePath '.portal-connection-status.json') -Raw -Encoding UTF8 | ConvertFrom-Json;
+        $created=if($item){([DateTimeOffset]$item.CreationDate.ToUniversalTime()).ToUnixTimeMilliseconds()}else{0};
+        $sameUser=if($item){(Invoke-CimMethod -InputObject $item -MethodName GetOwnerSid).Sid -eq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value}else{$false};
+        @{engineAlive=[bool]$item;binaryMatches=($item.ExecutablePath -eq $record.binary);parentMatches=($item.ParentProcessId -eq $record.parentPid);
+          parentAlive=[bool]$ownerProcess;sameUser=$sameUser;before=$record.before;after=$record.after;created=$created;
+          statusPidMatches=($status.pid -eq $record.pid);nonceMatches=($status.nonce -ceq $record.nonce)} | ConvertTo-Json -Compress
+      `);
+      const diagnostic = await command('powershell.exe', ['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(source,'utf16le').toString('base64')]);
+      expect(targets, diagnostic).toHaveLength(1);
+    }
     const statusFile = path.join(root, '.portal-connection-status.json');
     const status = await readFile(statusFile, 'utf8');
     await rm(statusFile);

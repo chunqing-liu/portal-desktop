@@ -1,0 +1,29 @@
+name: Windows Portal recovery
+on:
+  push:
+    paths:
+      - '.github/workflows/windows-portal-recovery.yml'
+      - 'desktop/main/portal/windows-orphan.ps1'
+      - 'desktop/main/portal/foreground-record.ts'
+      - 'desktop/main/portal/supervisor.ts'
+      - 'tests/portal-orphan-windows.test.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run build:portal
+      - run: npx vitest run tests/portal-orphan-windows.test.ts
