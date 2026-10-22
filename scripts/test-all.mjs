@@ -41,7 +41,13 @@ async function step(name, file, args, cwd = process.cwd()) {
   const status = result.code === 0 ? 'passed' : 'failed';
   report.steps.push({ name, status, seconds: Number(((Date.now() - start) / 1000).toFixed(2)), ...result });
   await persist();
-  if (status === 'failed') throw new Error(`${name} 失败，详见 test-results/${name}.log`);
+  if (status === 'failed') {
+    const message = `${name} 失败，详见 test-results/${name}.log`;
+    // Build failures invalidate downstream fixtures. Independent test failures
+    // must still collect the remaining checks, then fail the overall run.
+    if (['typecheck', 'build-portal', 'package'].includes(name)) throw new Error(message);
+    console.error(message);
+  }
 }
 const npm = (name, args = []) => {
   if (!process.env.npm_execpath) throw new Error('请通过 npm run test:all 启动。');
@@ -111,6 +117,8 @@ try {
   await npm('desktop-e2e', ['run', 'test:e2e']);
   await npm('town-e2e', ['run', 'test:town-ui']);
   await npm('browser-e2e', ['run', 'test:browser']);
+  const failed = report.steps.filter(step => step.status === 'failed');
+  if (failed.length) throw new Error(`测试失败：${failed.map(step => step.name).join('、')}，详见 test-results 中对应日志。`);
   report.status = 'passed';
 } catch (error) { report.status = 'failed'; report.error = String(error); console.error(String(error)); process.exitCode = 1; }
 finally { report.finishedAt = new Date().toISOString(); await persist(); console.log('\n测试报告：test-results/summary.md（结构化结果：summary.json）'); }
