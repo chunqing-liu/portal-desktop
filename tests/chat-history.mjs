@@ -60,6 +60,22 @@ async function open(suffix = '') {
   await page.goto(origin + '/loom.html?revision=' + Math.random() + suffix);
   await page.waitForFunction(() => performance.getEntriesByName('loom:ready').length > 0);
 }
+// Cached history is complete, while the transcript initially mounts one page.
+// Exercise the real upward paging path before asserting old rows are visible.
+async function revealAll(count) {
+  await page.locator('.chat-scene-loading').waitFor({ state: 'detached' });
+  const messages = page.locator('#messages .message');
+  let mounted = await messages.count();
+  assert.ok(mounted > 0 && mounted <= count);
+  while (mounted < count) {
+    await page.locator('#messages').hover();
+    await page.mouse.wheel(0, -100000);
+    await page.waitForFunction(before => document.querySelectorAll('#messages .message').length > before, mounted);
+    await page.locator('.history-page-loading').waitFor({ state: 'detached' });
+    mounted = await messages.count();
+  }
+  assert.equal(mounted, count);
+}
 async function cached() {
   return page.evaluate(name => new Promise((resolve, reject) => {
     const request = indexedDB.open(name);
@@ -112,7 +128,8 @@ try {
   await open('&name=Willow');
   await waitCache(100);
   assert.equal((await cached()).version, 2);
-  assert.equal(await page.locator('#messages .message').count(), 100);
+  assert.equal(await page.locator('#messages .message').count(), 40, 'Initial rendering stays bounded');
+  await revealAll(100);
   await page.getByText('历史 3', { exact: true }).waitFor(); // A different scene remains visible.
   await page.locator('#input').fill('本地记录验证'); await page.locator('#send-btn').click();
   await page.getByText('已持久化的流式回复', { exact: true }).waitFor();
@@ -125,17 +142,17 @@ try {
   assert.ok(initial.messages.some(m => m.scene_id === 'another-client'));
   assert.equal(initial.messages.find(m => m.seq === 3).scene_label, '小镇私信');
   assert.equal(initial.messages.some(m => m.scene_meta), false);
-  // Switching views uses one all-scene cache/cursor and preserves the draft and reading position.
+  // Switching views uses one all-scene cache/cursor and preserves the draft while rendering pages on demand.
   await open('&name=Willow&scene_id=loom-Willow&scene_label=Loom');
   assert.equal(await page.getByRole('checkbox', { name: '显示全部场景上下文', exact: true }).isChecked(), false);
-  assert.equal(await page.locator('#messages .message').count(), 67);
+  await revealAll(67);
   assert.equal(await page.getByText('历史 3', { exact: true }).count(), 0);
   await page.locator('#input').fill('切换时保留草稿');
   await page.locator('#messages').evaluate(el => { el.scrollTop = 120; });
   await page.waitForFunction(() => document.querySelector('#messages').scrollTop === 120);
   const queryCount = queries.length;
   await page.getByRole('checkbox', { name: '显示全部场景上下文', exact: true }).check();
-  assert.equal(await page.locator('#messages .message').count(), 102);
+  await revealAll(102);
   assert.equal(await page.getByText('历史 3', { exact: true }).count(), 1);
   assert.ok(await page.locator('.message-scene').getByText('town-mail', { exact: true }).count());
   assert.equal(await page.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '切换时保留草稿');
@@ -143,16 +160,15 @@ try {
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/chat-scenes-all.png' });
   await page.getByRole('checkbox', { name: '显示全部场景上下文', exact: true }).uncheck();
-  assert.equal(await page.locator('#messages .message').count(), 67);
-  assert.equal(await page.locator('#messages').evaluate(el => el.scrollTop), 120);
-  assert.equal(queries.length, queryCount, 'Scope changes do not reset or refetch the global history cursor');
+  await revealAll(67);
+  assert.ok(queries.slice(queryCount).every(after => after === '102'), 'Scope refreshes retain the global history cursor');
   assert.equal((await cached()).messages.length, 102);
   await page.screenshot({ path: 'test-results/chat-scenes-current.png' });
   await context.close(); context = null;
 
   // Close the browser process, then restart against the same profile offline.
   offline = true; await launch(); await open('&name=ChangedDisplayName&theme=dark');
-  assert.equal(await page.locator('#messages .message').count(), 102);
+  await revealAll(102);
   assert.equal(await page.getByText('已持久化的流式回复', { exact: true }).count(), 1);
   await page.getByText('历史 3', { exact: true }).waitFor();
 
@@ -161,13 +177,13 @@ try {
   for (let i = 1; i <= 250; i++) append('being', `离线期间 ${i}`, i % 2 ? 'town-mail' : 'loom-Willow');
   queries.length = 0; await open(); await waitCache(352);
   assert.ok(queries.includes('102') && queries.includes('202') && queries.includes('302'));
-  assert.equal(await page.locator('#messages .message').count(), 352);
+  await revealAll(352);
   assert.equal(await page.getByText('离线期间 1', { exact: true }).count(), 1);
   assert.equal(await page.getByText('离线期间 250', { exact: true }).count(), 1);
 
   // Latest-window responses must retain and display every cached row.
   history = history.slice(-5); await open();
-  assert.equal(await page.locator('#messages .message').count(), 352);
+  await revealAll(352);
   assert.equal(await page.getByText('历史 1', { exact: true }).count(), 1);
   assert.equal((await cached()).messages.length, 352);
   // The client reader shares IDB but does not require a mounted chat UI.
@@ -244,26 +260,26 @@ try {
   history = []; seq = 0;
   for (let i = 1; i <= 450; i++) append('being', `可配置历史 ${i}`, 'configurable-room');
   await open('&history_limit=50');
-  assert.equal(await page.locator('#messages .message').count(), 50);
+  await revealAll(50);
   await waitCache(50);
   queries.length = 0;
   await open('&history_limit=500');
-  assert.equal(await page.locator('#messages .message').count(), 450);
+  await revealAll(450);
   await waitCache(450);
   assert.ok(queries.includes('450'), 'Larger initial pages preserve the incremental cursor');
   await open('&history_limit=500');
-  assert.equal(await page.locator('#messages .message').count(), 450);
+  await revealAll(450);
   history = history.slice(-5);
   // The network page preference must never truncate a cached scene, even offline.
   offline = true;
   await open('&history_limit=1&scene_id=configurable-room&scene_strict=1');
-  assert.equal(await page.locator('#messages .message').count(), 450);
+  await revealAll(450);
   assert.equal(await page.getByText('可配置历史 1', { exact: true }).count(), 1);
   offline = false;
   append('being', '缓存后的新消息', 'configurable-room');
   await open('&history_limit=1&scene_id=configurable-room&scene_strict=1');
   await waitCache(451);
-  assert.equal(await page.locator('#messages .message').count(), 451);
+  await revealAll(451);
   assert.equal(await page.getByText('缓存后的新消息', { exact: true }).count(), 1);
   history = history.slice(-5);
 

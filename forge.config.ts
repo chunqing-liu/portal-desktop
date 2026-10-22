@@ -26,7 +26,9 @@ const macSignOptions: OsxSignOptions & { continueOnError: false } = {
   preAutoEntitlements: macIdentity !== '-',
   preEmbedProvisioningProfile: false,
   ignore: ignoreMacSigningFile,
-  optionsForFile: () => macIdentity === '-' ? { timestamp: 'none' } : {},
+  // Ad-hoc builds have no Team ID, so hardened library validation cannot match
+  // Electron's framework to the app. This applies only to local/CI test builds.
+  optionsForFile: () => macIdentity === '-' ? { timestamp: 'none', hardenedRuntime: false } : {},
 };
 const config: ForgeConfig = {
   outDir: process.env.PORTAL_DESKTOP_PACKAGE_OUT || 'out',

@@ -366,13 +366,16 @@ try {
     el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
   }, wire);
   await chat.locator('#send-btn').click();
-  await chat.locator('.run-activity .scene-scheduling').waitFor({state:'attached'});
   const visibleQuestion = chat.locator('.message.user').filter({hasText:'独立问题'});
+  await visibleQuestion.waitFor();
   assert.equal(await visibleQuestion.locator('.content').innerText(), '独立问题');
   assert.equal(await visibleQuestion.locator('.scene-scheduling').count(), 0);
-  const schedulingRun = chat.locator('.run-activity').filter({has:chat.locator('.scene-scheduling pre')});
+  const schedulingRun = visibleQuestion.locator('xpath=following-sibling::details[contains(@class,"run-activity")][1]');
+  await schedulingRun.waitFor();
   assert.equal(await schedulingRun.getAttribute('open'), null);
-  await schedulingRun.locator('summary').click();
+  assert.equal(await schedulingRun.locator('.scene-scheduling').count(), 0, 'Collapsed activity does not mount process details');
+  await schedulingRun.locator(':scope > summary').click();
+  await schedulingRun.locator('.scene-scheduling').waitFor();
   assert.match(await schedulingRun.locator('.scene-scheduling pre').textContent(), /background-a/);
   const pushTasks = async status => page.evaluate(async status => {
     const frame = document.querySelector('iframe');
@@ -392,8 +395,8 @@ try {
   assert.equal(await schedulingRun.locator('.run-elapsed').isVisible(),false);
   await page.screenshot({animations:'disabled',path:'test-results/scene-scheduling-awaiting-reply.png'});
   await pushTasks('failed');
-  await chat.locator('.scene-task-error').waitFor({state:'attached'});
-  if (await schedulingRun.getAttribute('open') === null) await schedulingRun.locator('summary').click();
+  await schedulingRun.locator('.run-label').filter({hasText:'后台任务异常'}).waitFor();
+  if (await schedulingRun.getAttribute('open') === null) await schedulingRun.locator(':scope > summary').click();
   await chat.locator('.scene-task-list').getByText('模型鉴权失败，请检查 subagent 密钥',{exact:true}).waitFor();
   await page.screenshot({animations:'disabled',path:'test-results/scene-scheduling-failed.png'});
   if (!await sbsVisibility.isVisible()) await page.getByLabel('SBS 状态与显示设置',{exact:true}).click();

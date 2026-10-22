@@ -180,8 +180,10 @@ try {
   });
   await open(); await choose('粘贴'); await frame.locator('#pending-files.active').waitFor();
   const message = frame.locator('.message.being .content').first();
-  await message.click();
-  await message.evaluate(el => { const range = document.createRange(); range.selectNodeContents(el); getSelection().removeAllRanges(); getSelection().addRange(range); });
+  // Select the visible paragraph through native pointer input, then wait for
+  // selectionchange before opening the menu (not a synthetic DOM-only range).
+  await message.getByText('右键选择文字，复制到剪贴板。', { exact: true }).click({ clickCount: 3 });
+  await child.waitForFunction(() => getSelection().toString().trim() === '右键选择文字，复制到剪贴板。');
   await open(message);
   assert.equal(await menu.getByRole('menuitem').count(), 2);
   await choose('复制');
