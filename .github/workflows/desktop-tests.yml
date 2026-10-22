@@ -51,6 +51,18 @@ jobs:
         run: rustup show
       - name: Install locked dependencies
         run: npm ci
+      - name: Initialize native Windows test services
+        if: runner.os == 'Windows'
+        shell: powershell
+        timeout-minutes: 2
+        run: |
+          # Hosted images can cold-start CIM/Task Scheduler for over 30 seconds.
+          # Prepare those real services once; production command deadlines and
+          # native test assertions remain unchanged. These queries are read-only.
+          $ErrorActionPreference = 'Stop'
+          $env:PSModulePath = "$PSHOME\Modules"
+          Get-CimInstance Win32_OperatingSystem | Out-Null
+          Get-ScheduledTask | Out-Null
       - name: Run complete suite
         run: npm run test:all
       - name: Publish test summary
