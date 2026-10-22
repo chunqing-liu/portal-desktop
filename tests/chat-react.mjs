@@ -138,7 +138,7 @@ try {
   const editor = frame.locator('.rich-composer');
   const input = frame.locator('#input');
   const pasteDraft = async text => {
-    await input.press('Meta+a');
+    await input.press('ControlOrMeta+a');
     await input.press('Backspace');
     await input.evaluate((el, text) => {
       const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text);
@@ -172,7 +172,7 @@ try {
   await input.press('Shift+Enter');
   await page.keyboard.insertText('继续编辑');
   assert.ok((await input.textContent()).includes('继续编辑'));
-  await input.press('Meta+z');
+  await input.press('ControlOrMeta+z');
   assert.ok(!(await input.textContent()).includes('继续编辑'));
 
   const longDraft = Array.from({ length: 30 }, (_, i) => JSON.stringify({ index: i, text: '长内容，检查自动换行与光标位置。'.repeat(3) })).join('\n');
@@ -214,7 +214,7 @@ try {
     await frame.locator('.message.user').last().locator('strong').first().waitFor();
     await frame.locator('.message.being').last().getByText('React 回复完成', {exact:true}).waitFor();
     assert.equal(await input.textContent(), '', 'Successful send clears the rich editor');
-    await input.press('Meta+z');
+    await input.press('ControlOrMeta+z');
     assert.equal(await input.textContent(), '', 'Undo cannot restore another draft after send');
     assert.deepEqual(errors, []);
     console.log('PASS: inline editable Markdown/JSON/JSONL, source preservation, format selection, scroll alignment and narrow layout.');

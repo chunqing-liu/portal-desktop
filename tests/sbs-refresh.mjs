@@ -274,7 +274,14 @@ try {
   await page.evaluate(() => window.sbsApp.post({ type: 'beings:chat-action', action: 'model' }));
   await confirmed(true);
   enabled = false;
-  await frame().evaluate(() => window.dispatchEvent(new Event('focus')));
+  const beforeFocus = reads.length;
+  // Refresh intentionally coalesces focus/visibility events for 1.5 seconds.
+  // Earlier UI interactions may have entered that window on a hosted runner.
+  // Require a fresh GET through the focus handler before checking its response.
+  await until(async () => {
+    await frame().evaluate(() => window.dispatchEvent(new Event('focus')));
+    return reads.length > beforeFocus;
+  });
   await confirmed(false);
 
   // A rejected toggle must not optimistically flip the header.
