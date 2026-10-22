@@ -58,7 +58,7 @@ try {
       },scene);
       const localDownloads=new AttachmentDownloads(${JSON.stringify(path.join(directory,'profile'))},async()=>{downloads.push('choose');return ${JSON.stringify(directory)};},async file=>{downloads.push('open');return '';},file=>downloads.push('reveal'));
       registerLocalProtocol(${JSON.stringify(path.resolve('desktop/generated'))},proxy,undefined,localDownloads);
-      const window=new BrowserWindow({width:1100,height:1000,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+      const window=new BrowserWindow({width:1100,height:1000,show:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
       window.webContents.on('will-navigate', event => event.preventDefault());
       window.webContents.on('will-frame-navigate', event => event.preventDefault());
       await window.loadURL('beings://chat/?scene_id=room&scene_label='+encodeURIComponent('附件测试')+'&history_scope='+encodeURIComponent(connection.endpoint));
@@ -68,10 +68,13 @@ try {
   const page=await application.firstWindow(); page.setDefaultTimeout(15000);
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.locator('#input').waitFor();
-  await page.locator('#file-input').setInputFiles([
-    {name:'sample.txt',mimeType:'text/plain',buffer:Buffer.alloc(11 * 1024 * 1024, 'x')},
-    {name:'pixel.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6b0sAAAAASUVORK5CYII=','base64')},
-  ]);
+  await page.waitForFunction(()=>performance.getEntriesByName('loom:ready').length>0);
+  // Select actual files, as the OS picker does. Transferring an 11 MiB base64
+  // buffer through the automation protocol can time out on Intel CI runners.
+  const sampleFile=path.join(directory,'sample.txt'), imageFile=path.join(directory,'pixel.png');
+  await writeFile(sampleFile,Buffer.alloc(11 * 1024 * 1024, 'x'));
+  await writeFile(imageFile,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6b0sAAAAASUVORK5CYII=','base64'));
+  await page.locator('#file-input').setInputFiles([sampleFile,imageFile]);
   await page.locator('#input').fill('请分析附件');await page.locator('#send-btn').click();
   await page.locator('.attachment-card').first().waitFor();
   await page.getByText(/正在整理完整结果/).first().waitFor().catch(async e=>{console.log(await page.locator('body').innerText());throw e;});
