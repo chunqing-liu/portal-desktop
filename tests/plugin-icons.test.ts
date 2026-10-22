@@ -61,6 +61,8 @@ describe('plugin navigation icons', () => {
     await symlink(path.join(root, 'outside'), path.join(source, 'assets'), 'dir');
     await expect(readPlugin(source)).rejects.toThrow('目录内');
   });
+  // The boundary fixture expands to ~48 MB of JSON and is read/written several
+  // times; cold hosted Intel runners need more than the unit-test default.
   it('can reload packages with large escaped HTML and copied artwork', async () => {
     const { source, registry } = await fixture({ ...manifest, icon: 'icon.svg' });
     const svg = '<svg xmlns="http://www.w3.org/2000/svg">' + ' '.repeat(64 * 1024) + '</svg>';
@@ -72,7 +74,7 @@ describe('plugin navigation icons', () => {
     expect(library.plugins).toHaveLength(1);
     await registry.setIcon(manifest.id, 'board', '🚀');
     expect((await registry.list()).plugins[0].iconOverrides).toEqual({ board: '🚀' });
-  });
+  }, 30_000);
   it.each(['https://example.com/icon.png', '../icon.png', '/icon.png', 'data:text/html;base64,YQ==', '<svg/>', '', 123, 'a'.repeat(17)])('rejects invalid manifest and custom icons: %s', icon => {
     expect(() => parsePluginManifest({ ...manifest, icon })).toThrow();
     expect(() => parsePluginManifest({ ...manifest, contributes: { views: [{ id: 'board', title: 'Board', icon }] } })).toThrow();

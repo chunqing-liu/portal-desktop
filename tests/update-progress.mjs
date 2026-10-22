@@ -31,10 +31,10 @@ const bundle = await build({ stdin: { contents: `
   window.failDownload = () => failDownload(new Error('下载失败，请重试'));
   window.app = app;
   createRoot(document.getElementById('root')).render(<Topbar model={app} />);
-`, loader: 'tsx', resolveDir: process.cwd() }, bundle: true, write: false, format: 'iife', jsx: 'automatic', platform: 'browser', define: { 'process.env.NODE_ENV': '"production"' } });
-const css = await readShellStyles();
+`, loader: 'tsx', resolveDir: process.cwd() }, bundle: true, write: false, outfile: 'fixture.js', format: 'iife', jsx: 'automatic', platform: 'browser', define: { 'process.env.NODE_ENV': '"production"' } });
+const css = await readShellStyles() + '\n' + bundle.outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text).join('\n');
 const server = createServer((request, response) => {
-  if (request.url === '/app.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles[0].contents); return; }
+  if (request.url === '/app.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles.find(file => file.path.endsWith('.js')).contents); return; }
   if (request.url === '/app.css') { response.setHeader('Content-Type', 'text/css'); response.end(css); return; }
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
   response.end('<!doctype html><link rel="stylesheet" href="/app.css"><div id="root" style="width:100%"></div><script src="/app.js"></script>');

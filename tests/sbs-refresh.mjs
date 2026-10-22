@@ -48,8 +48,8 @@ const { outputFiles } = await build({ stdin: { resolveDir: process.cwd(), loader
   app.applySnapshot(snapshot);
   app.beingInfoOpen = true;
   createRoot(document.getElementById('root')).render(<Fixture />);
-` }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'import.meta.env.DEV': 'false' } });
-const css = await readShellStyles();
+` }, bundle: true, write: false, outfile: 'fixture.js', format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'import.meta.env.DEV': 'false' } });
+const css = await readShellStyles() + '\n' + outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text).join('\n');
 const loom = await readFile('desktop/generated/loom.html', 'utf8');
 const assets = new Map(await Promise.all(['chat.js', 'chat.css', 'highlight.css'].map(async file => [ '/' + file, await readFile('desktop/generated/' + file) ])));
 let enabled = false, status = 200, malformed = false, holdReads = true, holdPatch = false, rejectPatch = false;
@@ -96,7 +96,7 @@ const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', url.pathname.endsWith('.js') ? 'text/javascript' : 'text/css');
     response.end(assets.get(url.pathname)); return;
   }
-  if (url.pathname === '/fixture.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(outputFiles[0].text); return; }
+  if (url.pathname === '/fixture.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(outputFiles.find(file => file.path.endsWith('.js')).text); return; }
   if (url.pathname === '/loom') { response.setHeader('Content-Type', 'text/html; charset=utf-8'); response.end(loom); return; }
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
   response.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><style>${css}body{display:block;background:var(--bg)}#chat-frame{height:650px}</style><body data-view="chat"><div id="root"></div><script src="/fixture.js"></script></body></html>`);
