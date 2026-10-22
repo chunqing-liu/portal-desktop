@@ -359,8 +359,13 @@ try {
   await frame.locator('#file-input').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: image });
   await frame.locator('#pending-files.active').waitFor();
   await frame.getByText(/pixel\.png.*正在读取/).waitFor();
-  await frame.locator('#input').fill('send-test'); await frame.locator('#send-btn').click();
-  await frame.getByText('React 回复完成', { exact: true }).waitFor();
+  await pasteDraft('send-test'); await frame.locator('#send-btn').click();
+  await frame.getByText('React 回复完成', { exact: true }).waitFor().catch(async error => {
+    console.error('Attachment send state', JSON.stringify({ requests: requests.length, errors,
+      draft: await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()),
+      transcript: await frame.locator('#messages').innerText() }));
+    throw error;
+  });
   await frame.locator('.run-activity[data-outcome="done"]').waitFor();
   assert.equal(requests.length, 1); assert.equal(requests[0].attachments[0].media_type, 'image/png'); assert.equal(requests[0].attachments[0].data, image.toString('base64'));
   assert.equal(await frame.locator('.run-activity').count(), 1, 'One process record per completed turn');

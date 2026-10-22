@@ -34,7 +34,7 @@ export function NavigationControls({
   const controls = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = controls.current;
-    const surface = element?.closest<HTMLElement>("dialog, #settings-panel");
+    const surface = element?.closest<HTMLElement>("dialog, #settings-panel, #place-panel");
     const mac =
       document.documentElement.dataset.platform === "darwin" ||
       /^Mac/.test(navigator.platform);

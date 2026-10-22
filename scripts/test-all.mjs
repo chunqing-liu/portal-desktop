@@ -96,6 +96,7 @@ try {
   }
   await npm('model-catalog', ['run', 'test:model-catalog']);
   await npm('chat-react', ['run', 'test:chat-react']);
+  await npm('attachments-ui', ['run', 'test:attachments-ui']);
   await npm('chat-scroll', ['run', 'test:chat-scroll']);
   await npm('chat-context-menu', ['run', 'test:chat-context-menu']);
   await npm('chat-history', ['run', 'test:chat-history']);

@@ -4,7 +4,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { desktopExecutable, waitForChatReady } from './support/desktop.mjs';
+import { desktopExecutable, waitForChatReady, openNavigation } from './support/desktop.mjs';
 
 const dir = await mkdtemp(path.join(os.tmpdir(), 'town-sdk-284bef4-'));
 let app, page, failure;
@@ -86,10 +86,19 @@ try {
   }, dir);
   await waitForChatReady(page);
   const chatInput = page.frameLocator('#chat-frame').locator('#input');
+  const fillTownDraft = async text => {
+    const editor = page.locator('#town-send-content');
+    await editor.press('ControlOrMeta+a');
+    await editor.press('Backspace');
+    await page.keyboard.insertText(text);
+  };
   const home = async () => {
     if (await page.locator('#place-panel').isVisible()) await page.locator('#back-to-chat').click();
-    await page.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:'小镇广场',exact:true}).click();
+    await openNavigation(page, '小镇广场');
     await page.locator('.service-card').first().waitFor();
+    const expand = page.getByRole('button', { name: '展开对话', exact: true });
+    if (await expand.isVisible()) await expand.click();
+    await chatInput.waitFor();
   };
   const open = async title => {
     await home();
@@ -97,7 +106,8 @@ try {
   };
   // Compact menu: nested navigation, interrupted motion, keyboard and merged settings.
   await page.locator('#options-trigger').click();
-  assert.equal(await page.locator('#options-home > button').count(), 8);
+  assert.deepEqual(await page.locator('#options-home > button').evaluateAll(nodes => nodes.map(node => node.id)),
+    ['local-portal-status', 'open-browser', 'client-settings-button', 'options-help', 'check-updates', 'collect-logs', 'quit-client']);
   await page.locator('#options-help').click();
   assert.equal(await page.locator('#conversation-options').getAttribute('open'), '');
   await page.keyboard.press('Escape');
@@ -135,8 +145,9 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.querySelector('#conversation-options').open);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await home();
+  await openNavigation(page, '对话');
   await page.frameLocator('#chat-frame').locator('#input').fill('配对期间保留草稿');
+  await home();
   await page.locator('#town-auth-button').click();
   await page.getByRole('button', { name: '自动连接 Town', exact: true }).waitFor();
   assert.equal(await page.locator('#town-pair-code').isVisible(), false);
@@ -194,7 +205,7 @@ try {
   assert.doesNotMatch(await page.locator('#conversation-name').textContent(), /t_[a-zA-Z0-9_-]+/);
   await chatInput.fill('保留手写草稿');
   await partner.getByRole('button', { name: '回复', exact: true }).click();
-  await page.locator('#town-send-content').fill('语气温和一些');
+  await fillTownDraft('语气温和一些');
   assert.equal(await page.locator('#town-send-dialog').getByRole('button', { name: '让 Being 回复', exact: true }).count(), 1);
   await page.locator('#town-ask-being').click();
   await page.waitForFunction(() => document.body.dataset.view === 'chat');
@@ -218,14 +229,15 @@ try {
   await page.locator('#town-send-close').click();
   assert.equal(await app.evaluate(() => globalThis.sdkWrites.length), 0);
   await partner.getByRole('button', { name: '回复', exact: true }).click();
-  await page.locator('#town-send-content').fill('SDK 篝火回复');
+  await fillTownDraft('SDK 篝火回复');
   await page.locator('#town-send-submit').click();
   await page.waitForFunction(() => !document.querySelector('#town-send-dialog').open);
   assert.deepEqual(await app.evaluate(() => globalThis.sdkWrites), [{ path: '/api/bonfire/speak', body: { message: 'SDK 篝火回复', reply_to: 2 } }]);
   await partner.getByRole('button', { name: '一起看', exact: true }).click();
   await page.locator('#scene-compose').click();
   await page.waitForFunction(() => document.querySelector('#companion-panel').hidden);
-  assert.equal(await chatInput.evaluate(el => el.value ?? el.editor.getMarkdown()), '一起看看篝火里的这段（t_WillowFull）：\n\n> 伙伴代发消息');
+  assert.match(await chatInput.innerText(), /^一起看看篝火里的这段（t_WillowFull）：/);
+  assert.equal(await chatInput.locator('blockquote').innerText(), '伙伴代发消息');
   // An existing draft is preserved, and inserting a quote never sends it.
   await chatInput.fill('保留我的草稿');
   await open('篝火');
@@ -240,7 +252,7 @@ try {
   await page.locator('#town-write').click();
   assert((await page.locator('#town-send-context').textContent()).includes('以「柳树」的身份代发'));
   assert.equal(await page.getByRole('button', { name: '让 Being 发送', exact: true }).isDisabled(), true);
-  await page.locator('#town-send-content').fill('邀请大家分享今天最开心的一件事，语气自然');
+  await fillTownDraft('邀请大家分享今天最开心的一件事，语气自然');
   assert.equal(await page.getByRole('button', { name: '让 Being 发送', exact: true }).isEnabled(), true);
   await page.getByRole('button', { name: '让 Being 发送', exact: true }).click();
   await page.waitForFunction(() => document.body.dataset.view === 'chat');
@@ -256,7 +268,7 @@ try {
   assert.match(beingSendRequest, /邀请大家分享今天最开心的一件事/);
   await open('篝火');
   await page.locator('#town-write').click();
-  await page.locator('#town-send-content').fill('SDK 测试消息');
+  await fillTownDraft('SDK 测试消息');
   await page.locator('#town-send-submit').click();
   await page.waitForFunction(() => !document.querySelector('#town-send-dialog').open);
   assert.deepEqual(await app.evaluate(() => globalThis.sdkWrites), [
@@ -280,13 +292,13 @@ try {
   await page.locator('#town-send-close').click();
   assert.equal(await app.evaluate(() => globalThis.sdkWrites.length), 2);
   await page.locator('.social-message').getByRole('button', { name: '回复', exact: true }).click();
-  await page.locator('#town-send-content').fill('SDK 私信回复');
+  await fillTownDraft('SDK 私信回复');
   await page.locator('#town-send-submit').click();
   await page.waitForFunction(() => !document.querySelector('#town-send-dialog').open);
   assert.deepEqual(await app.evaluate(() => globalThis.sdkWrites.at(-1)), { path: '/api/messages', body: { recipient: 't_RiverFull', content: 'SDK 私信回复', reply_to: 'dm-1' } });
   await page.locator('#town-write').click();
   await page.locator('#town-recipient').fill('t_WillowFull');
-  await page.locator('#town-send-content').fill('不能发给自己');
+  await fillTownDraft('不能发给自己');
   await page.locator('#town-send-submit').click();
   await page.locator('#town-send-error').getByText(/不能给当前 Being 自己/).waitFor();
   assert.equal(await app.evaluate(() => globalThis.sdkWrites.length), 3);
@@ -301,7 +313,7 @@ try {
   await chatInput.fill('');
   await open('围炉');
   await page.locator('.social-message').getByRole('button', { name: '回复', exact: true }).click();
-  await page.locator('#town-send-content').fill('SDK 围炉回复');
+  await fillTownDraft('SDK 围炉回复');
   await page.locator('#town-send-submit').click();
   await page.waitForFunction(() => !document.querySelector('#town-send-dialog').open);
   assert.deepEqual(await app.evaluate(() => globalThis.sdkWrites.at(-1)), { path: '/api/fireside/speak', body: { fireside_id: 10, message: 'SDK 围炉回复', reply_to: 2 } });

@@ -7,7 +7,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
-import { desktopExecutable } from './support/desktop.mjs';
+import { desktopExecutable, waitForChatReady } from './support/desktop.mjs';
 
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'portal-runtime-e2e-'));
 const token = 'local-runtime-fixture';
@@ -128,8 +128,10 @@ try {
   await rpc('ping');
   await page.evaluate(() => window.beings.browserAction('close'));
   const frame = page.frameLocator('#chat-frame');
+  await waitForChatReady(page);
   await frame.locator('#input').fill('保留未发送草稿');
   await frame.locator('#file-input').setInputFiles({ name: 'draft.txt', mimeType: 'text/plain', buffer: Buffer.from('private draft attachment') });
+  await frame.locator('#pending-files.active').waitFor();
   const openPortal = async () => {
     await page.locator('#options-trigger').click();
     await page.locator('#client-settings-button').click();
@@ -189,12 +191,16 @@ try {
   await page.locator('#companion-panel').waitFor({ state: 'hidden' });
   const quote = await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown());
   assert(quote.startsWith('一起看看Portal 设置'));
-  assert(quote.includes(preview.split('\n').map(line => '> ' + line).join('\n')));
+  const expectedQuote = await frame.locator('#input').evaluate((el, text) =>
+    el.editor.markdown.serialize(el.editor.markdown.parse(text)), preview.split('\n').map(line => '> ' + line).join('\n'));
+  assert(quote.includes(expectedQuote), 'Rich editor retains the quoted log document after Markdown normalization');
   assert.equal(chatRequests.length, 0);
   await frame.locator('#send-btn').click();
   await frame.getByText('诊断日志已收到', { exact: true }).waitFor();
   assert.equal(chatRequests.length, 1);
-  assert.equal(chatRequests[0].message, quote);
+  assert.match(chatRequests[0].message, /^【客户端场景与 Portal：[^\n]+】\n\n/);
+  assert.equal(chatRequests[0].message.replace(/^【客户端场景与 Portal：[^\n]+】\n\n/, ''),
+    quote.split('\n\n')[0] + '\n\n' + preview.split('\n').map(line => '> ' + line).join('\n'));
   assert.equal(chatRequests[0].attachments, undefined);
   // Old TOMLs cannot disable the client's controls or silently override a save.
   const imported = path.join(temporary, 'imported.toml');

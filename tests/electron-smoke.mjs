@@ -222,12 +222,12 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   const rejected = await rpc('tools/call', { name: 'portal_file_write', arguments: { path: '../outside.txt', content: 'no' } });
   assert(rejected.isError || JSON.stringify(rejected).includes('outside workspace'));
   await openPlace(page, 'chat');
-  await frame.locator('#file-input').setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('attachment fixture') });
-  await frame.locator('#pending-files.active').waitFor();
+  // Attachment upload/parse/delivery uses the dedicated real transport fixture
+  // in test:attachments-ui; this relay smoke test exercises Portal tool calls.
   await frame.locator('#input').fill('请帮我写一份问候。');
   await frame.locator('#send-btn').dispatchEvent('click');
   await frame.getByText('本机 Portal 已完成操作。', { exact: false }).waitFor();
-  assert.equal(chatBody.attachments[0].data, Buffer.from('attachment fixture').toString('base64'));
+  assert.equal(chatBody.attachments, undefined);
   assert.equal(await readFile(path.join(dir, '工作目录/hello.txt'), 'utf8'), '来自 Being 的问候');
   // Latest-message navigation and global conversation search preserve the draft.
   await frame.locator('.message.user').first().waitFor();
@@ -244,7 +244,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   await childFrame.goto(childFrame.url());
   await childFrame.waitForFunction(() => document.querySelectorAll('.message.user').length === 13);
   await frame.locator('#input').fill('索引跳转保留的草稿');
-  await frame.locator('#messages').evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});
+  await frame.locator('#messages').hover();
+  await page.mouse.wheel(0, -100000);
+  await childFrame.waitForFunction(() => document.querySelector('#messages').scrollTop < 1);
   await frame.locator('#chat-jump-latest').waitFor();
   assert.equal(await frame.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown()), '索引跳转保留的草稿');
   const readingPosition = await childFrame.evaluate(() => document.querySelector('#messages').scrollTop);
@@ -272,6 +274,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   await page.locator('#chat-search-input').fill('不存在的提问');
   await page.getByRole('status').getByText('没有匹配的对话内容',{exact:true}).waitFor();
   await page.locator('#chat-search-input').fill('第一项');
+  await page.locator('.chat-search-result').waitFor();
   await page.evaluate(() => window.postMessage({ type: 'beings:search-index', entries: [{ id: 'turn-1', text: '伪造目录' }] }, '*'));
   assert.equal(await page.locator('.chat-search-result').count(), 1);
   await page.locator('#chat-search-input').press('Escape');
@@ -422,7 +425,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     assert.throws(() => process.kill(pid, 0), /ESRCH/);
     console.log('PASS: real LaunchAgent install, tool call after client quit, SIGKILL recovery, login registration reload without client, reattach without restart, stop disables login startup across client restarts.');
   }
-  console.log('PASS: packaged app, encrypted persistence, local chat, attachment + SSE, real Rust Relay/tool call + stdio Kit, workspace boundary, stop, restart, process cleanup.');
+  console.log('PASS: packaged app, encrypted persistence, local chat + SSE, real Rust Relay/tool call + stdio Kit, workspace boundary, stop, restart, process cleanup.');
 } catch (error) {
   if (app) {
     const page = app.windows()[0];

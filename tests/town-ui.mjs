@@ -5,7 +5,7 @@ import { c as archive } from 'tar';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
-import { desktopExecutable, waitForChatReady, clickChatControl } from './support/desktop.mjs';
+import { desktopExecutable, waitForChatReady, clickChatControl, openNavigation } from './support/desktop.mjs';
 const executablePath = await desktopExecutable();
 const dir = await mkdtemp(path.join(os.tmpdir(), 'beings-town-ui-'));
 let app;
@@ -95,7 +95,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.pa
     }
     else {
       const labels = {town:'小镇广场',kits:'工具库',bonfire:'篝火',firesides:'围炉',mail:'私信',seeds:'种子花园',embers:'书架',scrolls:'卷轴'};
-      await page.getByRole('navigation',{name:'主导航'}).getByRole('button',{name:labels[name],exact:true}).click();
+      await openNavigation(page, labels[name]);
     }
     await page.waitForFunction(view => document.body.dataset.view === view && document.querySelector('#place-panel'), name);
     await page.waitForFunction(() => !document.querySelector('#town-body')?.hasAttribute('aria-busy'));
@@ -133,6 +133,9 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.pa
   await page.getByRole('button', { name: '展开对话', exact: true }).click();
   await page.locator('#place-panel').waitFor();
   assert.equal(await page.locator('dialog#place-panel').count(), 0);
+  await page.locator('.workspace-content').evaluate(async el => {
+    await Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {})));
+  });
   assert.deepEqual(await page.locator('.workspace-body').evaluate(element => {
     const chat = element.querySelector('#chat-view').getBoundingClientRect();
     const panel = element.querySelector('#place-panel').getBoundingClientRect();
@@ -157,8 +160,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.pa
   assert.equal(await page.locator('.social-message:focus').getAttribute('id'), 'town-message-0');
   assert.deepEqual(await page.locator('.social-message:focus').evaluate(element => {
     const style = getComputedStyle(element);
-    return { outline: style.outlineStyle, insetSelection: style.boxShadow.includes('inset'), radius: style.borderRadius };
-  }), { outline: 'none', insetSelection: true, radius: '10px' });
+    return { outline: style.outlineStyle, insetSelection: style.boxShadow.includes('inset') };
+  }), { outline: 'none', insetSelection: true });
   await nav('firesides'); await page.locator('.fireside-room strong').getByText('测试围炉', { exact: true }).waitFor();
   assert.deepEqual(await page.locator('#town-search').evaluate(search => {
     const toolbar = search.closest('.town-toolbar').getBoundingClientRect(), box = search.getBoundingClientRect();

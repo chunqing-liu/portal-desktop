@@ -24,6 +24,13 @@ export async function clickChatControl(page, selector) {
   await clickWhenPointerReady(page, page.frameLocator('#chat-frame').locator(selector));
 }
 
+export async function openNavigation(page, name) {
+  const pinned = page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name, exact: true });
+  if (await pinned.isVisible()) return pinned.click();
+  await page.locator('#rail-more-trigger').click();
+  await page.getByRole('dialog', { name: '更多功能' }).getByRole('button', { name, exact: true }).click();
+}
+
 export async function clickWhenPointerReady(page, control) {
   // After a native dialog closes, DOM hit testing can become ready before
   // Electron presents the new surface (observed on Intel macOS CI). Move

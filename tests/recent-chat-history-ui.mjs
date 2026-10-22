@@ -72,6 +72,7 @@ try {
   const origin='http://127.0.0.1:'+server.address().port;
   await page.route('**/*',route=>route.request().url().startsWith(origin)?route.continue():route.abort());
   await page.goto(origin);
+  await page.waitForFunction(()=>!window.app.chatLoading);
   assert.equal(await page.locator('.pair-human,.pair-link').count(),0);
   assert.equal(await page.locator('#conversation-name').textContent(),'fixture');
   assert.equal(await page.locator('#conversation-name').isVisible(),true);
@@ -82,7 +83,6 @@ try {
   await page.getByRole('dialog',{name:'SBS 自主活动'}).waitFor();
   await page.getByRole('button',{name:'关闭 SBS 设置'}).click();
   assert.equal(await page.evaluate(()=>window.historyCalls.length),0,'Profile does not fetch history');
-  await page.waitForFunction(()=>!window.app.chatLoading);
   await page.getByRole('tab',{name:'动态',exact:true}).click();
   const list=page.getByRole('region',{name:'最近提问'});
   assert.equal(await page.getByRole('heading',{name:'场景动态',exact:true}).count(),1);
