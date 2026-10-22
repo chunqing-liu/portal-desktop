@@ -60,7 +60,11 @@ it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground e
     parent = spawn(process.execPath, ['-e', `
       const {PortalSupervisor} = require(process.argv[1]);
       const f = require(process.argv[2]);
-      const portal = new PortalSupervisor(f.root);
+      // Normal Windows children belong to Node's kill-on-close job and can
+      // disappear with their owner. Deliberately detach this fixture so the
+      // crash actually leaves an orphan for the recovery adapter to inspect.
+      const {spawn} = require('node:child_process');
+      const portal = new PortalSupervisor(f.root, (file, args, options) => spawn(file, args, {...options, detached:true}));
       (async () => { await portal.start(f.settings, f.connection); await portal.waitReady(); console.log(portal.state.pid); })()
         .catch(error => { console.error(error); process.exit(1); });
       setInterval(() => {}, 1000);
@@ -74,6 +78,7 @@ it.skipIf(process.platform !== 'win32')('recovers an actual Windows foreground e
     const recovery = new OrphanPortalRecovery(root);
     expect(await recovery.conflicts(connection)).toEqual([]); // Live client owns it.
     const exited = once(parent, 'exit'); parent.kill('SIGKILL'); await exited;
+    expect(() => process.kill(engine!, 0), 'The fixture must leave a live orphan after the owner exits').not.toThrow();
     expect(await new OrphanPortalRecovery(path.join(root, 'other')).conflicts(connection)).toEqual([]);
     expect(await recovery.conflicts(parseConnection('http://127.0.0.1:1/other/?token=fixture'))).toEqual([]);
     const targets = await recovery.conflicts(connection);
