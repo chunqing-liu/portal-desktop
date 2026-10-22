@@ -145,11 +145,18 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.pa
   const resizeHandle = page.getByRole('separator', { name: '调整并排对话宽度' });
   const handleBox = await resizeHandle.boundingBox();
   const chatWidth = (await page.locator('#chat-view').boundingBox()).width;
+  const maximum = Number(await resizeHandle.getAttribute('aria-valuemax'));
+  // Hosted Windows desktops may already constrain the initial pane to its
+  // maximum. Drag inward there; keep testing native pointer resize in both cases.
+  const delta = maximum - chatWidth >= 60 ? 60 : -60;
   await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
   await page.mouse.down();
-  await page.mouse.move(handleBox.x + 60, handleBox.y + handleBox.height / 2, { steps: 4 });
+  await page.mouse.move(handleBox.x + handleBox.width / 2 + delta, handleBox.y + handleBox.height / 2, { steps: 4 });
   await page.mouse.up();
-  assert.equal((await page.locator('#chat-view').boundingBox()).width > chatWidth + 40, true);
+  await page.waitForFunction(({before,delta}) => {
+    const actual = document.querySelector('#chat-view').getBoundingClientRect().width;
+    return Math.abs(actual - (before + delta)) < 3;
+  }, {before:chatWidth,delta});
   await page.getByRole('button', { name: '收起对话', exact: true }).click();
   assert.equal(await page.locator('#chat-view').isVisible(), false);
   await page.locator('#place-panel').waitFor();

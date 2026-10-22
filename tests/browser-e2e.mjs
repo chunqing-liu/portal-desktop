@@ -27,9 +27,14 @@ try {
   await page.locator('#browser-address').fill(base + '/one?token=fixture-secret');
   await page.locator('#browser-address').press('Enter');
   await page.waitForFunction(() => document.querySelector('#browser-title').textContent === '浏览器测试');
+  await page.waitForFunction(async () => !(await window.beings.browserState()).loading);
   assert.equal(await visible(), true);
   const divider = page.locator('#browser-divider');
   const originalWidth = await page.locator('#browser-panel').evaluate(el => el.getBoundingClientRect().width);
+  // Native page navigation can take keyboard focus after its title arrives.
+  // Focus the shell separator after navigation has fully settled.
+  await divider.click();
+  await page.waitForFunction(() => document.activeElement?.id === 'browser-divider');
   await divider.press('ArrowLeft');
   await page.waitForFunction(width => document.querySelector('#browser-panel').getBoundingClientRect().width > width + 15, originalWidth);
   assert(Number(await divider.getAttribute('aria-valuenow')) > 49);
