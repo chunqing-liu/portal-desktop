@@ -126,7 +126,9 @@ try{
   await loading.waitFor({state:'detached'});
   assert.deepEqual(await frame.locator('.message').evaluateAll(nodes=>nodes.map(n=>Number(n.dataset.historySeq))),[1,2,103,104],
     'The first exposed frame must include local-only messages even if shell selection races startup');
-  await page.waitForTimeout(250);
+  // Wait for actual painted-frame samples. A fixed 250ms sleep can expire
+  // before a hosted/headless browser schedules even one animation frame.
+  await page.waitForFunction(()=>document.querySelector('iframe')?.contentWindow.exposedHistoryFrames?.length>=3);
   const exposedFrames=await frame.locator('body').evaluate(()=>window.exposedHistoryFrames);
   assert.ok(exposedFrames.length>0);
   exposedFrames.forEach(rows=>assert.deepEqual(rows,[1,2,103,104],'Never paint a partial transcript before the completed scene'));
