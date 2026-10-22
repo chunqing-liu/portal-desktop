@@ -3,13 +3,14 @@ import { evaluate, type UINode, type Value } from './runtime';
 import { displayValue } from './visuals';
 import { useUIToast } from './feedback';
 import { CodeClipboard } from '../components/clipboard';
+import { RemoteImage } from '../components/remote-image';
 
 /** Keep useful captions when an optional remote asset fails; never show a broken image icon. */
 export function ContentImage({ src, label, caption }: { src: string; label?: string; caption?: string }) {
   const [failed, setFailed] = useState<string>();
   const unavailable = failed === src;
   return <figure className={`iui-image${unavailable ? ' iui-image-unavailable' : ''}`}>
-    {!unavailable && <img src={src} alt={label || ''} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(src)} />}
+    {!unavailable && <RemoteImage src={src} name={label || caption || '图片'} onError={() => setFailed(src)} />}
     {(caption || unavailable && label) && <figcaption>{caption || label}{unavailable && <span className="iui-image-note"> · 图片暂不可用</span>}</figcaption>}
   </figure>;
 }

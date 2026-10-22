@@ -1,4 +1,5 @@
 @import "../shared/components/sbs-control.css";
+@import "../shared/components/remote-image.css";
 @import "../shared/typography.css";
 @import "../shared/model-settings.css";
 /* Suppress native focus rings; controls retain their explicit focus styles. */
@@ -1014,22 +1015,6 @@ body[data-view=plugins] .place-sheet-actions{gap:8px;min-width:0}
 .plugin-manage-button:hover{background:var(--surface)}
 .plugin-manage-button svg{width:20px;height:20px;fill:currentColor}
 @media(max-width:640px){body[data-view=plugins] #place-panel.central-place .place-sheet-heading{padding:10px 16px}.place-sheet-actions .plugin-slot-toolbar{flex-wrap:wrap;justify-content:flex-end}}
-
-/* Images belong to the shell top layer, not the sandboxed chat viewport. */
-.client-image-viewer { position:fixed; inset:0; margin:0; width:100vw; height:100vh; max-width:none; max-height:none; padding:72px 32px 32px; border:0; border-radius:0; background:transparent; overflow:hidden; box-sizing:border-box; }
-.client-image-viewer[open] { display:flex; justify-content:center; align-items:center; }
-.client-image-viewer::backdrop { background:rgba(25,28,32,.65); backdrop-filter:blur(12px); }
-.client-image-viewer > img { display:block; max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; box-shadow:0 12px 60px #0003; }
-.client-image-toolbar { position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:flex-start; justify-content:space-between; color:white; -webkit-app-region:no-drag; }
-.client-image-toolbar > button { display:grid; place-items:center; flex:none; box-sizing:border-box; padding:0; line-height:1; width:36px; height:36px; border:0; border-radius:50%; background:#ffffff25; color:white; font-size:26px; cursor:pointer; }
-.client-image-toolbar .attachment-download { display:flex; flex-wrap:wrap; gap:8px; max-width:280px; justify-content:flex-end; }
-.client-image-toolbar .attachment-download button { border:0; background:#ffffff25; color:white; padding:8px 16px; border-radius:20px; font:inherit; cursor:pointer; }
-.client-image-toolbar .attachment-download small,.client-image-toolbar .attachment-download progress { width:100%; font-size:12px; }
-.client-image-toolbar button:hover { background:#ffffff45; }
-
-html[data-platform=darwin] .client-image-toolbar { top:60px; }
-html[data-platform=darwin] .client-image-viewer { padding-top:112px; }
-.client-image-toolbar > button > svg { display:block; }
 
 /* File preview shares the workspace with chat, without a modal backdrop. */
 .workspace-body:has(> .client-file-viewer) > .workspace-stage { flex:1 1 0; min-width:280px; }

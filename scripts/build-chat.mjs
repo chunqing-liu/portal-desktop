@@ -39,6 +39,7 @@ await copyFile(
 await writeFile(path.join(output, "chat.css"),
   await readFile("desktop/renderer/shared/typography.css", "utf8") + "\n" +
   await readFile("desktop/renderer/shared/components/sbs-control.css", "utf8") + "\n" +
+  await readFile("desktop/renderer/shared/components/remote-image.css", "utf8") + "\n" +
   await readFile("desktop/renderer/chat/styles.css", "utf8") + "\n" +
   await readFile("desktop/renderer/shared/components/rich-composer.css", "utf8") + "\n" +
   await readFile("desktop/renderer/shared/model-settings.css", "utf8"));

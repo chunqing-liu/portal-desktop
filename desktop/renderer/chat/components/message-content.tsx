@@ -36,7 +36,7 @@ export function AttachmentMessageContent({message}: {message: Message}) {
     {message.attachmentUploads.map((file, index) => {
       const p = file.progress, complete = p?.phase === 'complete';
       const percent = complete ? 100 : Math.min(99, Math.floor((p?.loaded || 0) / (p?.total || file.size) * 100));
-      if (file.blob && /^image\/(png|jpeg|gif|webp)$/.test(file.mime || '')) return <AttachmentImageUpload key={index} src={localImages[index]?.src || ''} name={file.name} percent={percent} complete={complete} phase={p?.phase}/>;
+      if (file.blob && /^image\/(png|jpeg|gif|webp)$/.test(file.mime || '')) return <AttachmentImageUpload key={index} src={localImages[index]?.src || ''} blob={file.blob} name={file.name} percent={percent} complete={complete} phase={p?.phase}/>;
       return <section className="attachment-card attachment-upload-card" key={index}><div className="attachment-file-row"><span className="attachment-file-icon" aria-hidden="true">↑</span><span className="attachment-file-label"><strong>{file.name}</strong><small>{file.name.split('.').pop()?.toUpperCase()} · {transferBytes(file.size)}</small></span></div>
         <p role="status">{complete ? '上传完成' : p?.phase === 'confirming' ? '正在确认上传' : p?.phase === 'uploading' ? '正在上传' : p ? '正在准备上传' : '等待上传'} · {percent}%</p>
         {!complete && <progress aria-label={`${file.name} 上传进度`} max={100} value={percent} />}

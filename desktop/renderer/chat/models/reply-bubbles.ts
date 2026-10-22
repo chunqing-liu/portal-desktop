@@ -1,4 +1,5 @@
 import type { ChatItem, Message } from './chat';
+import { isImageGenerationText } from '../../../shared/image-generation';
 
 /** Keep durable fragments intact; only combine adjacent speech from one reply. */
 export function replyBubbles(items: ChatItem[]): ChatItem[] {
@@ -7,6 +8,7 @@ export function replyBubbles(items: ChatItem[]): ChatItem[] {
     const previous = result.at(-1);
     if (item.kind === 'message' && item.role === 'being' && item.replyId &&
         previous?.kind === 'message' && previous.role === 'being' &&
+        !isImageGenerationText(previous.text) && !isImageGenerationText(item.text) &&
         previous.replyId === item.replyId &&
         (!previous.sceneId || !item.sceneId || previous.sceneId === item.sceneId)) {
       const combined: Message = {

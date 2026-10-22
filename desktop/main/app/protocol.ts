@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatProxy } from '../chat/proxy';
 import type { PluginRegistry } from '../plugins/registry';
+import { remoteImage } from '../chat/remote-image';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -24,6 +25,7 @@ export function registerLocalProtocol(assets: string, proxy: ChatProxy, plugins?
   proxy.onAttachmentUploaded = (token,endpoint,id,checksum) => downloads.bindSource(token,endpoint,id,checksum);
   protocol.handle('beings', async request => {
     const url = new URL(request.url);
+    if (url.hostname === 'chat' && url.pathname === '/api/remote-image') return remoteImage(request);
     if (url.hostname === 'preview' && localFiles) return localFiles.resource(request);
     if (url.hostname === 'chat' && url.pathname === '/api/local-downloads') return downloads.handle(request,proxy);
     if (url.hostname === 'plugins' && request.method === 'GET' && plugins) return plugins.document(url);

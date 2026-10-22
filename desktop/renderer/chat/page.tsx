@@ -2,6 +2,7 @@ import { LocalFileAction, requestLocalFilePreview } from '../shared/components/l
 import { SbsControl } from "../shared/components/sbs-control";
 import {useHistoryWindow} from './hooks/use-history-window';
 import { AttachmentMessageContent, hasAttachmentMessage, originalMessageText } from "./components/message-content";
+import { ImageGenerationAnswer } from './components/image-generation';
 import { SurfaceContext } from '../shared/intelligent-ui/surface-view';
 import { SurfaceTimeline } from '../shared/intelligent-ui/surfaces';
 import { templates, toUIStream } from "../shared/intelligent-ui/templates";
@@ -580,11 +581,17 @@ function ChatView({
                   {item.persistedFrom === "partial" && <span className="message-scene">已中断</span>}
                   {(state.historyScope === "all" || isGlobalBeingMessage(item)) && <span className="message-scene" title={isGlobalBeingMessage(item) ? "Being 发出的无场景消息，在各场景共享显示；包含自主醒来消息" : item.sceneId || "这条历史消息未提供场景标记"}>{isGlobalBeingMessage(item) ? "全局消息" : sceneName(item, state.currentScene, state.sceneNames)}</span>}
                 </div>
-                {hasAttachmentMessage(item) ? <AttachmentMessageContent message={item} /> : <ScheduledMessage
-                  text={item.text}
+                {hasAttachmentMessage(item) ? <AttachmentMessageContent message={item} /> : <ImageGenerationAnswer
+                  text={item.role === 'being' ? item.text : ''}
+                  streaming={item.streaming}
+                  endpoint={new URLSearchParams(location.search).get('history_scope') || ''}
+                  scope={JSON.stringify([item.sceneId || 'global', item.historySeq ?? item.id])}
+                  enabled={!mobileWeb}
+                >{(text, blockId) => <ScheduledMessage
+                  text={item.role === 'being' ? text : item.text}
                   messageId={item.id}
                   intelligentUI={item.role === "being"}
-                  storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id])}
+                  storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id]) + (blockId ? `:${blockId}` : '')}
                   onContinue={text => { state.draft = text; state.changed(); composer.current?.focus(); }}
                   onEdit={inCurrentScene(item, state.currentScene) ? () => {
                     state.setIntelligentUIEnabled(true);
@@ -595,7 +602,7 @@ function ChatView({
                   streaming={item.streaming}
                   chat
                   onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
-                />}
+                />}</ImageGenerationAnswer>}
                 {hasAttachmentMessage(item) ? item.retry && <div className="attachment-message-actions">
                   {item.queueNotice && <span className="attachment-error" role="alert">{item.queueNotice}</span>}
                   {item.retry && <button className="attachment-retry-action" type="button" onClick={()=>void item.retry?.()}>{item.retryLabel}</button>}

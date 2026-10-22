@@ -1,5 +1,6 @@
 import { ATTACHMENT_TRANSFER_TIMEOUT_MS } from '../../shared/attachment-limits';
 import { attachmentRoute, handleAttachment } from './attachments';
+import { handleImageGeneration, imageGenerationRoute } from './image-generations';
 import type { Connection } from './connection';
 import type { ChatScene } from '../../shared/types';
 import { stripScenePortalNotice, withScenePortalNotice } from '../../shared/scene-portal-context';
@@ -49,6 +50,16 @@ export class ChatProxy {
     if (expectedEndpoint && expectedEndpoint !== connection.endpoint)
       return Response.json({ error: 'Being 连接已切换，请刷新对话后重试。' }, { status: 409 });
     const local = new URL(request.url);
+    if (local.protocol === 'beings:' && local.hostname === 'chat' && imageGenerationRoute(local.pathname)) {
+      const controller = new AbortController();
+      this.requests.add(controller);
+      try {
+        return await handleImageGeneration(request, connection, this.fetchUpstream,
+          AbortSignal.any([controller.signal, request.signal, AbortSignal.timeout(30000)]));
+      } catch {
+        return Response.json({error:'生图状态暂时无法查询，请稍后重试。'}, {status:502});
+      } finally { this.requests.delete(controller); }
+    }
     const attachment = local.protocol === 'beings:' && local.hostname === 'chat' && attachmentRoute(local.pathname, request.method);
     if (attachment) {
       const requestedScene = request.headers.get('X-Portal-Scene-Id');

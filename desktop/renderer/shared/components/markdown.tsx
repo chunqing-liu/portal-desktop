@@ -1,4 +1,6 @@
 import { LocalFileAction, LocalFileLink } from './local-file-link';
+import { RemoteImage } from './remote-image';
+import { MarkdownReferences } from './markdown-references';
 import { localFileReference } from '../../../shared/local-file';
 import { IntelligentUI } from "../intelligent-ui/view";
 import hljs, { type Emitter } from "highlight.js";
@@ -140,12 +142,16 @@ export const Markdown = memo(function Markdown({
   streaming?: boolean;
 }) {
   const previewLocalFile = useContext(LocalFileAction);
+  const references = useContext(MarkdownReferences);
   const tokens = useMemo(
     () => {
       const language = richCode && detectStructuredText(content);
-      return language ? [{ type: 'code', raw: content, text: content, lang: language } as Tokens.Code] : marked.lexer(content, { gfm: true, breaks: chat });
+      if (language) return [{ type: 'code', raw: content, text: content, lang: language } as Tokens.Code];
+      const lexer = new marked.Lexer({gfm:true,breaks:chat});
+      lexer.tokens.links = {...references};
+      return lexer.lex(content);
     },
-    [content, chat, richCode],
+    [content, chat, richCode, references],
   );
   const linked = new Set<PlaceView>();
   // Explicit links take precedence over automatic word links throughout the message.
@@ -332,14 +338,13 @@ export const Markdown = memo(function Markdown({
         }
         case "image": {
           const image = token as Tokens.Image,
-            href = safeLink(image.href);
+            href = safeLink(unescapeText(image.href));
           node =
             chat && href ? (
-              <img
+              <RemoteImage
                 src={href}
-                alt={image.text}
+                name={unescapeText(image.text)}
                 title={image.title || undefined}
-                loading="lazy"
               />
             ) : (
               image.text
