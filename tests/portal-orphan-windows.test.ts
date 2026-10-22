@@ -64,7 +64,11 @@ it.skipIf(process.platform !== 'win32').each([false, true])('handles a crashed W
       // disappear with their owner. Deliberately detach this fixture so the
       // crash actually leaves an orphan for the recovery adapter to inspect.
       const {spawn} = require('node:child_process');
-      const portal = new PortalSupervisor(f.root, (file, args, options) => spawn(file, args, {...options, detached:f.detached}));
+      const portal = new PortalSupervisor(f.root, (file, args, options) => spawn(file, args, {
+        ...options, detached:f.detached,
+        // The orphan must not retain output pipes owned by the killed client.
+        ...(f.detached ? {stdio:'ignore'} : {}),
+      }));
       (async () => { await portal.start(f.settings, f.connection); await portal.waitReady(); console.log(portal.state.pid); })()
         .catch(error => { console.error(error); process.exit(1); });
       setInterval(() => {}, 1000);
