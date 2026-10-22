@@ -26,6 +26,7 @@ await mkdir(profile, { recursive: true });
 await writeFile(path.join(profile, 'chat-scene.json'), JSON.stringify({ scene_id: sceneId }));
 const messages = [{ seq: 1, role: 'being', content: '你好，我在这里。我们可以从一个想法开始。', scene_id: sceneId, at: new Date().toISOString() }];
 let seq = 2, rpcID = 0, relay = null, chatBody = null, stopCount = 0, handshakeCount = 0;
+let liveStream = null;
 let llmConfig = {
   model: 'test-model',
   provider: 'test',
@@ -49,7 +50,10 @@ const server = createServer(async (request, response) => {
   if (url.pathname.endsWith('/api/status')) return json({ being_name: 'Willow', description: '在这里，陪你把想法变成现实。' });
   if (url.pathname.endsWith('/health')) return json({ status: 'ok', commit: 'test' });
   if (url.pathname.endsWith('/api/history')) return json({ messages });
-  if (url.pathname.endsWith('/api/stream/active')) { response.writeHead(204); response.end(); return; }
+  if (url.pathname.endsWith('/api/stream/active')) {
+    if (liveStream) return json({...liveStream, events:liveStream.events.filter(item=>item.seq>Number(url.searchParams.get('after')||0))});
+    response.writeHead(204); response.end(); return;
+  }
   if (url.pathname.endsWith('/api/stop')) { stopCount++; return json({ ok: true }); }
   if (url.pathname.endsWith('/api/llm/config')) {
     assert.equal(request.headers['x-relay-secret'], token);
@@ -64,11 +68,17 @@ const server = createServer(async (request, response) => {
     chatBody = JSON.parse(body);
     messages.push({ seq: seq++, role: 'user', content: chatBody.message, scene_id: chatBody.scene_id, at: new Date().toISOString() });
     response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-    const event = (name, data) => response.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+    const activity = liveStream = {stream_id:'fixture-stream',scene_id:chatBody.scene_id,origin:'human',finished:false,next_seq:1,events:[]};
+    response.once('close', () => { if (liveStream === activity) liveStream = null; });
+    const event = (name, data) => {
+      if (name !== 'meta') activity.events.push({seq:activity.next_seq++,event:name,data});
+      return response.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
     event('meta', { stream_id: 'fixture-stream' });
     event('content_block_delta', { delta: { text: '正在整理你的想法。' } });
     await new Promise(resolve => setTimeout(resolve, 350));
     if (chatBody.message === 'test-stop') {
+      event('content_block_delta', { delta: { text: '\n\n停止测试任务已开始。' } });
       event('thinking', { text: '测试停止中的任务' });
       const timer = setTimeout(() => { event('message_stop', {}); response.end(); }, 8000);
       response.on('close', () => clearTimeout(timer)); return;
@@ -329,9 +339,11 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
 
   // Stream cancellation goes all the way from the local Loom frame to /api/stop.
   await frame.locator('#input').fill('test-stop'); await frame.locator('#send-btn').dispatchEvent('click');
-  await frame.locator('#send-btn.stop').waitFor();
+  await frame.getByText('停止测试任务已开始。', {exact:true}).waitFor();
   await frame.locator('#send-btn.stop').click();
-  await page.waitForTimeout(300); assert.equal(stopCount, 1);
+  const stopDeadline = Date.now() + 10000;
+  while (!stopCount && Date.now() < stopDeadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(stopCount, 1);
   await openPlace(page, 'portal');
   const beforeRestart = handshakeCount;
   await rpc('tools/call', { name: 'portal_restart', arguments: {} });
