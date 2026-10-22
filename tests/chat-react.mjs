@@ -25,7 +25,14 @@ let active = null, heldResponse = null, rejectConfig = false, requireKey = false
 let markdownResponse = null;
 let rollbackSelfHosted = false;
 let rejectStop = false;
-const event = (response, name, data) => response.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+let activeReads = 0;
+let liveStream = null;
+const event = (response, name, data) => {
+  if (liveStream?.response === response && name !== 'meta') {
+    liveStream.events.push({ seq: liveStream.next_seq++, event: name, data });
+  }
+  return response.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+};
 async function waitUntil(check, description) {
   const deadline = Date.now() + 10000;
   while (!check() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
@@ -51,6 +58,14 @@ const server = createServer(async (request, response) => {
   if (url.pathname.startsWith('/api/llm/oauth')) { oauthRequests++; return json({ status: 'portal_required' }, 503); }
   if (url.pathname === '/api/stop') { stopCount++; if (rejectStop) return json({ ok: false }, 503); heldResponse?.end(); heldResponse = null; return json({ ok: true }); }
   if (url.pathname === '/api/stream/active') {
+    activeReads++;
+    // Focus/health reconciliation must see the same live task as the SSE
+    // transport. Returning 204 here incorrectly tells the client to retire it.
+    if (liveStream) {
+      const { response: transport, ...snapshot } = liveStream;
+      const after = Number(url.searchParams.get('after') || 0);
+      return json({ ...snapshot, events: snapshot.events.filter(item => item.seq > after) });
+    }
     if (!active) { response.writeHead(204); response.end(); return; }
     if (url.searchParams.has('after')) {
       const after = Number(url.searchParams.get('after'));
@@ -66,6 +81,9 @@ const server = createServer(async (request, response) => {
     if (heldResponse) return json({ spliced: true }, 202);
     if (input.message === 'http-error') return json({ error: 'fixture request failed' }, 400);
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    liveStream = { response, stream_id: 'stream-' + requests.length, scene_id: input.scene_id,
+      origin: 'human', finished: false, events: [], next_seq: 1 };
+    response.once('close', () => { if (liveStream?.response === response) liveStream = null; });
     event(response, 'meta', { stream_id: 'stream-' + requests.length });
     if (input.message === 'markdown-stream') {
       markdownResponse = response;
@@ -415,9 +433,18 @@ try {
   assert.equal(requests.at(-1).attachments[0].data, Buffer.from('splice attachment').toString('base64'));
   assert.equal(await frame.getByText(/消息已送达/).count(), 0, 'Interrupting a reply does not add a system bubble to the conversation');
   rejectStop = true;
+  const activeDuringHold = await (await fetch(origin + '/api/stream/active')).json();
+  assert.equal(activeDuringHold.stream_id, liveStream.stream_id);
+  assert.equal(activeDuringHold.finished, false);
+  assert.ok(activeDuringHold.events.some(item => item.event === 'content_block_delta'));
   await frame.locator('#send-btn.stop').click();
   await frame.getByText(/停止未确认，任务可能仍在执行/).waitFor();
   await frame.getByRole('button', {name:'再次停止',exact:true}).waitFor();
+  // Recheck the live task after the attention debounce, as a slow CI run does.
+  await page.waitForTimeout(1600);
+  const readsBeforeAttention = activeReads;
+  await child().evaluate(() => window.dispatchEvent(new Event('focus')));
+  await waitUntil(() => activeReads > readsBeforeAttention, 'Focus rechecks the still-active task after a failed stop');
   event(heldResponse, 'content_block_delta', {delta:{text:'停止失败后仍继续接收进展'}});
   await frame.getByText(/停止失败后仍继续接收进展/).waitFor();
   rejectStop = false;
