@@ -1,7 +1,23 @@
 import {describe,it,expect} from 'vitest';
 import {historyWindowStart,historyRevealStart,HISTORY_WINDOW_PAGE} from '../desktop/renderer/chat/hooks/use-history-window';
+import {historyTargetBubble,replyBubbles} from '../desktop/renderer/chat/models/reply-bubbles';
+import type {Message} from '../desktop/renderer/chat/models/chat';
 const rows=(n:number)=>Array.from({length:n},(_,i)=>({kind:'separator' as const,id:String(i),text:''}));
 describe('progressive chat history window',()=>{
+ it('locates a later durable fragment inside its combined reply bubble',()=>{
+  const first={kind:'message',id:'first',historySeq:1,role:'being',text:'part one',replyId:'reply',sceneId:'scene'} as Message;
+  const second={...first,id:'second',historySeq:2,text:'part two'};
+  const items=[first,second],timeline=replyBubbles(items);
+  expect(timeline).toHaveLength(1);
+  expect(historyTargetBubble(items,timeline,2)?.id).toBe('first');
+  expect(historyTargetBubble(items,[],2)).toBeUndefined();
+  expect(historyTargetBubble(items,timeline,3)).toBeUndefined();
+ });
+ it('expands a partial global-cache seed when the scene cache arrives',()=>{
+  expect(historyWindowStart(rows(6),'4')).toBe(0);
+  expect(historyWindowStart(rows(100),'98')).toBe(60);
+  expect(historyWindowStart(rows(110),'60')).toBe(60);
+ });
  it('search expands older history without removing messages already visible',()=>{
   expect(historyRevealStart(rows(100),'20','80')).toBe(20);
   expect(historyRevealStart(rows(100),'60','25')).toBe(15);

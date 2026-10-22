@@ -61,6 +61,10 @@ try {
   await npm('town-names', ['run', 'test:town-names']);
   await npm('seed-garden', ['run', 'test:seed-garden']);
   await npm('sbs-refresh', ['run', 'test:sbs-refresh']);
+  await npm('recent-history', ['run', 'test:recent-history']);
+  await npm('chat-history-recovery', ['run', 'test:chat-history-recovery']);
+  await npm('chat-history-target', ['run', 'test:chat-history-target']);
+  await npm('chat-render-performance', ['run', 'test:chat-render-performance']);
   // Some engine tests share process-level environment variables; serialize Rust tests.
   // The sub-agent fixture suite uses Unix-only `/bin/sh` paths and assumes a
   // real `pi` binary. Keep those fixtures out of the Windows hosted job; the

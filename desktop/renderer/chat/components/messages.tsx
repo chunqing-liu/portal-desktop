@@ -1,6 +1,7 @@
 import { SceneScheduling } from './scheduling';
+import { LocalFileLink } from '../../shared/components/local-file-link';
 import { useEffect, useMemo, useState } from "react";
-import type { ChatItem, Message, Run } from "../models/chat";
+import type { ActivityEntry, ChatItem, Message, Run } from "../models/chat";
 import { CHAT_SCENE_ACTIVITY_LABELS } from "../../../shared/types";
 const duration = (seconds: number) =>
   seconds < 60
@@ -35,6 +36,26 @@ function Icon({ name }: { name: keyof typeof icons }) {
     </svg>
   );
 }
+function ToolDetails({ entry, expanded }: { entry: ActivityEntry; expanded: boolean }) {
+  const [open, setOpen] = useState(false);
+  const hasDetails = !!(entry.inputDetail || entry.resultDetail || entry.exitCode !== undefined || entry.durationMs !== undefined || entry.totalOutputBytes !== undefined);
+  return <>
+    {(entry.arg || entry.result) && <p>{[entry.arg, entry.result].filter(Boolean).join('\n')}</p>}
+    {hasDetails && <details className="run-tool-details" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary>执行详情</summary>
+      {open && expanded && <div>
+        <dl>
+          {entry.exitCode !== undefined && <><dt>退出码</dt><dd>{entry.exitCode}</dd></>}
+          {entry.durationMs !== undefined && <><dt>耗时</dt><dd>{(entry.durationMs / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} 秒</dd></>}
+          {entry.totalOutputBytes !== undefined && <><dt>输出大小</dt><dd>{entry.totalOutputBytes.toLocaleString()} 字节</dd></>}
+        </dl>
+        {entry.inputDetail && <><h5>参数</h5><pre>{entry.inputDetail}</pre></>}
+        {entry.resultDetail && <><h5>{entry.error ? '错误详情' : '返回结果'}</h5><pre>{entry.resultDetail}</pre></>}
+        {entry.outputTruncated && <p role="note">输出已截断，仅展示保留的内容。</p>}
+      </div>}
+    </details>}
+  </>;
+}
 export function ChatActivity({
   run,
   sceneLabel,
@@ -57,7 +78,9 @@ export function ChatActivity({
   const tools = run.entries.filter((entry) => entry.type === "tool");
   const failed = tools.filter(entry => entry.error).length;
   const unconfirmed = tools.filter(entry => !entry.done && !entry.error).length;
+  const artifacts = [...new Set(tools.flatMap(entry => entry.artifactPath ? [entry.artifactPath] : []))];
   return (
+    <>
     <details
       className={`run-activity${run.end || passive ? "" : " running"}`}
       data-outcome={run.outcome}
@@ -103,7 +126,7 @@ export function ChatActivity({
           <Icon name="chevron" />
         </span>
       </summary>
-      <p className="run-hint" hidden={!run.hint}>
+      {open && <><p className="run-hint" hidden={!run.hint}>
         {run.hint}
       </p>
       {run.scheduling && <SceneScheduling {...run.scheduling} />}
@@ -118,7 +141,7 @@ export function ChatActivity({
                 ).slice(0, 20000)
               : [entry.arg, entry.result].filter(Boolean).join("\n");
           return (
-            <div className="run-entry" key={i}>
+            <div className="run-entry" key={entry.id || i}>
               <div className="run-entry-heading">
                 <span
                   className={`run-entry-icon${entry.error ? " error" : ""}`}
@@ -150,7 +173,7 @@ export function ChatActivity({
                   </small>
                 </div>
               </div>
-              {detail && <p>{detail}</p>}
+              {entry.type === 'tool' ? <ToolDetails entry={entry} expanded={open} /> : open && detail && <p>{detail}</p>}
             </div>
           );
         })}
@@ -159,8 +182,12 @@ export function ChatActivity({
             {run.end ? "本轮未返回额外的过程记录。" : "正在等待响应…"}
           </p>
         )}
-      </div>
+      </div></>}
     </details>
+    {artifacts.length > 0 && <div className="run-artifacts" aria-label="生成的文件">
+      {artifacts.map(path => <LocalFileLink key={path} path={path} card={/\.html?$/i.test(path)}>{path.split(/[\\/]/).pop() || path}</LocalFileLink>)}
+    </div>}
+    </>
   );
 }
 

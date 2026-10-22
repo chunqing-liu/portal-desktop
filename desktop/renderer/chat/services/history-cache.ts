@@ -15,6 +15,35 @@ export interface HistoryMessage {
   scene_label?: string;
 }
 
+/** A history page is an upsert, never a replacement for the local transcript. */
+export function mergeHistoryRow(previous: HistoryMessage | undefined, incoming: HistoryMessage): HistoryMessage {
+  const row: HistoryMessage = { seq: Number(incoming.seq), role: incoming.role, content: incoming.content };
+  for (const key of ["at", "from", "type", "scene_id", "scene_label"] as const) {
+    const value = key === "scene_label" ? messageScene(incoming).sceneLabel : incoming[key];
+    // Older servers and partial snapshots can omit scene metadata. Do not move
+    // a known row out of its scene index when merging such a response.
+    if (typeof value === "string" && value) row[key] = value;
+    else if (previous?.[key]) row[key] = previous[key];
+  }
+  return row;
+}
+
+export function normalizeHistoryRows(messages: unknown): HistoryMessage[] {
+  const rows = new Map<number, HistoryMessage>();
+  if (!Array.isArray(messages)) return [];
+  for (const message of messages) {
+    if (!message || !Number.isSafeInteger(Number(message.seq)) || Number(message.seq) <= 0 ||
+        typeof message.content !== "string") continue;
+    // Breath markers in the history protocol need not carry a chat role.
+    const role = typeof message.role === "string" ? message.role
+      : message.from === "system" || message.type === "marker" ? "system" : null;
+    if (!role) continue;
+    const row = mergeHistoryRow(rows.get(Number(message.seq)), { ...message, role });
+    rows.set(row.seq, row);
+  }
+  return [...rows.values()].sort((a, b) => a.seq - b.seq);
+}
+
 export function historyCacheDatabaseName(endpoint: string) {
   try {
     const url = new URL(endpoint);
@@ -87,9 +116,12 @@ export class HistoryCache {
       const done = transactionDone(tx);
       void done.catch(() => {});
       const messages: HistoryMessage[] = [];
-      let lastSeq = 0;
+      let lastSeq: number | undefined;
       const meta = tx.objectStore("meta").get("state");
-      meta.onsuccess = () => { lastSeq = Number(meta.result?.lastSeq) || 0; };
+      meta.onsuccess = () => {
+        const saved = meta.result?.lastSeq;
+        if (Number.isSafeInteger(saved) && saved >= 0) lastSeq = saved;
+      };
       const cursor = tx.objectStore("messages").openCursor(null, "prev");
       cursor.onsuccess = () => {
         if (!cursor.result || messages.length >= limit) return;
@@ -98,7 +130,9 @@ export class HistoryCache {
       };
       await done;
       if (!messages.length) return null;
-      return { messages: messages.reverse(), lastSeq: messages.reduce((seq, message) => Math.max(seq, message.seq), lastSeq) };
+      // Targeted reads can cache rows beyond the fully synchronized range.
+      // Only legacy databases without metadata may infer a cursor from rows.
+      return { messages: messages.reverse(), lastSeq: lastSeq ?? messages.reduce((seq, message) => Math.max(seq, message.seq), 0) };
     } catch { return null; }
   }
 
@@ -115,6 +149,30 @@ export class HistoryCache {
       };
       await done;return messages.reverse();
     }catch{return [];}
+  }
+
+  /** Seek to a confirmed message and read only its nearby scene context. */
+  async readAround(seq: number, sceneId: string, radius = 10): Promise<HistoryMessage[]> {
+    try {
+      const db = await this.open();
+      if (!db || this.closed || !Number.isSafeInteger(seq) || seq <= 0 || !sceneId) return [];
+      const tx = db.transaction('messages', 'readonly'), done = transactionDone(tx);
+      const rows: HistoryMessage[] = [];
+      for (const direction of ['prev', 'next'] as const) {
+        let count = 0;
+        const cursor = tx.objectStore('messages').index('scene').openCursor(IDBKeyRange.only(sceneId), direction);
+        cursor.onsuccess = () => {
+          if (!cursor.result || count >= radius + (direction === 'next' ? 1 : 0)) return;
+          const row = cursor.result.value as HistoryMessage;
+          if (direction === 'prev' && row.seq >= seq) { cursor.result.continuePrimaryKey(sceneId, seq - 1); return; }
+          if (direction === 'next' && row.seq < seq) { cursor.result.continuePrimaryKey(sceneId, seq); return; }
+          rows.push(row); count++;
+          cursor.result.continue();
+        };
+      }
+      await done;
+      return rows.sort((a, b) => a.seq - b.seq);
+    } catch { return []; }
   }
 
   /** Read every cached row in a room without changing the global sync cursor. */
@@ -178,26 +236,21 @@ export class HistoryCache {
     try {
       const db = await this.open();
       if (!db || this.closed) return;
-      const rows = messages.filter(m => Number.isSafeInteger(Number(m.seq)) && Number(m.seq) > 0
-        && typeof m.content === "string" && typeof m.role === "string");
+      const rows = normalizeHistoryRows(messages);
       const tx = db.transaction(["messages", "meta"], "readwrite");
       const done = transactionDone(tx);
       void done.catch(() => {});
       const store = tx.objectStore("messages");
       for (const m of rows) {
-        // Allowlist fields: no tokens, attachment bytes or transient UI objects.
-        const row: HistoryMessage = { seq: Number(m.seq), role: m.role, content: m.content };
-        for (const key of ["at", "from", "type", "scene_id"] as const) {
-          if (typeof m[key] === "string") row[key] = m[key];
-        }
-        const scene = messageScene(m);
-        if (scene.sceneLabel) row.scene_label = scene.sceneLabel;
-        store.put(row);
+        // Read/merge/write within one transaction; concurrent pages cannot
+        // erase scene metadata or any row absent from the incoming page.
+        const previous = store.get(m.seq);
+        previous.onsuccess = () => store.put(mergeHistoryRow(previous.result, m));
       }
       const meta = tx.objectStore("meta");
       const previous = meta.get("state");
       previous.onsuccess = () => {
-        if (Number.isSafeInteger(cursor) && cursor > (Number(previous.result?.lastSeq) || 0)) {
+        if (Number.isSafeInteger(cursor) && cursor >= 0 && (!previous.result || cursor > (Number(previous.result.lastSeq) || 0))) {
           meta.put({ key: "state", lastSeq: cursor, updatedAt: new Date().toISOString() });
         }
       };

@@ -6,6 +6,7 @@ import { MarkdownReferenceScope } from '../../shared/components/markdown-referen
 import { RemoteImage, RemoteImageGroup } from '../../shared/components/remote-image';
 import { ImageGenerationDownload } from './image-generation-download';
 import { imageGenerationQuery, watchImageGeneration, type GenerationViewState } from '../services/image-generations';
+import { useNearViewport } from '../../shared/hooks/use-near-viewport';
 
 const labels: Record<GenerationSnapshot['status'],string> = {queued:'排队中', running:'生成中', uncertain:'结果待核对', succeeded:'生成成功', failed:'生成失败', cancelled:'已取消'};
 function PictureIcon() {
@@ -26,22 +27,24 @@ function GenerationSkeleton({label, phase}: {label:string;phase:'running'|'queue
   </>;
 }
 function ImageGenerationCard({job, endpoint, being, report}: {job:ImageGenerationJob; endpoint:string; being:string; report:(key:string, snapshot:GenerationSnapshot | undefined)=>void}) {
+  const { ref, ready } = useNearViewport<HTMLElement>();
   const [state,setState] = useState<GenerationViewState>({busy:true,canQuery:false});
   const [imageAttempt,setImageAttempt] = useState(0);
   const [imageFailed,setImageFailed] = useState(false);
   const watcher = useRef<ReturnType<typeof watchImageGeneration> | null>(null);
   useEffect(() => {
+    if (!ready) return;
     setImageFailed(false);
     const current = watchImageGeneration(job, imageGenerationQuery(endpoint,being), setState);
     watcher.current = current;
     return () => { current.stop(); watcher.current = null; };
-  },[job,endpoint,being]);
+  },[job,endpoint,being,ready]);
   const snapshot = state.snapshot;
   useEffect(() => { report(job.client_request_id, snapshot); },[report,job.client_request_id,snapshot]);
   const outputs = snapshot?.status === 'succeeded' ? snapshot.outputs : [];
-  const active = !state.notice && (!snapshot || snapshot.status === 'queued' || snapshot.status === 'running');
+  const active = ready && !state.notice && (!snapshot || snapshot.status === 'queued' || snapshot.status === 'running');
   const label = snapshot ? snapshot.status === 'running' && snapshot.stage === 'validate_convert' ? '正在校验图片' : labels[snapshot.status] : job.submission === 'unknown' ? '正在核对提交结果' : job.submission === 'rejected' ? '提交未受理' : '正在查询';
-  return <section className="image-generation-card" aria-label={job.title} data-generation-id={snapshot?.id || job.generation_id || undefined}>
+  return <section ref={ref} className="image-generation-card" aria-label={job.title} data-generation-id={snapshot?.id || job.generation_id || undefined}>
     {outputs.length > 0 && !imageFailed ? <div className="image-generation-images">{outputs.map(output => <div className="image-generation-photo" key={`${output.id}:${imageAttempt}`}><RemoteImage src={output.view_url} name={job.title} onError={()=>setImageFailed(true)} /><ImageGenerationDownload src={output.view_url} name={job.title}/><span className="image-generation-zoom" aria-hidden="true">查看大图 ↗</span></div>)}</div>
       : <div className="image-generation-placeholder" data-active={active} data-phase={snapshot?.status==='running'?'running':'queued'} aria-busy={active}
         style={{'--generation-offset':`${job.index * -1.3}s`} as CSSProperties}>

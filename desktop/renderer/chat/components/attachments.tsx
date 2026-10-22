@@ -7,6 +7,7 @@ import { AttachmentDownload } from './attachment-download';
 import { useEffect, useState } from 'react';
 import type { AttachmentPart } from '../services/attachment-messages';
 import { attachmentContentURL } from '../services/attachment-view';
+import { useNearViewport } from '../../shared/hooks/use-near-viewport';
 export function attachmentProgress(part: AttachmentPart) {
   const p = part.progress;
   if (part.parse_status === 'ready') return '解析完成';
@@ -16,6 +17,12 @@ export function attachmentProgress(part: AttachmentPart) {
   return ({receiving:'正在接收', uploaded:'已上传，等待解析', parsing:'正在解析', unavailable:'附件不可用'} as Record<string,string>)[part.parse_status] || '等待处理';
 }
 export function AttachmentCard({part, endpoint, localImage}: {part: AttachmentPart; endpoint: string; localImage?:{src:string;blob:Blob}}) {
+  const { ref, ready } = useNearViewport<HTMLDivElement>(!!localImage);
+  return <div ref={ref} className="attachment-card-host">{ready ? <LoadedAttachmentCard part={part} endpoint={endpoint} localImage={localImage} />
+    : part.mime.startsWith('image/') ? <div className="attachment-image-placeholder attachment-image-skeleton" style={imagePreviewSize(endpoint, part.attachment_id)} role="status" aria-label={`图片 ${part.name}`} aria-busy="true" />
+      : <div className="attachment-deferred">{part.name}</div>}</div>;
+}
+function LoadedAttachmentCard({part, endpoint, localImage}: {part: AttachmentPart; endpoint: string; localImage?:{src:string;blob:Blob}}) {
   const [imageBlob,setImageBlob]=useState<Blob>();
   const [preview, setPreview] = useState(''), [previewError, setPreviewError] = useState('');
   const image = /^image\/(png|jpeg|gif|webp)$/.test(part.mime);

@@ -9,7 +9,9 @@ export function AttachmentAudio({src,name,endpoint,id}:{src:string;name:string;e
   const keepSpeed=()=>{clearTimeout(closeSpeed.current);};
   useEffect(()=>()=>clearTimeout(closeSpeed.current),[]);
   const [peaks,setPeaks]=useState<number[]>(Array(28).fill(.12));
+  const [waveformRequested, setWaveformRequested] = useState(false);
   useEffect(()=>{
+    if (!waveformRequested) return;
     const controller=new AbortController();let context:AudioContext | undefined;
     // Bound preview decoding so long recordings do not allocate an unbounded audio buffer.
     void (async()=>{
@@ -27,12 +29,12 @@ export function AttachmentAudio({src,name,endpoint,id}:{src:string;name:string;e
       const max=Math.max(...values,.001);setPeaks(values.map(value=>Math.max(.12,value/max)));
     })().catch(()=>{}).finally(()=>{void context?.close().catch(()=>{});});
     return ()=>{controller.abort();void context?.close().catch(()=>{});};
-  },[src]);
+  },[src,waveformRequested]);
   return <div className="attachment-audio" onMouseDown={event=>{
     const target=(event.target as HTMLElement).closest<HTMLElement>('button,summary');
     if(target){event.preventDefault();target.focus({preventScroll:true});}
   }}>
-    <audio ref={audio} src={src} preload="metadata" onLoadedMetadata={()=>setDuration(audio.current?.duration || 0)} onTimeUpdate={()=>setPosition(audio.current?.currentTime || 0)} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onError={()=>{setPlaying(false);setError('音频暂时无法播放');}} />
+    <audio ref={audio} src={src} preload="none" onLoadedMetadata={()=>setDuration(audio.current?.duration || 0)} onTimeUpdate={()=>setPosition(audio.current?.currentTime || 0)} onPlay={()=>{setPlaying(true);setWaveformRequested(true);}} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onError={()=>{setPlaying(false);setError('音频暂时无法播放');}} />
     <button type="button" aria-label={`${playing ? '暂停' : '播放'} ${name}`} onClick={()=>{
       if(playing)audio.current?.pause();else {setError('');void audio.current?.play().catch(()=>setError('音频暂时无法播放'));}
     }}><svg viewBox="0 0 20 20" width="18" height="18" fill="currentColor" aria-hidden="true">{playing ? <path d="M5 4h3v12H5zm7 0h3v12h-3z"/> : <path d="m6 3 11 7-11 7z"/>}</svg></button>

@@ -59,6 +59,11 @@ export function useChatBridge(
       }
       if (message.revision !== new URL(target.src).searchParams.get("revision"))
         return;
+      if (app.localHistory.receive(message)) return;
+      if (message.type === 'beings:history-target-result' && typeof message.sceneId === 'string' && Number.isSafeInteger(message.seq)) {
+        app.finishHistoryTarget(message.sceneId, message.seq, message.ok === true);
+        return;
+      }
       if(message.type==='beings:attachment-source' && message.file instanceof File && typeof message.id==='string') {
         void app.api.registerAttachmentSource?.(message.file).then(token=>app.post({type:'beings:attachment-source-result',id:message.id,token,revision:message.revision})).catch(()=>app.post({type:'beings:attachment-source-result',id:message.id,token:null,revision:message.revision}));
         return;

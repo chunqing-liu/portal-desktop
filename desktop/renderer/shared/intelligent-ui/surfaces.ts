@@ -54,9 +54,20 @@ export { blockKey };
 
 /** Rebuild surfaces from durable messages; never rewrite the original history. */
 export class SurfaceTimeline {
+  private previous: { id: string; identity: string; scope: string; text: string; streaming: boolean }[] = [];
+  private result = new Map<string, SurfaceBlock>();
   private cache = new Map<string, { text: string; blocks: AnswerBlock[] }>();
   private parsed = new Map<string, { source: string; streaming: boolean; base?: UIDocument; result: ReturnType<UIStream['update']> }>();
   build(messages: { id: string; identity: string; scope: string; text: string; streaming: boolean }[]) {
+    // Ordinary prose cannot define a surface. Keep the context identity stable
+    // while typing or streaming unrelated prose so saved controls do not rerender.
+    messages = messages.filter(message => /intelligent-ui/i.test(message.text));
+    if (messages.length === this.previous.length && messages.every((message, index) => {
+      const previous = this.previous[index];
+      return message.id === previous.id && message.identity === previous.identity && message.scope === previous.scope &&
+        message.text === previous.text && message.streaming === previous.streaming;
+    })) return this.result;
+    this.previous = messages.map(message => ({ ...message }));
     const surfaces = new Map<string, Surface>(), blocks = new Map<string, SurfaceBlock>();
     const alive = new Set<string>(), parsedAlive = new Set<string>();
     for (const message of messages) {
@@ -102,6 +113,7 @@ export class SurfaceTimeline {
     }
     for (const key of this.cache.keys()) if (!alive.has(key)) this.cache.delete(key);
     for (const key of this.parsed.keys()) if (!parsedAlive.has(key)) this.parsed.delete(key);
+    this.result = blocks;
     return blocks;
   }
 }

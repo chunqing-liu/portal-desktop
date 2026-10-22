@@ -143,3 +143,20 @@ describe('cross-turn intelligent UI surfaces', () => {
     expect(()=>withIntelligentUIContext('提交',true,undefined,{...action,values:{note:'a'.repeat(100001)}})).toThrow('过长');
   });
 });
+
+it('keeps surface identity stable while ordinary prose streams and rebuilds only changed artifact inputs', () => {
+  const timeline = new SurfaceTimeline();
+  const artifact = message('surface', initial);
+  const blocks = timeline.build([artifact]);
+  for (let i = 0; i < 100; i++) {
+    const prose = { id: 'live', identity: 'live', scope: 'scene-a', text: '普通流式文本'.repeat(i + 1), streaming: true };
+    expect(timeline.build([{ ...artifact }, prose])).toBe(blocks);
+  }
+  artifact.identity = 'persisted-100';
+  const confirmed = timeline.build([artifact]);
+  expect(confirmed).not.toBe(blocks);
+  expect(timeline.build([artifact])).toBe(confirmed);
+  const updated = timeline.build([artifact, message('update', patch)]);
+  expect(updated.get(blockKey('surface', 'ui-0'))?.surface.versions).toHaveLength(2);
+  expect(timeline.build([]).size).toBe(0);
+});

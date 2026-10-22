@@ -9,7 +9,7 @@ import { templates, toUIStream } from "../shared/intelligent-ui/templates";
 import { useMessageScroll } from "./hooks/use-message-scroll";
 import { IntelligentUI } from "../shared/intelligent-ui/view";
 import { ConversationSearch, searchEntries } from "./services/conversation-search";
-import { replyBubbles } from "./models/reply-bubbles";
+import { replyBubbles, historyTargetBubble } from "./models/reply-bubbles";
 import { ScheduledMessage } from './components/scheduling';
 import { splitSchedulingHint, withScheduling } from './models/scheduling';
 import {
@@ -17,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -137,14 +138,9 @@ function ChatView({
     return () => media.removeEventListener('change', change);
   }, [mobileWeb]);
   const timelineItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued || !!item.attachmentViews?.length || !!item.attachmentUploads?.length), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
-  const historyWindow=useHistoryWindow(timelineItems,JSON.stringify([state.historyScope,state.currentScene.sceneId,state.showSbsMessages]),()=>runtime.loadOlderHistory());
+  const historyWindow=useHistoryWindow(timelineItems,JSON.stringify([state.historyScope,state.currentScene.sceneId,state.showSbsMessages]),before=>runtime.loadOlderHistory(before));
   const visibleItems=historyWindow.items;
-  const pendingSearchReveal=useRef<number|null>(null);
-  useLayoutEffect(()=>{
-    if(pendingSearchReveal.current===null || state.historyScope!=='all')return;
-    const target=timelineItems.find(item=>item.kind==='message' && item.historySeq===pendingSearchReveal.current);
-    if(target){historyWindow.reveal(target.id);pendingSearchReveal.current=null;}
-  },[timelineItems,state.historyScope]);
+  const pendingReveal=useRef<{seq:number;sceneId?:string}|null>(null);
   const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId && !hasAttachmentMessage(item));
   useEffect(() => {
     if (editingQueued && !queuedMessages.includes(editingQueued)) setEditingQueued(null);
@@ -159,6 +155,7 @@ function ChatView({
   const surfaceBlocks = surfaceTimeline.current.build(visibleItems.filter((item): item is Message => item.kind === 'message' && item.role === 'being').map(item => ({
     id: item.id, identity: String(item.historySeq ?? item.id), scope: surfaceScope(item.sceneId), text: splitSchedulingHint(item.text).text, streaming: item.streaming,
   })));
+  const surfaceContext = useMemo(() => ({ blocks: surfaceBlocks }), [surfaceBlocks]);
   const currentSceneName = sceneName(state.currentScene, state.currentScene);
   const showActivity = state.historyScope === "all" || ((state.showSbsMessages || !!state.activeScene.sceneId) && inCurrentScene(state.activeScene, state.currentScene));
   const messages = useRef<HTMLDivElement>(null),
@@ -275,14 +272,13 @@ function ChatView({
         releaseAnchor();
         scrollLock.current = false;
         state.historyScope = 'all';
-        pendingSearchReveal.current=search.rows[rowIndex].seq;
+        pendingReveal.current={seq:search.rows[rowIndex].seq};
         bridge.send({type:'beings:history-scope-state',scope:'all'});
         state.changed();
-        requestAnimationFrame(()=>requestAnimationFrame(()=>{
-          const message = state.items.find((item): item is Message => item.kind === 'message' && item.historySeq === search.rows[rowIndex].seq);
-          const target = message && messageElements.current.get(message.id);
-          if (target && message) {target.scrollIntoView({block:'center'});setHighlighted(message.id);}
-        }));
+      },
+      reveal: (seq, sceneId) => {
+        pendingReveal.current = {seq, sceneId};
+        state.changed();
       },
       focus: () => composer.current?.focus(),
       scope: changeScope,
@@ -354,6 +350,23 @@ function ChatView({
     scrollLock.current = saved?.locked ?? true;
     if (messages.current && saved) messages.current.scrollTop = saved.top;
   }, [state.historyScope]);
+  // Wait for both the scene and the history window to commit. Fixed frame
+  // delays can scroll before the requested bubble has actually been mounted.
+  useLayoutEffect(() => {
+    const pending = pendingReveal.current;
+    if (!pending) return;
+    if (pending.sceneId && pending.sceneId !== state.currentScene.sceneId) { pendingReveal.current = null; return; }
+    const message = historyTargetBubble(state.items, timelineItems, pending.seq);
+    if (!message) return;
+    const target = messageElements.current.get(message.id);
+    releaseAnchor();
+    scrollLock.current = false;
+    if (!target) { historyWindow.reveal(message.id); return; }
+    target.scrollIntoView({block:'center', behavior:'instant'});
+    setHighlighted(message.id);
+    pendingReveal.current = null;
+    if (pending.sceneId) bridge.send({type:'beings:history-target-result', sceneId:pending.sceneId, seq:pending.seq, ok:true});
+  });
   useEffect(() => {
     const readSelection = () => {
       const selected = window.getSelection();
@@ -417,7 +430,7 @@ function ChatView({
         ? `${(bytes / 1024).toFixed(1)}KB`
         : `${(bytes / 1048576).toFixed(1)}MB`;
   return (
-    <SurfaceContext.Provider value={{ blocks: surfaceBlocks }}>
+    <SurfaceContext.Provider value={surfaceContext}>
     <CodeClipboard.Provider value={bridge.copyText}>
     <LocalFileAction.Provider value={location.protocol === "beings:" && parent !== window ? requestLocalFilePreview : undefined}>
     <div
@@ -532,7 +545,7 @@ function ChatView({
           aria-busy={state.historyRefreshing}
           onWheel={reader.onWheel}
           onTouchMove={reader.onTouchMove}
-          onScroll={() => { reader.onScroll(); setSelection(null); if(messages.current && messages.current.scrollTop<160 && !scrollLock.current && historyWindow.hasMore)void historyWindow.more(); }}
+          onScroll={() => { reader.onScroll(); setSelection(null); if(messages.current && messages.current.scrollTop<Math.max(800,messages.current.clientHeight*1.5) && !scrollLock.current && historyWindow.hasMore)void historyWindow.more(); }}
         >
           {state.historyRefreshing && <div className="chat-refresh-overlay"><div className="chat-refresh-status" role="status"><span aria-hidden="true" />正在刷新对话…</div></div>}
           {!state.historyRefreshing && !visibleItems.some(item => item.kind === "message") && !state.thinking && (
@@ -568,41 +581,45 @@ function ChatView({
                   }
                 }}
                 data-message-id={item.id}
+                data-history-seq={item.historySeq}
                 data-reply-id={item.replyId}
                 className={`message ${item.role}${item.persistedFrom === "partial" ? " message-partial" : ""}${item.consecutive ? " consecutive" : ""}${(highlighted === item.id || item.sourceMessageIds?.includes(highlighted || "")) ? " index-target" : ""}`}
               >
                 <div className={`meta${item.consecutive ? " time-only" : ""}`}>
-                  {item.role === "user" && <CopyMessage text={splitSchedulingHint(originalMessageText(item)).text} copy={bridge.copyText} />}
                   {!item.consecutive && <span>{item.label} · </span>}
                   <span className="message-time-actions">
                     <time>{item.timestamp}</time>
-                    {item.role !== "user" && <CopyMessage text={splitSchedulingHint(originalMessageText(item)).text} copy={bridge.copyText} />}
                   </span>
                   {item.persistedFrom === "partial" && <span className="message-scene">已中断</span>}
                   {(state.historyScope === "all" || isGlobalBeingMessage(item)) && <span className="message-scene" title={isGlobalBeingMessage(item) ? "Being 发出的无场景消息，在各场景共享显示；包含自主醒来消息" : item.sceneId || "这条历史消息未提供场景标记"}>{isGlobalBeingMessage(item) ? "全局消息" : sceneName(item, state.currentScene, state.sceneNames)}</span>}
                 </div>
-                {hasAttachmentMessage(item) ? <AttachmentMessageContent message={item} /> : <ImageGenerationAnswer
-                  text={item.role === 'being' ? item.text : ''}
-                  streaming={item.streaming}
-                  endpoint={new URLSearchParams(location.search).get('history_scope') || ''}
-                  scope={JSON.stringify([item.sceneId || 'global', item.historySeq ?? item.id])}
-                  enabled={!mobileWeb}
-                >{(text, blockId) => <ScheduledMessage
-                  text={item.role === 'being' ? text : item.text}
-                  messageId={item.id}
-                  intelligentUI={item.role === "being"}
-                  storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id]) + (blockId ? `:${blockId}` : '')}
-                  onContinue={text => { state.draft = [state.draft.trim(), text].filter(Boolean).join('\n\n'); state.changed(); composer.current?.focus(); }}
-                  onEdit={inCurrentScene(item, state.currentScene) ? () => {
-                    state.setIntelligentUIEnabled(true);
-                    state.setIntelligentUIForMessage(true);
-                    requestAnimationFrame(() => composer.current?.focus());
-                  } : undefined}
-                  onSnapshot={(text, _values, _apps, active) => { state.recordIntelligentUISnapshot(item.sceneId || 'global', text, active); }}
-                  streaming={item.streaming}
-                  chat
-                  onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
-                />}</ImageGenerationAnswer>}
+                <div className="message-bubble-row">
+                  <div className="message-bubble-body">
+                    {hasAttachmentMessage(item) ? <AttachmentMessageContent message={item} /> : <ImageGenerationAnswer
+                      text={item.role === 'being' ? item.text : ''}
+                      streaming={item.streaming}
+                      endpoint={new URLSearchParams(location.search).get('history_scope') || ''}
+                      scope={JSON.stringify([item.sceneId || 'global', item.historySeq ?? item.id])}
+                      enabled={!mobileWeb}
+                    >{(text, blockId) => <ScheduledMessage
+                      text={item.role === 'being' ? text : item.text}
+                      messageId={item.id}
+                      intelligentUI={item.role === "being"}
+                      storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id]) + (blockId ? `:${blockId}` : '')}
+                      onContinue={text => { state.draft = [state.draft.trim(), text].filter(Boolean).join('\n\n'); state.changed(); composer.current?.focus(); }}
+                      onEdit={inCurrentScene(item, state.currentScene) ? () => {
+                        state.setIntelligentUIEnabled(true);
+                        state.setIntelligentUIForMessage(true);
+                        requestAnimationFrame(() => composer.current?.focus());
+                      } : undefined}
+                      onSnapshot={(text, _values, _apps, active) => { state.recordIntelligentUISnapshot(item.sceneId || 'global', text, active); }}
+                      streaming={item.streaming}
+                      chat
+                      onPlace={item.role === "system" || !keywordNavigation ? undefined : openPlace}
+                    />}</ImageGenerationAnswer>}
+                  </div>
+                  <CopyMessage text={splitSchedulingHint(originalMessageText(item)).text} copy={bridge.copyText} />
+                </div>
                 {hasAttachmentMessage(item) ? item.retry && <div className="attachment-message-actions">
                   {item.queueNotice && <span className="attachment-error" role="alert">{item.queueNotice}</span>}
                   {item.retry && <button className="attachment-retry-action" type="button" onClick={()=>void item.retry?.()}>{item.retryLabel}</button>}

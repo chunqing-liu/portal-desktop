@@ -133,7 +133,7 @@ it('does not let another scene or empty deltas extend the current wait, and pres
     expect(f.runs()[0].status).toBe('timeout');
     const html = renderToStaticMarkup(createElement(ChatActivity, {run: f.runs()[0]}));
     expect(html).toContain('1 次结果未确认');
-    expect(html).toContain('<small>结果未确认</small>');
+    expect(html).not.toContain('class="run-entry"');
   } finally { f.close(); }
 });
 
@@ -204,9 +204,12 @@ it('does not settle a retry with delayed old history or a persisted yielded part
     ]}));
     await vi.advanceTimersByTimeAsync(2100);
     expect(f.runs()[0]).toMatchObject({status: 'queued', waitingForReply: true});
-    const userIndex = f.state.items.findIndex(i => i.kind === 'message' && i.role === 'user');
+    expect(f.state.items.some(i => i.kind === 'message' && i.role === 'user' && i.text === 'long task')).toBe(true);
     expect(f.state.items.filter(i => i.kind === 'separator' && !i.marker)).toHaveLength(0);
-    expect(f.state.items.findIndex(i => i.kind === 'separator' && i.marker)).toBeLessThan(userIndex);
+    // A delayed marker's old timestamp must not override durable seq order.
+    // The unconfirmed user bubble remains intact until its own history arrives.
+    expect(f.state.items.flatMap(i => 'historySeq' in i && i.historySeq ? [i.historySeq] : []))
+      .toEqual([1, 2, 3]);
     f.setHistory(async () => Response.json({messages: [
       {seq: 4, role: 'being', content: 'final reply', from: 'final', scene_id: 'desktop-test', at: new Date().toISOString()},
     ]}));

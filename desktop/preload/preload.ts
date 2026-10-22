@@ -99,6 +99,7 @@ const api: DesktopAPI = {
   beingModelCatalog: input => ipcRenderer.invoke('beings:model-catalog', input),
   beingModelConfig: patch => ipcRenderer.invoke("beings:model-config", patch),
   sceneTasks: () => ipcRenderer.invoke('beings:scene-tasks'),
+  recentChatHistory: endpoint => ipcRenderer.invoke('beings:recent-chat-history', endpoint),
   onSceneTasks: callback => {
     const listener = (_event: unknown, snapshot: import('../shared/types').SceneTaskSnapshot) => callback(snapshot);
     ipcRenderer.on('beings:scene-tasks', listener);

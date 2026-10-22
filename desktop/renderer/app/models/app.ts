@@ -16,6 +16,7 @@ import { WorkspaceModel } from "./workspace";
 import { TownModel } from "../../town/models/town";
 import type { HistoryScope } from "../../chat/models/scenes";
 import { CHAT_HISTORY_LIMIT_KEY, DEFAULT_CHAT_HISTORY_LIMIT, chatHistoryLimit, validChatHistoryLimit } from '../../../shared/chat-history';
+import { LocalHistoryReader } from './local-history';
 
 type SettingsRoute = "" | "connection" | "town" | "model" | "portal" | "diagnostics";
 
@@ -42,6 +43,7 @@ export class AppModel extends Store {
   };
 
   chatSource = "";
+  localHistory = new LocalHistoryReader(() => this.chatSource, data => this.post(data));
   chatLoading = false;
   chatHistoryScope: HistoryScope = "current";
   chatHistoryScopeKnown = false;
@@ -333,6 +335,7 @@ export class AppModel extends Store {
     this.snapshot = next;
     this.workspace.snapshot(next);
     if (next.settings.hasToken && (!this.chatSource || reload)) {
+      this.localHistory.clear();
       this.chatSceneActivity = {};
       this.readSceneReplies.clear();
       this.sbsKnown = false;
@@ -346,6 +349,7 @@ export class AppModel extends Store {
       }
     }
     if (!next.settings.hasToken) {
+      this.localHistory.clear();
       this.chatSbsOrigin = undefined; this.chatSbsPhase = undefined;
       this.chatSceneActivity = {};
       this.readSceneReplies.clear();
@@ -379,13 +383,24 @@ export class AppModel extends Store {
     this.post({ type: "beings:sbs-toggle" });
     this.changed();
   }
-  async changeChatSession(operation: "create" | "bind" | "select" | "rename" | "delete", value: string, sceneId?: string) {
+  private historyTarget?: { endpoint: string; sceneId: string; seq: number };
+  private sessionChange = 0;
+  finishHistoryTarget(sceneId: string, seq: number, ok: boolean) {
+    if (this.historyTarget?.sceneId !== sceneId || this.historyTarget.seq !== seq) return;
+    this.historyTarget = undefined;
+    if (!ok) this.toast('未能定位这条对话，请刷新场景动态后重试。');
+  }
+  async changeChatSession(operation: "create" | "bind" | "select" | "rename" | "delete", value: string, sceneId?: string, historySeq?: number) {
     const endpoint = this.snapshot?.settings.endpoint;
     if (!endpoint) throw new Error("请先连接 Being。");
     const previousSceneId = this.snapshot?.chatScene?.scene_id;
+    const request = ++this.sessionChange;
     const next = await this.api.changeChatSession(operation, value, endpoint, sceneId);
-    if (this.snapshot?.settings.endpoint !== endpoint) return;
+    if (this.snapshot?.settings.endpoint !== endpoint || request !== this.sessionChange) return;
     this.applySnapshot(next);
+    this.historyTarget = operation === 'select' && next.chatScene && Number.isSafeInteger(historySeq) && historySeq! > 0
+      ? { endpoint, sceneId: next.chatScene.scene_id, seq: historySeq! } : undefined;
+    if (this.historyTarget) this.beingInfoOpen = false;
     this.chatHistoryScope = "current";
     if (!this.chatSplitOpen) this.navigate("chat");
     this.postCurrentSession();
@@ -396,6 +411,7 @@ export class AppModel extends Store {
     if (this.chatSource && this.snapshot?.chatScene) this.post({
       type: "beings:session-select", scene: this.snapshot.chatScene, scope: this.chatHistoryScope,
       scenes: this.snapshot.chatSessions,
+      historySeq: this.historyTarget?.endpoint === this.snapshot.settings.endpoint && this.historyTarget.sceneId === this.snapshot.chatScene.scene_id ? this.historyTarget.seq : undefined,
       revision: new URL(this.chatSource).searchParams.get("revision"),
     });
   }

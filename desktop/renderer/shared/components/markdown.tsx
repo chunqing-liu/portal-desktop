@@ -286,9 +286,9 @@ export const Markdown = memo(function Markdown({
           node = intelligentUI && lang.toLowerCase() === "intelligent-ui" ? (
             <IntelligentUI source={block.text} streaming={streaming} />
           ) : richCode && previewMarkdownCode && markdownLanguages.has(lang.toLowerCase()) ? (
-            <MarkdownCodeBlock text={block.text} language={lang} />
+            <MarkdownCodeBlock text={block.text} language={lang} streaming={streaming} />
           ) : richCode ? (
-            <ChatCodeBlock text={block.text} language={lang} />
+            <ChatCodeBlock text={block.text} language={lang} streaming={streaming} />
           ) : (
             <div className="code-block">
               {chat && lang && <div className="code-lang">{lang}</div>}
@@ -421,7 +421,7 @@ export const Markdown = memo(function Markdown({
   return <div className={className}>{render(tokens)}</div>;
 });
 
-function MarkdownCodeBlock({ text, language }: { text: string; language: string }) {
+function MarkdownCodeBlock({ text, language, streaming }: { text: string; language: string; streaming: boolean }) {
   const [mode, setMode] = useState<"preview" | "source">("preview");
   const panelId = useId();
   return (
@@ -451,9 +451,9 @@ function MarkdownCodeBlock({ text, language }: { text: string; language: string 
       <div id={panelId} role="region" aria-label={mode === "preview" ? "Markdown 预览" : "Markdown 源码"}>
         {mode === "preview" ? (
           // Code samples inside the document stay as source rather than opening nested previews.
-          <Markdown content={text} chat className="markdown-preview" previewMarkdownCode={false} />
+          <Markdown content={text} chat streaming={streaming} className="markdown-preview" previewMarkdownCode={false} />
         ) : (
-          <pre><code className={`hljs lang-${language}`}><HighlightedCode text={text} language={language} /></code></pre>
+          <pre><code className={`hljs lang-${language}`}>{streaming ? text : <HighlightedCode text={text} language={language} />}</code></pre>
         )}
       </div>
     </div>
@@ -473,7 +473,7 @@ function CopyCode({ text }: { text: string }) {
   }}><span role="status">{status}</span></button>;
 }
 
-function ChatCodeBlock({ text, language }: { text: string; language: string }) {
+function ChatCodeBlock({ text, language, streaming }: { text: string; language: string; streaming: boolean }) {
   const inferred = useMemo(() => !language ? detectStructuredText(text) : undefined, [text, language]);
   const lang = (language || inferred || 'text').toLowerCase();
   const json = ['json', 'jsonl', 'ndjson'].includes(lang);
@@ -488,7 +488,7 @@ function ChatCodeBlock({ text, language }: { text: string; language: string }) {
         <CopyCode text={display} />
       </div>
     </div>
-    <pre><code className={`hljs lang-${language || inferred || 'text'}`}><HighlightedCode text={display} language={json ? 'json' : language || 'plaintext'} /></code></pre>
+    <pre><code className={`hljs lang-${language || inferred || 'text'}`}>{streaming ? display : <HighlightedCode text={display} language={json ? 'json' : language || 'plaintext'} />}</code></pre>
   </div>;
 }
 

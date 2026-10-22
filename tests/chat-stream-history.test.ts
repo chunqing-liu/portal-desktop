@@ -114,6 +114,8 @@ describe("stream progress and persisted replies", () => {
       if (order === "after") expect(f.state.items.some(item => item.kind === "message" && item.text === "并发用户消息")).toBe(true);
       expect(f.replies()[0]).toBe(bubble);
       expect(bubble).toMatchObject({ historySeq: 13317, text: "落库内容", streaming: false });
+      if (order === 'after') expect(f.state.items.filter((item): item is Message => item.kind === 'message' && !!item.historySeq).map(item => item.historySeq))
+        .toEqual([13316, 13317]);
       // Identical text with a different durable identity remains a new message.
       f.history.push({ ...row, seq: 13318 });
       await f.runtime.refreshHistory();

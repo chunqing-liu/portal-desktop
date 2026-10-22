@@ -63,12 +63,21 @@ export interface Message extends MessageScene {
 }
 export interface ActivityEntry {
   type: string;
+  id?: string;
+  toolCallId?: string;
   name?: string;
   label?: string;
   arg?: string;
   preview?: string;
   text?: string;
   result?: string;
+  inputDetail?: string;
+  resultDetail?: string;
+  exitCode?: number;
+  durationMs?: number;
+  outputTruncated?: boolean;
+  totalOutputBytes?: number;
+  artifactPath?: string;
   done?: boolean;
   error?: boolean;
   duration?: number;
@@ -231,7 +240,8 @@ export interface ChatRuntime {
   toggleSbs(): Promise<void>;
   loadSbsState(): Promise<boolean | undefined>;
   revealHistory(rows: import("../services/history-cache").HistoryMessage[]): void;
-  loadOlderHistory(): Promise<number>;
+  loadOlderHistory(before?: number): Promise<number>;
+  loadHistoryTarget(seq: number, sceneId: string): Promise<boolean>;
   refreshHistory(): Promise<void>;
   refreshOnRegainedAttention(): Promise<void>;
   request(path: string, init?: RequestInit): Promise<Response>;

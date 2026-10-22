@@ -1,10 +1,11 @@
+import { newToolActivity, completeToolActivity } from '../models/tool-activity';
 import { stripLocalFileContext, stripClientMessageContext } from './local-file-context';
 import {registerAttachmentSource} from './attachment-source';
 import { MAX_ATTACHMENT_BYTES, LEGACY_WEB_ATTACHMENT_BYTES } from '../../../shared/attachment-limits';
 import { messageReferences } from './attachment-messages';
 import { withIntelligentUIContext, validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import { createSceneRuntime } from "./scene-runtime";
-import { HistoryCache } from "./history-cache";
+import { HistoryCache, normalizeHistoryRows } from "./history-cache";
 import { chatHistoryLimit } from '../../../shared/chat-history';
 import { inCurrentScene, messageScene, sceneItems, sceneTransitionNotice, stripSceneTransition, type MessageScene } from "../models/scenes";
 import type { ChatRuntime, ChatState, RuntimeOptions } from "../models/chat";
@@ -623,22 +624,6 @@ function createStreamRuntime(state: any, options: any): any {
     return "";
   }
 
-  function summarizeToolResult(data: any) {
-    // data = tool_result event payload. Keep it VERY brief.
-    if (!data) return "";
-    if (data.is_error) return "出错了";
-    // Backend ships `summary` (string) — see http.rs stream mapping.
-    let text = "";
-    if (typeof data.summary === "string") text = data.summary;
-    else if (typeof data.content === "string") text = data.content;
-    if (!text) return "";
-    const trimmed = text.trim();
-    if (!trimmed) return "";
-    // Compact single-line preview (drop newlines, truncate)
-    const oneLine = trimmed.replace(/\s+/g, " ");
-    return truncate(oneLine, 60);
-  }
-
   function parseToolInput(raw: any) {
     if (raw == null) return {};
     if (typeof raw === "object") return raw;
@@ -653,9 +638,44 @@ function createStreamRuntime(state: any, options: any): any {
   function actionLogPush(entry: any) {
     entry.ts = entry.ts || Date.now();
     actionLog.push(entry);
-    if (actionLog.length > ACTION_LOG_MAX) {
-      actionLog.splice(0, actionLog.length - ACTION_LOG_MAX);
+    // Never evict an in-flight call that still needs its result paired.
+    while (actionLog.length > ACTION_LOG_MAX) {
+      const completed = actionLog.findIndex(item => item.done);
+      if (completed < 0) break;
+      actionLog.splice(completed, 1);
     }
+    scheduleRenderActivityLog();
+  }
+
+  // Live SSE, routed events and replay share tool identity and result semantics.
+  function recordToolStart(data: any) {
+    const entry = newToolActivity(actionLog, data, `tool-${options.nextId()}`, Date.now());
+    if (!entry) return;
+    removeThinkingIndicator();
+    toolCount++;
+    const prev = actionLog.at(-1);
+    if (prev?.type === "think" && !prev.done) {
+      prev.done = true;
+      prev.duration = Math.max(1, Math.round((Date.now() - prev.ts) / 1000));
+    }
+    entry.arg = extractKeyArg(parseToolInput(data.input));
+    entry.label = tuiLabels[entry.name!] || "在行动";
+    actionLogPush(entry);
+    tuiSet(entry.name, null, { arg: entry.arg, preview: "" });
+    setStatus("thinking");
+  }
+
+  function recordToolResult(data: any) {
+    const entry = completeToolActivity(actionLog, data);
+    const pending = actionLog.find(item => item.type === "tool" && !item.done);
+    // A completed parallel tool must not shorten the watchdog budget for its peers.
+    livePhase = pending ? "tool" : "reasoning";
+    livePendingTool = pending?.name || null;
+    if (pending) tuiSet(pending.name, null, { arg: pending.arg, preview: "" });
+    else if (entry?.error) {
+      tuiSet("error", (tuiLabels[entry.name!] || entry.name || "行动") + " ✗");
+      tuiTimer = setTimeout(() => tuiSet("thinking"), 1500);
+    } else tuiSet("thinking", null, { preview: "" });
     scheduleRenderActivityLog();
   }
 
@@ -888,6 +908,7 @@ function createStreamRuntime(state: any, options: any): any {
       scene.createdAt <= item.createdAt);
     if (!marker) return false;
     Object.assign(marker, scene);
+    orderHistoryItem(marker);
     changed();
     return true;
   }
@@ -923,6 +944,7 @@ function createStreamRuntime(state: any, options: any): any {
     const index = Number.isFinite(scene.createdAt) ? state.items.findIndex((item: any) =>
       (item.createdAt ?? item.start ?? -Infinity) > scene.createdAt) : -1;
     state.items.splice(index < 0 ? state.items.length : index, 0, marker);
+    orderHistoryItem(marker);
     lastRole = "system";
     changed();
   }
@@ -1784,49 +1806,8 @@ function createStreamRuntime(state: any, options: any): any {
               });
             }
 
-            if (eventType === "tool_use") {
-              removeThinkingIndicator();
-              toolCount++;
-              const name = data.name || "tool";
-              const parsedInput = parseToolInput(data.input);
-              const arg = extractKeyArg(parsedInput);
-              const label = tuiLabels[name] || "在行动";
-              // Finalize the previous thinking entry (record duration).
-              const prev = actionLog[actionLog.length - 1];
-              if (prev && prev.type === "think" && !prev.done) {
-                prev.done = true;
-                prev.duration = Math.max(
-                  1,
-                  Math.round((Date.now() - prev.ts) / 1000),
-                );
-              }
-              actionLogPush({ type: "tool", name, label, arg });
-              tuiSet(name, null, { arg, preview: "" });
-              setStatus("thinking");
-            }
-
-            if (eventType === "tool_result") {
-              const isError = data.is_error || false;
-              // Update last matching tool entry.
-              for (let i = actionLog.length - 1; i >= 0; i--) {
-                const a = actionLog[i];
-                if (a.type === "tool" && !a.done) {
-                  a.done = true;
-                  a.error = !!isError;
-                  a.result = summarizeToolResult(data);
-                  break;
-                }
-              }
-              scheduleRenderActivityLog();
-              if (isError) {
-                const resultName = tuiLabels[data.name] || data.name || "行动";
-                tuiSet("error", resultName + " ✗");
-                clearTimeout(tuiTimer);
-                tuiTimer = setTimeout(() => tuiSet("thinking"), 1500);
-              } else {
-                tuiSet("thinking", null, { preview: "" });
-              }
-            }
+            if (eventType === "tool_use") recordToolStart(data);
+            if (eventType === "tool_result") recordToolResult(data);
 
             if (eventType === "message_stop") {
               if (myEpoch !== writerEpoch) continue; // F2
@@ -2498,26 +2479,72 @@ function createStreamRuntime(state: any, options: any): any {
   }
 
   // ---- Stop turn ----
+  let stopNotice: { streamId: string | null; message: any } | undefined;
   async function stopCurrentTurn() {
-    if (!isStreaming) return;
-    userStoppedStream = true;
-    pendingReply = null;
-    stopCatchUpWatcher();
-    pendingRecovery = null;
-    clearTuiHint();
+    if (!isStreaming || state.stopping) return;
+    const targetStreamId = currentStreamId;
+    const targetReader = currentAbortController;
+    const targetRequest = chatRequestRevision;
+    const targetRun = currentRun;
+    const markStoppedRun = () => {
+      if (!targetRun || !state.items.includes(targetRun)) return;
+      targetRun.end = targetRun.end || Date.now();
+      targetRun.outcome = 'stopped';
+      targetRun.status = 'stopped';
+      targetRun.label = targetStreamId ? '已停止' : '已取消等待';
+      targetRun.hint = '';
+      targetRun.waitingForReply = false;
+    };
+    const sameTurn = () => !disposed && isStreaming && (targetStreamId
+      ? currentStreamId === targetStreamId
+      : !currentStreamId && currentAbortController === targetReader && chatRequestRevision === targetRequest);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
     state.stopping = true;
     changed();
-    if (activeStreamPollTimer) {
-      clearTimeout(activeStreamPollTimer);
-      activeStreamPollTimer = null;
-    }
     try {
-      if (currentStreamId) {
-        await fetch(apiUrl("/api/stop"), {
+      if (targetStreamId) {
+        const response = await fetch(apiUrl("/api/stop"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stream_id: currentStreamId }),
+          body: JSON.stringify({ stream_id: targetStreamId }),
+          signal: controller.signal,
         });
+        // 202 is only admission, not confirmation. Keep observing the live turn.
+        if (!response.ok || response.status === 202) {
+          await response.body?.cancel();
+          throw new Error('Stop not confirmed');
+        }
+        if (response.status !== 204) {
+          const receipt = await response.json();
+          if (!receipt || (receipt.ok !== true && receipt.stopped !== true) || receipt.ok === false || receipt.stopped === false ||
+              (receipt.stream_id && receipt.stream_id !== targetStreamId)) throw new Error('Invalid stop receipt');
+        }
+      }
+      if (stopNotice && stopNotice.streamId === targetStreamId) {
+        stopNotice.message.text = "服务端已确认停止本轮处理。";
+        stopNotice.message.retry = undefined;
+        stopNotice = undefined;
+      }
+      // A late acknowledgement must not abort a newer reader/turn.
+      const endedTarget = !disposed && targetStreamId && !isStreaming &&
+        chatRequestRevision === targetRequest && currentRun === targetRun;
+      if (!sameTurn() && !endedTarget) {
+        // Servers may close SSE before delivering the HTTP stop receipt. Update
+        // only the captured run, even if another turn is already streaming.
+        if (!disposed && targetStreamId && targetRun?.end && targetRun.outcome === 'done' && state.items.includes(targetRun)) {
+          markStoppedRun();
+        }
+        return;
+      }
+      userStoppedStream = true;
+      pendingReply = null;
+      stopCatchUpWatcher();
+      pendingRecovery = null;
+      clearTuiHint();
+      if (activeStreamPollTimer) {
+        clearTimeout(activeStreamPollTimer);
+        activeStreamPollTimer = null;
       }
       if (currentAbortController) currentAbortController.abort();
       else {
@@ -2526,9 +2553,23 @@ function createStreamRuntime(state: any, options: any): any {
         tuiDone();
         updateSendButton();
       }
-    } catch (e: any) {
-      console.warn("stop failed:", e);
+      markStoppedRun();
+      if (!targetStreamId) {
+        addMessage("system", "已取消本次等待；尚未取得执行标识，服务端是否已接收消息仍待核对。");
+      }
+    } catch {
+      if (sameTurn()) {
+        const notice = stopNotice && stopNotice.streamId === targetStreamId ? stopNotice.message
+          : addMessage("system", "停止未确认，任务可能仍在执行。你可以再次停止；客户端将继续接收进展。");
+        stopNotice = { streamId: targetStreamId, message: notice };
+        notice.retryLabel = "再次停止";
+        notice.retry = async () => {
+          if (sameTurn()) await stopCurrentTurn();
+          else { notice.retry = undefined; notice.text = "本轮处理已结束，无需再次停止。"; changed(); }
+        };
+      }
     } finally {
+      clearTimeout(timeout);
       state.stopping = false;
       changed();
     }
@@ -2699,6 +2740,7 @@ function createStreamRuntime(state: any, options: any): any {
       if (!message.streaming) message.text = existing.text;
     }
     localEchoes = localEchoes.filter(echo => echo.message !== message && echo.message !== existing);
+    orderHistoryItem(message);
     changed();
   }
   function mergePersistedHistory(row: any) {
@@ -2768,6 +2810,23 @@ function createStreamRuntime(state: any, options: any): any {
       message.sceneLabel = history.sceneLabel;
     } else if (message.sceneId && history.sceneId && message.sceneId !== history.sceneId && !message.legacySceneId) {
       message.legacySceneId = history.sceneId;
+    }
+    orderHistoryItem(message);
+  }
+  // Durable seq is the ordering authority. Only move a confirmed item when its
+  // neighbours contradict that order; preserve live objects and tool runs.
+  function orderHistoryItem(message: any) {
+    const index = state.items.indexOf(message);
+    if (index < 0 || !message.historySeq) return;
+    const misplaced = state.items.some((item: any, i: number) => item.historySeq &&
+      (i < index ? item.historySeq > message.historySeq : i > index && item.historySeq < message.historySeq));
+    if (!misplaced) return;
+    state.items.splice(index, 1);
+    const next = state.items.findIndex((item: any) => item.historySeq > message.historySeq);
+    if (next >= 0) state.items.splice(next, 0, message);
+    else {
+      const previous = state.items.findLastIndex((item: any) => item.historySeq < message.historySeq);
+      state.items.splice(previous + 1, 0, message);
     }
   }
   function consumeLocalEcho(role: any, text: any, scene: any, history: any) {
@@ -2848,19 +2907,21 @@ function createStreamRuntime(state: any, options: any): any {
     insertCachedHistory(cached);
   }
 
-  function insertCachedHistory(cached: any[], rebuilding = false) {
+  function insertCachedHistory(cached: any[]) {
     const present = new Set(state.items.map((item: any) => item.historySeq).filter(Boolean));
     let added = false;
-    for (const message of cached) {
+    for (const message of normalizeHistoryRows(cached)) {
       // Cache rows can fill gaps anywhere in the timeline. Preserve live bubbles
       // using the same identity/echo reconciliation as network history.
-      if (present.has(message.seq)) continue;
+      if (present.has(message.seq)) {
+        if (!isHistoryMarker(message)) mergePersistedHistory(message);
+        continue;
+      }
       const identity = historyIdentity(message);
       if (isHistoryMarker(message) && mergeContinuationMarker(message.content, identity)) continue;
       const role = message.role === "user" ? "user" : "being";
       if (!isHistoryMarker(message) && (mergePersistedHistory(message) ||
-          consumeLocalEcho(role, message.content, messageScene(message), identity) ||
-          (role === "being" && !rebuilding && options.isLiveScene?.(messageScene(message))))) continue;
+          consumeLocalEcho(role, message.content, messageScene(message), identity))) continue;
       const text = isHistoryMarker(message)
         ? `· ${breathMarkerLabel(message.content)} · ${identity.timestamp} ·`
         : cleanContent(role === "user" ? stripSceneTransition(stripClientMessageContext(message.content)) : message.content);
@@ -2876,6 +2937,7 @@ function createStreamRuntime(state: any, options: any): any {
         : existing.kind !== "separator" && (!identity.createdAt ||
             (existing.createdAt ?? existing.start ?? Infinity) >= identity.createdAt));
       state.items.splice(index < 0 ? state.items.length : index, 0, item);
+      orderHistoryItem(item);
       options.restoredHistory?.add(item);
       present.add(message.seq);
       added = true;
@@ -2887,7 +2949,7 @@ function createStreamRuntime(state: any, options: any): any {
   // ten rows per frame made it anchor to an incomplete first page and flash.
   async function renderHistoryBatched(messages: any[]) {
     if (!messages?.length || disposed) return;
-    insertCachedHistory(messages, true);
+    insertCachedHistory(messages);
     state.items.push({ kind: "separator", id: `gap-${options.nextId()}`, text: "· · ·" });
     changed();
   }
@@ -2926,17 +2988,26 @@ function createStreamRuntime(state: any, options: any): any {
     const messages = [];
     while (!disposed) {
       const path = `/api/history?limit=${limit}${incremental ? `&after=${cursor}` : ''}`;
-      const res = prefetched || await fetch(apiUrl(path), { cache: "no-store", signal: timeoutSignal(8000) });
-      prefetched = null;
-      if (!res.ok) return messages.length ? messages : null;
-      const data = await res.json();
-      const page = Array.isArray(data.messages) ? data.messages : [];
-      messages.push(...page.filter((m: any) => !incremental || (Number(m.seq) || 0) > cursor));
+      let data;
+      try {
+        const res = prefetched || await fetch(apiUrl(path), { cache: "no-store", signal: timeoutSignal(8000) });
+        prefetched = null;
+        if (!res.ok) return messages.length ? normalizeHistoryRows(messages) : null;
+        data = await res.json();
+      } catch (error) {
+        // Retain successfully fetched pages if a later page loses connection.
+        if (messages.length) return normalizeHistoryRows(messages);
+        throw error;
+      }
+      const page = normalizeHistoryRows(data.messages);
+      // Keep overlap too: a cursor says where to request next, not which rows
+      // the local cache contains (old versions may have left holes).
+      messages.push(...page);
       const next = Math.max(cursor, ...page.map((m: any) => Number(m.seq) || 0));
       // Servers that ignore after= cannot cause an endless pagination loop.
       // The server may cap a page below the requested limit. Continue until
       // the cursor stops advancing so a larger preference cannot skip a gap.
-      if (!incremental || next <= cursor) return messages;
+      if (!incremental || next <= cursor) return normalizeHistoryRows(messages);
       cursor = next;
     }
     return null;
@@ -2957,6 +3028,7 @@ function createStreamRuntime(state: any, options: any): any {
           lastHistorySeq = Math.max(lastHistorySeq, cached.lastSeq);
           historyCacheSeeded = true;
           hydrated = true;
+          if (state.historyScope === "current") await restoreSceneHistory(options.selectedScene?.() || state.currentScene);
           // A larger initial page can recover older rows not yet cached. Do not
           // advance the saved cursor: after= must still fill any offline gap.
           // Render the cache first so a slow network cannot hide offline history.
@@ -2964,8 +3036,7 @@ function createStreamRuntime(state: any, options: any): any {
           try {
             if (recent?.ok) {
               const data = await recent.json();
-              const older = Array.isArray(data.messages) ? data.messages.filter((m: any) =>
-                Number.isSafeInteger(m?.seq) && m.seq > 0 && m.seq <= cached.lastSeq) : [];
+              const older = normalizeHistoryRows(data.messages).filter(m => m.seq <= cached.lastSeq);
               if (older.length) {
                 await historyCache.write(older, cached.lastSeq);
                 if (!disposed) insertCachedHistory(older.sort((a: any, b: any) => a.seq - b.seq));
@@ -2975,7 +3046,7 @@ function createStreamRuntime(state: any, options: any): any {
           if (disposed) return 0;
         }
       }
-      if (state.historyScope === "current") await restoreSceneHistory(options.selectedScene?.() || state.currentScene);
+      if (!hydrated && state.historyScope === "current") await restoreSceneHistory(options.selectedScene?.() || state.currentScene);
       const incremental = hydrated || (!full && lastHistorySeq > 0);
       // A cached cursor needs after=, not only the prefetched latest page:
       // an offline gap may contain more than one page of messages.
@@ -3001,7 +3072,8 @@ function createStreamRuntime(state: any, options: any): any {
       } else {
         if (cursorSyncInFlight) await cursorSyncInFlight;
         const fresh = msgs.filter((m) => (Number(m.seq) || 0) > lastHistorySeq);
-        toCache = fresh;
+        insertCachedHistory(msgs.filter(m => m.seq <= lastHistorySeq));
+        toCache = msgs;
         for (const m of fresh) {
           if (isHistoryMarker(m)) {
             addBreathMarker(m.content, formatHistoryTime(m.at), historyIdentity(m));
@@ -3010,7 +3082,7 @@ function createStreamRuntime(state: any, options: any): any {
           }
           const role = m.role === "user" ? "user" : "being";
           const scene = messageScene(m);
-          if (mergePersistedHistory(m) || consumeLocalEcho(role, m.content, scene, historyIdentity(m, scene)) || (role === "being" && options.isLiveScene?.(scene))) continue; // 本地已经渲染过了
+          if (mergePersistedHistory(m) || consumeLocalEcho(role, m.content, scene, historyIdentity(m, scene))) continue; // 本地已经渲染过了
           addHistoryMessage(m);
           if (role === "being") {
             lastHistoryReplyScenes.push(scene);
@@ -3058,6 +3130,7 @@ function createStreamRuntime(state: any, options: any): any {
       if (disposed) return;
       if (msgs.length) {
         const fresh = msgs.filter(m => (Number(m.seq) || 0) > lastHistorySeq);
+        insertCachedHistory(msgs.filter(m => m.seq <= lastHistorySeq));
         lastHistorySeq = Math.max(
           lastHistorySeq,
           ...msgs.map((m) => Number(m.seq) || 0),
@@ -3067,9 +3140,9 @@ function createStreamRuntime(state: any, options: any): any {
           if (isHistoryMarker(m)) addBreathMarker(m.content, formatHistoryTime(m.at), historyIdentity(m));
           else {
             const role = m.role === "user" ? "user" : "being";
-            // Current-room replies are already drawn by live/replay, including
-            // continuations that older servers persist as a single combined row.
-            if (!mergePersistedHistory(m) && !consumeLocalEcho(role, m.content, scene, historyIdentity(m, scene)) && !options.isLiveScene?.(scene)) {
+            // Only an exact persisted identity or a matched local echo can consume
+            // history. A live scene may also contain older, unseen replies.
+            if (!mergePersistedHistory(m) && !consumeLocalEcho(role, m.content, scene, historyIdentity(m, scene))) {
               addHistoryMessage(m);
             }
           }
@@ -3521,39 +3594,12 @@ function createStreamRuntime(state: any, options: any): any {
         });
         break;
       }
-      case "tool_use": {
-        toolCount++;
-        const name = eventData.name || "tool";
-        const parsedInput = parseToolInput(eventData.input);
-        const arg = extractKeyArg(parsedInput);
-        const label = tuiLabels[name] || "在行动";
-        const prev = actionLog[actionLog.length - 1];
-        if (prev && prev.type === "think" && !prev.done) {
-          prev.done = true;
-          prev.duration = Math.max(
-            1,
-            Math.round((Date.now() - prev.ts) / 1000),
-          );
-        }
-        actionLogPush({ type: "tool", name, label, arg });
-        tuiSet(name, null, { arg, preview: "" });
+      case "tool_use":
+        recordToolStart(eventData);
         break;
-      }
-      case "tool_result": {
-        const isError = !!eventData.is_error;
-        for (let i = actionLog.length - 1; i >= 0; i--) {
-          const a = actionLog[i];
-          if (a.type === "tool" && !a.done) {
-            a.done = true;
-            a.error = isError;
-            a.result = summarizeToolResult(eventData);
-            break;
-          }
-        }
-        scheduleRenderActivityLog();
-        tuiSet("thinking", null, { preview: "" });
+      case "tool_result":
+        recordToolResult(eventData);
         break;
-      }
       case "message_stop":
         // F3: 和 live 通道同一套语义——message_stop 只结束一次回复。
         // 整条 breath 是否结束由服务端的 finished 说了算（F4 之后它只在
@@ -3741,7 +3787,27 @@ function createStreamRuntime(state: any, options: any): any {
     bindPersisted,
     registerPersistedGroup,
     revealHistory: (rows: any[]) => insertCachedHistory(rows),
-    async loadOlderHistory() {
+    async loadHistoryTarget(seq: number, sceneId: string) {
+      if (!Number.isSafeInteger(seq) || seq <= 0 || !sceneId || disposed) return false;
+      const found = () => state.items.some((item: any) => item.kind === 'message' && item.historySeq === seq && item.sceneId === sceneId);
+      if (found()) return true;
+      const cached = await historyCache.readAround(seq, sceneId);
+      if (disposed) return false;
+      insertCachedHistory(cached);
+      if (found()) return true;
+      // A targeted read must not advance the global incremental sync cursor.
+      try {
+        const response = await fetch(apiUrl(`/api/history?after=${seq - 1}&limit=21`), { cache: 'no-store', signal: timeoutSignal(8000) });
+        if (!response.ok || disposed) return false;
+        const data = await response.json();
+        const rows = normalizeHistoryRows(data.messages).filter(row => messageScene(row).sceneId === sceneId && row.seq >= seq).slice(0, 21);
+        if (disposed) return false;
+        insertCachedHistory(rows);
+        await historyCache.write(rows, 0);
+        return found();
+      } catch { return false; }
+    },
+    async loadOlderHistory(before?: number) {
       const scene=options.selectedScene?.() || state.currentScene;
       const scope=state.historyScope, showSbsMessages=state.showSbsMessages;
       const include=(row:any)=>{const identity=row.kind ? row : messageScene(row);return scope==='all' || inCurrentScene(identity,scene) || (!identity.sceneId && row.role!=='user' && showSbsMessages);};
@@ -3749,9 +3815,9 @@ function createStreamRuntime(state: any, options: any): any {
       // Search and scene restoration can insert disjoint ranges. Read missing
       // rows below the newest loaded row so those gaps remain pageable.
       const present=new Set(seqs);
-      const rows=await historyCache.readBefore(seqs.length?Math.max(...seqs):Infinity,40,
+      const rows=await historyCache.readBefore(before ?? (seqs.length?Math.max(...seqs):Infinity),40,
         row=>!present.has(row.seq) && include(row));
-      if(!disposed)insertCachedHistory(rows,true);
+      if(!disposed)insertCachedHistory(rows);
       return rows.length;
     },
     restoreSceneHistory,
@@ -3777,7 +3843,6 @@ function createStreamRuntime(state: any, options: any): any {
     hasStream: (id: any) => isStreaming && currentStreamId === id,
     recoverConnection: onReconnected,
     syncConnection: (next: any) => { connState = next; applyDotClass(); },
-    ownsLiveScene: (scene: any) => isStreaming && (!pendingReply || pendingReply.phase === "processing") && inCurrentScene(scene, state.activeScene),
     acceptReplay: replayStream,
     acceptSceneEvent: (type: any, data: any) => {
       if ((type === "meta" && !data.persisted) || type === "usage") return;

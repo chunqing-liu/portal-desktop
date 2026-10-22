@@ -66,8 +66,11 @@ try {
   }
   await frame.getByRole('button',{name:'回到底部',exact:true}).click();
   await messages.hover();
-  await page.mouse.wheel(0,-100000);
-  await page.waitForFunction(() => document.querySelector('#chat').contentDocument.querySelectorAll('.message').length > 40);
+  await page.mouse.wheel(0,-50);
+  await page.waitForTimeout(100);
+  // Prepend before the reader reaches the top, not after hitting an empty edge.
+  await messages.evaluate(el=>{el.scrollTop=700;});
+  await page.waitForFunction(() => document.querySelector('#chat').contentDocument.querySelectorAll('.message').length > 40, undefined, {timeout:2000});
   await frame.locator('.history-page-loading').waitFor({state:'detached'});
   const anchor=await messages.evaluate(el=>{
     const top=el.getBoundingClientRect().top;
@@ -79,6 +82,33 @@ try {
   const offset=await messages.evaluate((el,id)=>el.querySelector(`[data-message-id="${id}"]`).getBoundingClientRect().top-el.getBoundingClientRect().top,anchor.id);
   assert.ok(Math.abs(offset-anchor.offset)<3,'Reading position must settle without jumping after prepend');
   assert.ok(before>40,'Scrolling to top loads older history');
+  // A resize and user scroll can happen in one frame before scroll dispatch.
+  // Layout compensation must retain the 80px user movement, not cancel it.
+  const race=await messages.evaluate(async el=>{
+    const top=el.getBoundingClientRect().top;
+    const target=[...el.querySelectorAll('.message')].find(n=>n.getBoundingClientRect().top>=top);
+    const before=target.getBoundingClientRect().top-top;
+    const earlier=el.querySelector('.message');
+    earlier.style.minHeight=(earlier.getBoundingClientRect().height+180)+'px';
+    el.scrollTop-=80;
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    return {movement:target.getBoundingClientRect().top-el.getBoundingClientRect().top-before};
+  });
+  assert.ok(Math.abs(race.movement-80)<3,`Resize must preserve user scroll: ${JSON.stringify(race)}`);
+  // Repeated late content growth above the viewport must settle before paint.
+  const growth=await messages.evaluate(async el=>{
+    const top=el.getBoundingClientRect().top;
+    const target=[...el.querySelectorAll('.message')].find(n=>n.getBoundingClientRect().top>=top);
+    const expected=target.getBoundingClientRect().top-top, shifts=[];
+    const earlier=el.querySelector('.message');
+    for(let i=0;i<8;i++){
+      earlier.style.minHeight=(earlier.getBoundingClientRect().height+35)+'px';
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      shifts.push(Math.abs(target.getBoundingClientRect().top-el.getBoundingClientRect().top-expected));
+    }
+    return shifts;
+  });
+  assert.ok(Math.max(...growth)<3,`Late content must preserve anchor: ${growth}`);
   // Load more and keep the existing bubbles mounted throughout each page.
   const stable=await frame.locator('.message').last().getAttribute('data-message-id');
   for(let i=0;i<3;i++){

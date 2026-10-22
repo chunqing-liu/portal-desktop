@@ -6,6 +6,9 @@ import {chromium} from 'playwright';
 const assets = new Map(await Promise.all(['loom.html','chat.js','chat.css','highlight.css'].map(async f => ['/'+f,await readFile('desktop/generated/'+f)])));
 const long = 'very_long_identifier_'.repeat(35);
 const bodies = [
+  '你好',
+  'Hi',
+  '这是一条短消息',
   '布局检查：长链接与行内代码\n\nhttps://example.com/'+long+'\n\n`'+long+'`',
   '代码应完整换行，复制时保留原文。\n\n```javascript\nconst result = "'+long+'";\n```',
   '| 场景 | 内容 | 状态 |\n| --- | --- | --- |\n| 日常对话 | '+long+' | 已完成 |',
@@ -31,12 +34,30 @@ try{
   const page=await browser.newPage({reducedMotion:'reduce'});
   await page.goto(origin);
   const frame=page.frameLocator('iframe');
-  await frame.locator('.message').nth(9).waitFor();
+  await frame.locator('.message').nth(history.length - 1).waitFor();
   await mkdir('test-results',{recursive:true});
   await frame.locator('#file-input').setInputFiles([{name:'很长的附件名称'.repeat(18)+'.txt',mimeType:'text/plain',buffer:Buffer.from('layout fixture')},{name:'第二份附件.txt',mimeType:'text/plain',buffer:Buffer.from('layout fixture')}]);
   await frame.getByRole('button',{name:'移除 第二份附件.txt'}).waitFor();
   for(const width of [1100,640,380,300]){
     await page.setViewportSize({width,height:800});
+    // A side action must not make short messages wrap inside a second percentage width.
+    for (const role of ['being', 'user']) {
+      for (const text of bodies.slice(0, 3)) {
+        const paragraph = frame.locator(`.message.${role} .content p`).filter({hasText: new RegExp(`^${text}$`)});
+        const metrics = await paragraph.evaluate(el => ({height: el.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(el).lineHeight)}));
+        assert.ok(metrics.height <= metrics.lineHeight + 1, `${role} "${text}" should stay on one line at ${width}px`);
+      }
+      const row = frame.locator(`.message.${role}`).first();
+      const bubble = row.locator('.content');
+      const copy = row.locator('.message-copy');
+      await bubble.hover();
+      const before = await bubble.boundingBox();
+      const button = await copy.boundingBox();
+      assert.ok(role === 'user' ? button.x + button.width <= before.x : button.x >= before.x + before.width, 'Copy stays outside the bubble');
+      await copy.hover();
+      assert.deepEqual(await bubble.boundingBox(), before, 'Hover does not resize or move the bubble');
+      assert.equal(await copy.evaluate(el => getComputedStyle(el).opacity), '1');
+    }
     const overflow=await frame.locator('#messages, .message, .message .content, .code-block, .table-wrap, #input-area, #pending-files, .pending-file').evaluateAll(nodes=>nodes.filter(n=>n.scrollWidth>n.clientWidth+1).map(n=>({element:n.id||n.className,width:n.clientWidth,contentWidth:n.scrollWidth})));
     assert.deepEqual(overflow,[],`Horizontal overflow at ${width}px`);
     assert.equal(await frame.locator('#chat-index').count(),1);

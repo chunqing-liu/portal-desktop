@@ -2,11 +2,15 @@ import type { ChatRuntime, ChatState, ChatPanel } from "../models/chat";
 import type { HistoryScope } from "../models/scenes";
 import type { ChatEditCommand } from "../../../shared/types";
 import { validChatHistoryLimit } from '../../../shared/chat-history';
+import { HistoryCache } from './history-cache';
+import { localActivityHistory } from './activity-history';
 
 /** Source-checked desktop transport. It never reads or mutates rendered UI. */
 export function createChatBridge(state: ChatState) {
   const revision = new URLSearchParams(location.search).get("revision");
   const embedded = parent !== window;
+  const historyEndpoint = new URLSearchParams(location.search).get('history_scope') || location.origin;
+  let activityCache: HistoryCache | undefined;
   // The isolated frame can have either the packaged shell or the Vite shell as its parent.
   // Only bounded, non-secret UI observations cross this channel.
   const targetOrigin = location.protocol === "beings:" ? "*" : location.origin;
@@ -14,6 +18,7 @@ export function createChatBridge(state: ChatState) {
     if (embedded) parent.postMessage({ ...data, revision }, targetOrigin);
   };
   let draftPrefix = "",
+    selectionRequest = 0,
     sbsRequest = 0,
     disposed = false;
   const waiting = new Map<string, () => void>();
@@ -96,6 +101,7 @@ export function createChatBridge(state: ChatState) {
       reading(value: number): void;
       search(query: string): void;
       jump(id: string): void;
+      reveal(seq: number, sceneId: string): void;
       focus(): void;
       scope(value: HistoryScope): void;
     },
@@ -129,6 +135,14 @@ export function createChatBridge(state: ChatState) {
       const data = event.data;
       if (!data || typeof data !== "object") return;
       switch (data.type) {
+        case 'beings:local-history-request':
+          if (data.revision !== revision || data.endpoint !== historyEndpoint || typeof data.id !== 'string' || data.id.length > 64) return;
+          activityCache ||= new HistoryCache(historyEndpoint);
+          void localActivityHistory(activityCache, state).then(
+            rows => { if (!disposed) send({ type: 'beings:local-history-result', id: data.id, endpoint: historyEndpoint, rows, ok: true }); },
+            () => { if (!disposed) send({ type: 'beings:local-history-result', id: data.id, endpoint: historyEndpoint, ok: false }); },
+          );
+          return;
         case 'beings:history-limit':
           if (data.revision !== revision || !validChatHistoryLimit(data.limit)) return;
           state.historyLimit = data.limit;
@@ -154,7 +168,7 @@ export function createChatBridge(state: ChatState) {
         case "beings:chat-edit-result":
           if (data.revision === revision && typeof data.id === "string") edits.get(data.id)?.(data.ok === true);
           return;
-        case "beings:session-select":
+        case "beings:session-select": {
           if (data.revision !== revision || typeof data.scene?.scene_id !== "string" || typeof data.scene?.scene_meta?.scene_label !== "string") return;
           if (Array.isArray(data.scenes) && data.scenes.length <= 500 && data.scenes.every((scene: unknown) => {
             const value = scene as { scene_id?: unknown; scene_meta?: { scene_label?: unknown } } | null;
@@ -166,13 +180,26 @@ export function createChatBridge(state: ChatState) {
             state.changed();
           }
           draftPrefix = "";
-          void runtime.selectScene({ sceneId: data.scene.scene_id, sceneLabel: data.scene.scene_meta.scene_label, strict: true }).then(() => {
+          const request = ++selectionRequest;
+          const sceneId = data.scene.scene_id;
+          const current = () => !disposed && request === selectionRequest && state.currentScene.sceneId === sceneId;
+          void runtime.selectScene({ sceneId, sceneLabel: data.scene.scene_meta.scene_label, strict: true }).then(async () => {
+            if (!current()) return;
             ui.scope(data.scope === "all" ? "all" : "current");
             send({ type: "beings:history-scope-state", scope: state.historyScope });
             send({ type: 'beings:session-selected', sceneId: state.currentScene.sceneId });
             send({ type: 'beings:scene-sbs-state', sceneId: state.currentScene.sceneId, show: state.showSbsMessages });
+            if (Number.isSafeInteger(data.historySeq) && data.historySeq > 0) {
+              const ok = await runtime.loadHistoryTarget(data.historySeq, sceneId);
+              if (!current()) return;
+              if (ok) ui.reveal(data.historySeq, sceneId);
+              else send({ type: 'beings:history-target-result', sceneId, seq: data.historySeq, ok: false });
+            }
+          }).catch(() => {
+            if (current() && Number.isSafeInteger(data.historySeq)) send({ type: 'beings:history-target-result', sceneId, seq: data.historySeq, ok: false });
           });
           return;
+        }
         case "beings:history-scope":
           if (data.revision !== revision || !["current", "all"].includes(data.scope)) return;
           ui.scope(data.scope);
@@ -276,6 +303,7 @@ export function createChatBridge(state: ChatState) {
     start,
     dispose() {
       disposed = true;
+      activityCache?.close();
       unsubscribeActivity();
       removeListener();
       waiting.forEach((finish) => finish());

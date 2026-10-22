@@ -40,6 +40,7 @@ import { installerEvent, installerTarget, handleInstallerEvent } from './updates
 import { BackgroundPortal } from './portal/background';
 import { KitInstaller } from './kits/install';
 import { ChatProxy } from './chat/proxy';
+import { RecentChatHistory } from './chat/recent-history';
 import { loadDesktopScene, ChatSessions } from './chat/scene';
 import { verifyBeingConnection } from './chat/ready';
 import { redact } from './chat/connection';
@@ -700,6 +701,8 @@ async function ready() {
   app.once('will-quit', () => sceneTasks.close());
   const taskSnapshotFromObserver = async () => taskSnapshot(await sceneTasks.configure(store.settings.portalConfigPath));
   handle('beings:scene-tasks', async () => taskSnapshot(await sceneTasks.configure(store.settings.portalConfigPath)));
+  const recentHistory = new RecentChatHistory(proxy, () => store.connection);
+  handle('beings:recent-chat-history', (endpoint: string) => recentHistory.read(endpoint));
   handle('beings:subagent-config', () => readSubagentConfig(directory, store.settings));
   handle('beings:save', (input: SaveSettings) => exclusive(async () => {
     if (input.subagentEnabled !== undefined && typeof input.subagentEnabled !== 'boolean') throw new Error('无效的 subagent 开关状态');

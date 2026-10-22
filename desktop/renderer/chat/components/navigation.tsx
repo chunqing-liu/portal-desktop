@@ -10,7 +10,6 @@ export function JumpToLatest({ items, container, elements, scrollLock, clearAnch
   scrollLock: RefObject<boolean>;
   clearAnchor: () => void;
 }) {
-  const [below, setBelow] = useState(0);
   const [away, setAway] = useState(false);
   useLayoutEffect(() => {
     const node = container.current;
@@ -19,19 +18,23 @@ export function JumpToLatest({ items, container, elements, scrollLock, clearAnch
     const measure = () => {
       frame = 0;
       const distant = node.scrollHeight - node.scrollTop - node.clientHeight > 24;
-      const bottom = node.getBoundingClientRect().bottom;
       setAway(distant);
-      setBelow(distant ? items.filter(item => item.kind === "message" &&
-        (elements.current.get(item.id)?.getBoundingClientRect().bottom ?? 0) > bottom + 1).length : 0);
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     const observer = new ResizeObserver(schedule);
     observer.observe(node);
-    for (const child of node.children) observer.observe(child);
+    const observed = new Set<Element>();
+    const observe = () => {
+      for (const child of observed) if (child.parentElement !== node) { observer.unobserve(child); observed.delete(child); }
+      for (const child of node.children) if (!observed.has(child)) { observer.observe(child); observed.add(child); }
+      schedule();
+    };
+    const mutation = new MutationObserver(observe);
+    mutation.observe(node, { childList: true }); observe();
     node.addEventListener("scroll", schedule, { passive: true });
     schedule();
-    return () => { cancelAnimationFrame(frame); observer.disconnect(); node.removeEventListener("scroll", schedule); };
-  }, [items, container, elements]);
+    return () => { cancelAnimationFrame(frame); mutation.disconnect(); observer.disconnect(); node.removeEventListener("scroll", schedule); };
+  }, [container]);
   return <button id="chat-jump-latest" type="button" hidden={!away}
     aria-label="回到底部"
     onClick={() => {

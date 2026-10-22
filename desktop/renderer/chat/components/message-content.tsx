@@ -6,12 +6,18 @@ import type { Message } from '../models/chat';
 import { attachmentMessageReader, messageReferences, type AttachmentMessage } from '../services/attachment-messages';
 import { viewRequest } from '../services/attachment-view';
 import { AttachmentCard } from './attachments';
+import { useNearViewport } from '../../shared/hooks/use-near-viewport';
 const delivery: Record<string,string> = {pending:'等待处理或发送', sending:'正在发送', accepted:'已发送', unknown:'发送结果待确认，请核对历史', failed:'发送失败', cancelled:'已取消'};
 export function hasAttachmentMessage(message: Message) { return message.role === 'user' && (!!message.attachmentUploads?.length || !!message.attachmentViews?.length || messageReferences(message.text).length > 0); }
 export function originalMessageText(message: Message) {
   return message.attachmentViews?.map(v => v.parts.filter(p => p.type === 'text').map(p => p.text).join('\n')).join('\n') ?? (hasAttachmentMessage(message) ? '附件消息' : message.text);
 }
 export function AttachmentMessageContent({message}: {message: Message}) {
+  const { ref, ready } = useNearViewport<HTMLDivElement>(!!message.attachmentUploads?.length || !!message.attachmentViews?.length);
+  return <div ref={ref} className="attachment-message-host">{ready ? <LoadedAttachmentMessage message={message} />
+    : <div className="content attachment-deferred" aria-label="附件消息">附件消息</div>}</div>;
+}
+function LoadedAttachmentMessage({message}: {message: Message}) {
   const endpoint = message.attachmentEndpoint || new URLSearchParams(location.search).get('history_scope') || '';
   const [fetched, setFetched] = useState<{key:string;views:AttachmentMessage[]}>({key:'',views:[]}), [error, setError] = useState(''), [attempt, setAttempt] = useState(0);
   const [localImages,setLocalImages]=useState<({src:string;blob:Blob}|undefined)[]>([]);

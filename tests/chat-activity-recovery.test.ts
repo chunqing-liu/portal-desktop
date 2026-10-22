@@ -425,3 +425,19 @@ it('restores one continuation marker from a refreshed stream with user history',
     expect(f.state.items.filter(i=>i.kind==='separator' && i.text.includes('转向你'))).toHaveLength(1);
   } finally {f.runtime.dispose();}
 });
+
+
+it('does not drop unrelated durable replies from the same room during a newer live turn', async () => {
+  const f = await fixture();
+  try {
+    await f.runtime.send('new live question');
+    await vi.advanceTimersByTimeAsync(20);
+    f.emit('content_block_delta', { scene_id: 'room', delta: { text: 'new live reply' } });
+    await vi.advanceTimersByTimeAsync(30);
+    f.history.push({ seq: 1, role: 'user', scene_id: 'room', content: 'older question', at: '2026-10-01T01:00:00Z' },
+      { seq: 2, role: 'being', scene_id: 'room', content: 'older durable reply', at: '2026-10-01T01:00:01Z' });
+    await f.runtime.refreshHistory();
+    expect(f.state.items.some(item => item.kind === 'message' && item.historySeq === 2 && item.text === 'older durable reply')).toBe(true);
+    expect(f.state.items.some(item => item.kind === 'message' && item.text === 'new live reply' && item.streaming)).toBe(true);
+  } finally { f.runtime.dispose(); }
+});

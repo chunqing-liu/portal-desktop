@@ -108,3 +108,13 @@ describe("chat code blocks", () => {
     expect(html).not.toContain("<script>");
   });
 });
+
+it('keeps streaming code readable without repeated highlighting, then highlights the completed source', () => {
+  const content = '```javascript\nconst result = 42;\n```';
+  const live = renderToStaticMarkup(createElement(Markdown, { content, chat: true, streaming: true }));
+  const done = renderToStaticMarkup(createElement(Markdown, { content, chat: true, streaming: false }));
+  expect(live).toContain('const result = 42;');
+  expect(live).not.toContain('hljs-keyword');
+  expect(done).toContain('hljs-keyword');
+  expect(done).toContain('result');
+});

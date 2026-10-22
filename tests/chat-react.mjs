@@ -24,6 +24,7 @@ const requests = [], patches = [];
 let active = null, heldResponse = null, rejectConfig = false, requireKey = false, stopCount = 0, oauthRequests = 0;
 let markdownResponse = null;
 let rollbackSelfHosted = false;
+let rejectStop = false;
 const event = (response, name, data) => response.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
 async function waitUntil(check, description) {
   const deadline = Date.now() + 10000;
@@ -48,7 +49,7 @@ const server = createServer(async (request, response) => {
   }
   if (url.pathname === '/api/llm/routes') return json({ error: 'Legacy fixture has no catalog' }, 404);
   if (url.pathname.startsWith('/api/llm/oauth')) { oauthRequests++; return json({ status: 'portal_required' }, 503); }
-  if (url.pathname === '/api/stop') { stopCount++; heldResponse?.end(); heldResponse = null; return json({ ok: true }); }
+  if (url.pathname === '/api/stop') { stopCount++; if (rejectStop) return json({ ok: false }, 503); heldResponse?.end(); heldResponse = null; return json({ ok: true }); }
   if (url.pathname === '/api/stream/active') {
     if (!active) { response.writeHead(204); response.end(); return; }
     if (url.searchParams.has('after')) {
@@ -81,7 +82,7 @@ const server = createServer(async (request, response) => {
     }
     setTimeout(() => {
       event(response, 'tool_use', { name: 'read_file', input: { path: '/tmp/fixture.txt' } });
-      event(response, 'tool_result', { name: 'read_file', summary: 'fixture file read', is_error: false });
+      event(response, 'tool_result', { name: 'read_file', summary: 'fixture file read', content: 'Full tool output\n<script>window.toolInjected = true</script>\nfinal diagnostic', is_error: false, exit_code: 0, duration_ms: 1250, total_output_bytes: 240 });
       event(response, 'content_block_delta', { delta: { text: '\n\n**React 回复完成**。查看花园与篝火。' } });
       append('being', continuation ? '**React 回复完成**。查看花园与篝火。' : '开始回复。\n\n**React 回复完成**。查看花园与篝火。', input.scene_id);
       event(response, 'message_stop', { session_id: 'session-fixture' }); response.end();
@@ -364,7 +365,24 @@ try {
   assert.equal(requests.length, 1); assert.equal(requests[0].attachments[0].media_type, 'image/png'); assert.equal(requests[0].attachments[0].data, image.toString('base64'));
   assert.equal(await frame.locator('.run-activity').count(), 1, 'One process record per completed turn');
   assert.equal(await frame.locator('.run-activity.running').count(), 0);
-  await frame.locator('.run-activity summary').click(); assert.match(await frame.locator('.run-list').innerText(), /fixture file read/);
+  await frame.locator('.run-activity > summary').click(); assert.match(await frame.locator('.run-list').innerText(), /fixture file read/);
+  assert.equal(await frame.locator('.run-tool-details pre').count(), 0, 'Collapsed tool details do not mount full output');
+  await frame.locator('.run-tool-details > summary').click();
+  await frame.locator('.run-tool-details pre').filter({hasText:'final diagnostic'}).waitFor();
+  assert.match(await frame.locator('.run-tool-details').innerText(), /退出码\s*0/);
+  assert.match(await frame.locator('.run-tool-details').innerText(), /1.25 秒/);
+  assert.equal(await child().evaluate(() => window.toolInjected), undefined, 'Tool output is rendered as text');
+  await frame.locator('.run-activity').screenshot({path:'test-results/chat-tool-details-light.png'});
+  await page.setViewportSize({width:390,height:844});
+  await post({type:'beings:appearance',theme:'dark'});
+  await child().waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+  await frame.locator('.run-activity').screenshot({path:'test-results/chat-tool-details-dark-mobile.png'});
+  assert.equal(await frame.locator('.run-tool-details').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
+  await page.setViewportSize({width:1100,height:850});
+  await post({type:'beings:appearance',theme:'light'});
+  await frame.locator('.run-activity > summary').click();
+  await frame.locator('.run-tool-details pre').first().waitFor({state:'detached'});
+  assert.equal(await frame.locator('.run-tool-details pre').count(), 0);
   const toolReply = frame.locator('.message.being').filter({ hasText: 'React 回复完成' });
   assert.equal(await toolReply.count(), 1, 'Tool-separated speech belongs in one bubble');
   assert.match(await toolReply.innerText(), /开始回复。/);
@@ -391,7 +409,15 @@ try {
   await waitUntil(() => requests.at(-1)?.message === 'additional input', 'The interrupting message reaches the server');
   assert.equal(requests.at(-1).attachments[0].data, Buffer.from('splice attachment').toString('base64'));
   assert.equal(await frame.getByText(/消息已送达/).count(), 0, 'Interrupting a reply does not add a system bubble to the conversation');
-  await frame.locator('#send-btn.stop').click(); await frame.locator('.run-activity[data-outcome="stopped"]').waitFor(); assert.equal(stopCount, 1);
+  rejectStop = true;
+  await frame.locator('#send-btn.stop').click();
+  await frame.getByText(/停止未确认，任务可能仍在执行/).waitFor();
+  await frame.getByRole('button', {name:'再次停止',exact:true}).waitFor();
+  event(heldResponse, 'content_block_delta', {delta:{text:'停止失败后仍继续接收进展'}});
+  await frame.getByText(/停止失败后仍继续接收进展/).waitFor();
+  rejectStop = false;
+  await frame.getByRole('button', {name:'再次停止',exact:true}).click();
+  await frame.locator('.run-activity[data-outcome="stopped"]').waitFor(); assert.equal(stopCount, 2);
   await frame.locator('#input').fill('http-error'); await frame.locator('#send-btn').click(); await frame.getByText(/fixture request failed/).waitFor();
   assert.equal(await frame.locator('.run-activity.running').count(), 0);
   assert.equal(await frame.locator('.run-activity').last().getAttribute('data-outcome'), 'error');

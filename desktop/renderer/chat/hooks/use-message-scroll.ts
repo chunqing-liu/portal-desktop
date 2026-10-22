@@ -5,14 +5,14 @@ import type { ChatItem, Message } from '../models/chat';
 export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDivElement | null>, elements: RefObject<Map<string, HTMLDivElement>>) {
   const scrollLock = useRef(true), anchor = useRef<string | null>(null), followedTurn = useRef<string | null>(null);
   const tracked = useRef<string | null>(null), accumulated = useRef(0), frame = useRef(0);
-  const reading = useRef<{node:HTMLDivElement;offset:number;width:number}|null>(null);
+  const reading = useRef<{node:HTMLDivElement;offset:number;width:number;scrollTop:number}|null>(null);
   const remember = useCallback(()=>{
     const el=container.current;if(!el)return;
     if(reading.current && reading.current.width!==el.clientWidth)return;
     const top=el.getBoundingClientRect().top;
     for(const node of elements.current.values()){
       const rect=node.getBoundingClientRect();
-      if(rect.bottom>top+1 && rect.top<top+el.clientHeight){reading.current={node,offset:rect.top-top,width:el.clientWidth};break;}
+      if(rect.bottom>top+1 && rect.top<top+el.clientHeight){reading.current={node,offset:rect.top-top,width:el.clientWidth,scrollTop:el.scrollTop};break;}
     }
   },[container,elements]);
   const currentItems = useRef(items); currentItems.current = items;
@@ -25,14 +25,19 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     // the old position here would immediately undo the user's jump.
     reading.current = null;
   }, []);
+  const compensate = useCallback(() => {
+    const el = container.current, saved = reading.current;
+    if (!el || !saved || scrollLock.current || !saved.node.isConnected) return;
+    // A scroll event may arrive either before or after ResizeObserver. Use
+    // the content-space position so both paths preserve intentional scrolling.
+    const shift = saved.node.getBoundingClientRect().top-el.getBoundingClientRect().top-saved.offset + el.scrollTop-saved.scrollTop;
+    if (Math.abs(shift) > 0.5) el.scrollTop += shift;
+    saved.width = el.clientWidth;
+  }, [container]);
   const layout = useCallback(() => {
     const el = container.current;
     if (!el || !el.clientWidth) return;
-    const saved=reading.current;
-    if(saved){
-      if(!scrollLock.current && saved.node.isConnected)el.scrollTop+=saved.node.getBoundingClientRect().top-el.getBoundingClientRect().top-saved.offset;
-      saved.width=el.clientWidth;
-    }
+    compensate();
     let reply: Message | undefined, turn: string | null = null;
     const list = currentItems.current;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -59,9 +64,12 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     }
     if (scrollLock.current) el.scrollTop = el.scrollHeight;
     remember();
-  }, [container, elements, remember]);
+  }, [container, elements, remember, compensate]);
   const schedule = useCallback(() => { if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; layout(); }); }, [layout]);
-  useLayoutEffect(layout, [items, layout]);
+  // Content growth is handled by ResizeObserver before paint. Draft/status
+  // renders do not need another synchronous geometry scan of every message.
+  const structure = items.map(item => item.id).join('\u0000');
+  useLayoutEffect(layout, [structure, layout]);
   useEffect(() => {
     const el = container.current;
     if (!el) return;
@@ -77,18 +85,18 @@ export function useMessageScroll(items: ChatItem[], container: RefObject<HTMLDiv
     const mutation = new MutationObserver(observe);
     mutation.observe(el, { childList: true }); observe();
     const keyboard = (event: KeyboardEvent) => {
-      if (['PageDown','PageUp','Home','End','ArrowDown','ArrowUp',' '].includes(event.key) && !(event.target as HTMLElement).closest('input,textarea,select,button')) { releaseAnchor(); scrollLock.current = false; }
+      if (['PageDown','PageUp','Home','End','ArrowDown','ArrowUp',' '].includes(event.key) && !(event.target as HTMLElement).closest('input,textarea,select,button')) { releaseAnchor(); scrollLock.current = false; remember(); }
     };
     el.addEventListener('keydown', keyboard);
     return () => { observer.disconnect(); mutation.disconnect(); el.removeEventListener('keydown', keyboard); cancelAnimationFrame(frame.current); frame.current = 0; };
-  }, [container, schedule, layout, releaseAnchor]);
+  }, [container, schedule, layout, releaseAnchor, remember]);
   return {
     scrollLock, releaseAnchor,
     onWheel(event: WheelEvent) {
       if (anchor.current) { accumulated.current += Math.abs(event.deltaY); if (accumulated.current <= 30) return; }
-      releaseAnchor(); scrollLock.current = false;
+      releaseAnchor(); scrollLock.current = false; remember();
     },
-    onTouchMove() { releaseAnchor(); scrollLock.current = false; },
-    onScroll() { remember(); const el = container.current; if (el && el.clientWidth && el.scrollHeight - el.scrollTop - el.clientHeight <= 2) scrollLock.current = true; },
+    onTouchMove() { releaseAnchor(); scrollLock.current = false; remember(); },
+    onScroll() { compensate(); remember(); const el = container.current; if (el && el.clientWidth && el.scrollHeight - el.scrollTop - el.clientHeight <= 2) scrollLock.current = true; },
   };
 }

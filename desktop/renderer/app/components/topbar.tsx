@@ -167,13 +167,7 @@ export function Topbar({ model }: { model: AppModel }) {
         })}
       />
       <div className="pair-name">
-        <span className="pair-human">你</span>
-        <span className="pair-link" aria-hidden="true">
-          ·
-        </span>
-        <span id="conversation-name">
-          {town.displayName || app.snapshot?.settings.being || "Being"}
-        </span>
+        <span id="conversation-name">{town.displayName || app.snapshot?.settings.being || "Being"}</span>
         <SbsControl known={hasToken && app.sbsKnown && !app.chatLoading} enabled={app.sbsEnabled}
           origin={app.chatSbsOrigin} phase={app.chatSbsPhase} showContent={app.chatShowSbsMessages} allScenes={app.chatHistoryScope==='all'}
           visibilityReady={hasToken && !app.chatLoading && !!app.chatSbsSceneId && app.chatSbsSceneId===app.snapshot?.chatScene?.scene_id}

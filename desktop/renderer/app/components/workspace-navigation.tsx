@@ -1,10 +1,10 @@
 import { PluginIcon } from "../../plugins/icon";
+import { RecentHistory } from './recent-history';
 import { useNavigationSort } from "./use-navigation-sort";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { PrivacyContent } from "../../chat/components/panels";
 import { createPortal } from "react-dom";
 import { PanelResizeHandle, usePanelWidth } from "../../shared/components/panel-resize";
-import { CHAT_SCENE_ACTIVITY_LABELS } from "../../../shared/types";
 import type { AppModel } from "../models/app";
 import { useModel } from "../../shared/hooks/use-model";
 
@@ -157,7 +157,6 @@ export function BeingInfo({ app }: { app: AppModel }) {
   useEffect(() => { if (privacyOpen) privacyBack.current?.focus(); }, [privacyOpen]);
   const name = town.displayName || app.snapshot?.settings.being || "Being";
   const status = !app.snapshot?.settings.hasToken ? "未连接" : ({online:"已连接",connecting:"连接中",reconnecting:"重连中",offline:"已离线",degraded:"连接不稳定"}[app.connection] || "正在确认连接");
-  const activities = Object.entries(app.chatSceneActivity);
   const hidden = !app.beingInfoOpen || app.view !== "chat";
   const [currentModel, setCurrentModel] = useState('');
   const connected = Boolean(app.snapshot?.settings.hasToken);
@@ -204,11 +203,7 @@ export function BeingInfo({ app }: { app: AppModel }) {
       <button className="being-action-row being-connect" onClick={() => app.showSettings()}>连接设置 <span aria-hidden="true">›</span></button>
     </section>
     <section id="being-activity-panel" role="tabpanel" aria-labelledby="being-activity-tab" hidden={tab !== "activity"}>
-      <h3>场景动态</h3>
-      {activities.length ? <ul className="being-activities">{activities.map(([id, status]) => <li key={id}>
-        <span className="being-activity-dot" aria-hidden="true" />
-        <div><strong>{app.snapshot?.chatSessions?.find(scene => scene.scene_id === id)?.scene_meta.scene_label || "对话场景"}</strong><p>{CHAT_SCENE_ACTIVITY_LABELS[status]}</p></div>
-      </li>)}</ul> : <p className="being-empty">暂时没有新的场景动态</p>}
+      {!hidden && !privacyOpen && tab === 'activity' && <RecentHistory app={app} />}
     </section>
     </div>
     </div>

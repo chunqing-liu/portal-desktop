@@ -96,11 +96,17 @@ try{
   const frames=await page.locator('.image-generation-card').evaluateAll(cards=>cards.map(card=>{
     const frame=card.querySelector('.remote-image-thumbnail, .image-generation-placeholder').getBoundingClientRect();
     const caption=card.querySelector('.image-generation-caption').getBoundingClientRect();
-    return {width:frame.width,height:frame.height,top:frame.top,bottom:frame.bottom,captionTop:caption.top};
+    return {width:frame.width,height:frame.height,left:frame.left,top:frame.top,bottom:frame.bottom,captionTop:caption.top};
   }));
   for(const [index,frame] of frames.entries()){
     assert.ok(Math.abs(frame.height-frame.width*(index===0?480/640:1))<2,'completed image uses its natural ratio; unknown-size skeleton stays square');
-    assert.ok(Math.abs(frame.top-frames[0].top)<2,'mixed states align');
+    // The bubble can wrap the gallery into several rows. Align cards within
+    // each row and keep subsequent rows below it rather than assuming 3 columns.
+    if (index > 0) {
+      const previous = frames[index - 1];
+      assert.ok(frame.left > previous.left ? Math.abs(frame.top - previous.top) < 2 : frame.top >= previous.bottom,
+        'mixed states align without overlap: ' + JSON.stringify(frames));
+    }
     assert.ok(frame.captionTop>=frame.bottom,'captions stay below media');
   }
   await mkdir('test-results/image-generations',{recursive:true});

@@ -46,6 +46,7 @@ export type PortalPhase = 'running' | 'stopped' | 'starting' | 'connected' | 're
 export interface PortalState { phase: PortalPhase; pid?: number; managed?: boolean; runtimePath?: string; conflict?: boolean; portalName?: string; beingEndpoint?: string; message: string; logs: string[] }
 export interface BackgroundState { supported: boolean; installed: boolean; enabled: boolean; running: boolean; existing: boolean; label?: string; pid?: number; message: string }
 export interface ChatScene { scene_id: string; scene_meta: { client: string; scene_label: string; portal_name?: string; portal_status?: PortalPhase } }
+export interface RecentChatMessage { seq: number; role: 'user' | 'being' | 'assistant'; content: string; at: string; scene_id: string; scene_label: string }
 export type ChatSceneActivity = 'queued' | 'thinking' | 'replying' | 'working' | 'waiting' | 'reconnecting' | 'timeout' | 'done' | 'error' | 'stopped';
 export const CHAT_SCENE_ACTIVITY_LABELS: Record<ChatSceneActivity, string> = {
   queued: '排队中', thinking: '思考中', replying: '回复中', working: '执行中', waiting: '等待最终回复',
@@ -120,6 +121,7 @@ export interface DesktopAPI {
   save(input: SaveSettings): Promise<Snapshot>;
   beingModelCatalog?(input: { kind: 'routes' | 'models' | 'keys'; route?: string; api_key?: string }): Promise<{ status: number; data: Record<string, unknown> }>;
   beingModelConfig(patch?: Record<string, string | number | boolean>): Promise<Record<string, unknown>>;
+  recentChatHistory(endpoint: string): Promise<RecentChatMessage[]>;
   sceneTasks(): Promise<SceneTaskSnapshot>;
   onSceneTasks(callback: (snapshot: SceneTaskSnapshot) => void): () => void;
   subagentConfig(): Promise<Omit<SubagentSetup, 'api_key'>>;

@@ -1,6 +1,13 @@
 import type { ChatItem, Message } from './chat';
 import { isImageGenerationText } from '../../../shared/image-generation';
 
+/** A durable fragment may be displayed inside a combined reply bubble. */
+export function historyTargetBubble(items: ChatItem[], timeline: ChatItem[], seq: number): Message | undefined {
+  const source = items.find((item): item is Message => item.kind === 'message' && item.historySeq === seq);
+  return source && timeline.find((item): item is Message => item.kind === 'message' &&
+    (item.id === source.id || !!item.sourceMessageIds?.includes(source.id)));
+}
+
 /** Keep durable fragments intact; only combine adjacent speech from one reply. */
 export function replyBubbles(items: ChatItem[]): ChatItem[] {
   const result: ChatItem[] = [];

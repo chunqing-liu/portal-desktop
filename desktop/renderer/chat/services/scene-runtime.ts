@@ -460,7 +460,6 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       selectedScene: () => state.currentScene,
       activeAutonomousOrigin: () => [...sessions.values()].map(s => s.runtime?.activeAutonomousOrigin?.()).find(Boolean),
       restoredHistory,
-      isLiveScene: (scene: any) => [...sessions.values()].some(s => s.runtime?.ownsLiveScene(scene)),
       routeEvent(type: any, data: any) {
         if (!Object.hasOwn(data, "scene_id")) return false;
         const scene = messageScene(data);
@@ -651,7 +650,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       selected.local.files = state.files;
       return selected.runtime[method](...args);
     };
-  for (const method of ["loadLlmConfig", "applyConfigChange", "toggleSbs", "loadSbsState", "request", "revealHistory", "loadOlderHistory"])
+  for (const method of ["loadLlmConfig", "applyConfigChange", "toggleSbs", "loadSbsState", "request", "revealHistory", "loadOlderHistory", "loadHistoryTarget"])
     runtime[method] = (...args: any[]) => owner.runtime[method](...args);
   return runtime as ChatRuntime;
 }

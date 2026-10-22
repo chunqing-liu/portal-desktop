@@ -8,6 +8,10 @@
 
 ## 覆盖与边界
 
+`npm run test:chat-history-recovery` 使用隔离浏览器的真实 IndexedDB 和生成的 React 对话包，验证无场景 SBS 工具流运行时，旧场景问题与回复都能恢复、增量补齐、切换隔离、刷新及离线重载；同时验证全局缓存先到、场景缓存后到时首屏补齐，以及上翻历史和滚动位置稳定。`tests/chat-scene-cache.test.ts`、`tests/chat-activity-recovery.test.ts` 和 `tests/history-window.test.ts` 覆盖对应回归。不会读取、清空或改写用户的 IndexedDB，也不会向真实 Being 发送消息。 `tests/history-cache.mjs` 直接验证真实 IndexedDB 的 seq 合并、重复/缺少场景元数据的接口记录不会抹掉场景索引、并发写入及游标不倒退、重开数据库后全部 260 条记录仍在、旧场景 220 条消息可分页读完。运行时回归还覆盖慢网络前先显示本地场景、乱序/重复接口记录、游标以下缺口补齐及分页中途断网后的恢复。
+
+场景动态的最近消息由 `tests/recent-chat-history.test.ts` 验证跨全部场景分页收集最近 100 条有效提问、增量刷新、内部标记过滤、降序去重、异常响应、连接隔离与摘要清理；`npm run test:recent-history` 使用本地浏览器 fixture 验证仅提问列表、日期分组、长标题单行省略、本地场景跳转、本地场景列表为空时仍展示全部提问、不可跳转条目、失败重试、切换 Being 的迟到响应，以及顶部名称和绿色 SBS 状态入口。截图输出到 `test-results/scene-recent-history-*.png`，不向真实 Being 发送消息。
+
 聊天等待计时由 `tests/chat-reply-wait.test.ts` 覆盖：HTTP 202 排队后收到实时或回放进展时取消等待计时，持续工具调用超过 11 分钟不误报超时，取消已在查询历史的旧计时器，空流及跨场景事件隔离。连续等待 5 分钟仍未确认回复时显示独立的 `timeout` 状态，不发送后台停止指令；工具缺少结果时保持“结果未确认”，与明确失败计数分开。
 
 `tests/chat-activity-recovery.test.ts` 覆盖空闲时发现 SBS、SBS 中接受场景插入并按场景接续、短自主回复自动同步、服务端已结束但本地读取器仍打开时释放队列、旧巡检不得覆盖新发送、失败及无效快照不得清理活动任务，以及无回复时等待超时后恢复发送。接口诊断另验证不包含消息正文。
@@ -55,6 +59,14 @@ Town 正文提及显示由 `tests/town-mentions.test.ts` 与 `test:town-names` �
 `test:all` 包含私信名称、Seed Garden、SBS 刷新和内置浏览器回归。Windows 安装升级测试单独执行，需要交互式桌面会话和已构建的 Setup。测试使用临时安装目录、独立 profile、本地模拟 Being 和真实计划任务；NSIS 的用户级快捷方式、缓存和卸载登记会在结束时恢复。如果该 Windows 账户已有日常 NSIS 安装，测试会拒绝运行，应换测试账户。旧版本由当前包构造，不代表覆盖所有历史发布版。失败时保留临时目录和 `installation-metadata.json` 供排查。
 
 Windows 的离线升级、坏引擎回滚与独立 Portal 接管另用 PowerShell 执行：`$env:PORTAL_DESKTOP_NATIVE_UPGRADE_TESTS='1'; npx vitest run tests/background-native.test.ts tests/runtime-update-native.test.ts --maxWorkers=1`。这些检查需要真实计划任务权限，不能以普通单元测试中的跳过结果代替。
+
+## 对话工具与停止回执回归（2026-10-22）
+
+`tests/tool-activity.test.ts` 验证工具调用 ID 配对、重复事件、旧协议歧义、结构化输出、截断与产物来源；`tests/chat-tool-execution.test.ts` 通过实际 runtime 验证 SSE 与重放一致性、HTTP/业务回执/网络/超时停止失败、重试、晚到回执以及 SSE 先关闭的竞态。无调用 ID 的事件只在待处理调用可唯一匹配时关联，不以位置猜测。
+
+`npm run test:chat-react` 额外验证工具详情懒渲染、文本输出隔离、窄屏深色布局，以及停止失败后继续接收输出并从界面重试。截图为 `test-results/chat-tool-details-light.png` 与 `test-results/chat-tool-details-dark-mobile.png`。
+
+`LOCAL_PREVIEW_TOOL_ACTIVITY=1 npm run test:local-file-preview` 用实际 Electron 文件预览链路验证从工具完成事件生成卡片，包括过程收起后可见、打开/刷新、文件缺失与删除；测试只操作临时目录。
 
 ## CI 接入
 
@@ -148,3 +160,15 @@ macOS arm64：类型检查通过；单元测试 179 项通过、9 项按平台�
 本地文件预览：`npm run test:local-file-preview` 使用独立临时 Electron 实例验证当前对话中的文件链接、右键预览、HTML 相对 CSS/JS、沙箱隔离、源码切换、编辑后刷新和聊天草稿保留。实现及 Portal harness 源码对照见 [LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md](LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md)。
 
 2026-10-20 提交前验证：TypeScript 类型检查通过；完整 Vitest 953 项通过、28 项原生/平台测试跳过；Portal `tools::` 95 项通过。本地预览另覆盖旧 preload、缺失定位 IPC、文件删除和点击期间焦点变化。系统定位回调在 Electron fixture 中记录路径，不弹出真实 Finder；未做 Windows 原生验收。
+
+场景动态现在合并当前 Being 全部场景的本地缓存提问与 history 提问，按 seq 去重后取最近 100 条。本地数据通过聊天文档的来源、版本及 endpoint 校验桥接读取。`tests/local-activity-history.test.ts` 验证跨场景读取、已确认内存记录合并和请求隔离；`tests/recent-chat-history.test.ts` 验证两来源去重及场景信息保留；`npm run test:recent-history` 使用真实 IndexedDB 验证旧提问位于 250 条新回复之前仍可读取、本地先展示、接口重叠、空结果、失败重试、本地场景跳转及切换 Being 隔离。
+
+`npm run test:chat-render-performance` 使用真实聊天构建和隔离浏览器验证 1,000 条缓存首屏约 40 个消息节点、屏外附件与图片任务不请求、输入不重复拉取 history、折叠工具不创建详情节点、连续流式回复及乱序 history 合并后的 seq 顺序。输出 `test-results/chat-render-performance.json` 包含本机帧间隔和长任务观测，属于固定 fixture 的回归指标，不代表所有设备的帧率承诺。附加测试验证音频播放前不下载解码，以及按需内容激活后在滚动、上传结束时保留 DOM。智能界面测试另验证普通文本增量不会重建已有界面的版本和上下文。
+
+## 场景动态定位与上翻历史
+
+`npm run test:chat-history-target` 串联场景动态、客户端模型、可信 iframe 桥、真实 IndexedDB 与聊天构建，验证重复文字按 seq 定位、旧缓存、同场景与跨场景跳转、接口按需补取、迟到请求不抢占定位，以及消息已不存在时的反馈。跳转只读取目标附近的上下文，不推进正常增量同步游标。
+
+`tests/history-cache.mjs` 另验证定点补取高 seq 后重新打开数据库仍保留原同步游标，以及首次只写入定点消息时从零补齐历史；`tests/history-window.test.ts` 验证回复片段合并为一个气泡后仍能按片段的 seq 定位。
+
+`node tests/chat-history-window.mjs` 验证接近顶部时提前分段加载、用户滑动与内容增高同时发生、阅读位置上方连续延迟增高时的锚定。`node tests/chat-scroll.mjs` 覆盖实时回复锚定和回到底部后恢复跟随。

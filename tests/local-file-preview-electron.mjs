@@ -39,7 +39,12 @@ try {
     import {createRoot} from 'react-dom/client'; import {Markdown} from './desktop/renderer/shared/components/markdown';
     import {LocalFileAction, requestLocalFilePreview} from './desktop/renderer/shared/components/local-file-link';
     import {EditContextMenu} from './desktop/renderer/shared/components/context-menu';
-    createRoot(document.getElementById('root')).render(<LocalFileAction.Provider value={requestLocalFilePreview}><div className="chat-root" style={{padding:24}}><div className="message being"><div className="content"><Markdown chat content={${JSON.stringify(`页面已生成，点击下面的文件即可在当前对话中预览。\n\n[预览页面](<${file}>)\n\n你可以继续告诉我需要修改的地方。`)}}/></div></div><Markdown chat content={${JSON.stringify(`[不存在](<${path.join(workspace, 'missing.html')}>)\n\n` + '`' + path.join(workspace, 'Example.app') + '` ' + '`' + path.join(workspace, '.portal-connection.url') + '`')}}/><textarea aria-label="继续修改" defaultValue="把标题改成蓝色"/><EditContextMenu edit={async()=>true}/></div></LocalFileAction.Provider>);
+    import {ChatActivity} from './desktop/renderer/chat/components/messages';
+    import {newToolActivity, completeToolActivity} from './desktop/renderer/chat/models/tool-activity';
+    const entries = [newToolActivity([], {call_id:'file-write',name:'portal_file_write'}, 'entry', Date.now())];
+    completeToolActivity(entries, {call_id:'file-write',path:${JSON.stringify(file)},is_error:false,summary:'文件已保存'});
+    const toolRun = {kind:'run',id:'run',entries,start:Date.now(),end:Date.now(),label:'已完成',hint:'',arg:'',outcome:'done'};
+    createRoot(document.getElementById('root')).render(<LocalFileAction.Provider value={requestLocalFilePreview}><div className="chat-root" style={{padding:24}}><div className="message being"><div className="content">{${process.env.LOCAL_PREVIEW_TOOL_ACTIVITY === '1'} ? <ChatActivity run={toolRun}/> : <Markdown chat content={${JSON.stringify(`页面已生成，点击下面的文件即可在当前对话中预览。\n\n[预览页面](<${file}>)\n\n你可以继续告诉我需要修改的地方。`)}}/>}</div></div><Markdown chat content={${JSON.stringify(`[不存在](<${path.join(workspace, 'missing.html')}>)\n\n` + '`' + path.join(workspace, 'Example.app') + '` ' + '`' + path.join(workspace, '.portal-connection.url') + '`')}}/><textarea aria-label="继续修改" defaultValue="把标题改成蓝色"/><EditContextMenu edit={async()=>true}/></div></LocalFileAction.Provider>);
   `);
   await bundle('main.cjs', `
     import {app,protocol,ipcMain} from 'electron';
@@ -62,6 +67,10 @@ try {
   const chat = page.frameLocator('iframe[title="当前对话"]');
   const card = chat.getByRole('button', {name:'预览文件：八字排盘工具.html', exact:true});
   await card.waitFor();
+  if (process.env.LOCAL_PREVIEW_TOOL_ACTIVITY === '1') {
+    assert.equal(await chat.locator('.run-artifacts .chat-local-file-card').count(),1,'Tool completion produces a file card without an assistant link');
+    assert.equal(await chat.locator('.run-activity').getAttribute('open'),null,'Artifact stays visible with its activity collapsed');
+  }
   if (process.env.LOCAL_FILE_CARD_SCREENSHOT) {
     await chat.locator('.message.being .content').screenshot({path:process.env.LOCAL_FILE_CARD_SCREENSHOT});
   }
