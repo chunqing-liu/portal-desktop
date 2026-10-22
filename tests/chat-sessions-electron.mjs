@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, copyFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { _electron as electron } from 'playwright';
+import { waitForChatReady, clickWhenPointerReady } from './support/desktop.mjs';
 
 const directory = await mkdtemp(path.join(os.tmpdir(), 'portal-chat-sessions-'));
 let application;
@@ -86,7 +87,7 @@ try {
       const snapshot = () => ({settings:{endpoint:connection.endpoint,being:'being',hasToken:true},portal:{phase:'stopped',logs:[]},chatScene:sessions.current(connection.endpoint),chatSessions:sessions.list(connection.endpoint)});
       ipcMain.handle('snapshot',snapshot);
       ipcMain.handle('session',async (_,operation,value,endpoint,sceneId) => { if(endpoint !== connection.endpoint) throw new Error('Wrong Being'); await sessions.change(endpoint,operation,value,sceneId); return snapshot(); });
-      const window = new BrowserWindow({width:1100,height:800,show:false,webPreferences:{preload:${JSON.stringify(path.join(directory,'preload.cjs'))},sandbox:true,contextIsolation:true,nodeIntegration:false}});
+      const window = new BrowserWindow({width:1100,height:800,show:true,webPreferences:{preload:${JSON.stringify(path.join(directory,'preload.cjs'))},sandbox:true,contextIsolation:true,nodeIntegration:false}});
       await window.loadURL('beings://desktop/');
     });
   ` }, bundle: true, platform: 'node', external: ['electron'], outfile: path.join(directory, 'main.cjs') });
@@ -95,7 +96,8 @@ try {
   page.setDefaultTimeout(15000);
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   const chat = page.frameLocator('iframe');
-  await chat.locator('#input').waitFor();
+  await waitForChatReady(page);
+  await page.waitForFunction(() => !window.fixtureApp.chatLoading);
   await page.evaluate(async () => {
     const frame = document.querySelector('iframe');
     const snapshot = await window.beings.snapshot();
@@ -105,7 +107,7 @@ try {
   const subagentHint = chat.locator('#subagent-setup-hint');
   await subagentHint.waitFor();
   assert.equal(await subagentHint.locator('.subagent-hint-text').textContent(),'用 subagent 并行处理任务');
-  await subagentHint.getByRole('button',{name:'去配置'}).click();
+  await clickWhenPointerReady(page, subagentHint.getByRole('button',{name:'去配置'}));
   await page.waitForFunction(() => window.fixtureApp.subagentSettingsOpen === true);
   await page.evaluate(() => window.fixtureApp.closeSubagentSettings());
   const original = await page.evaluate(async () => (await window.beings.snapshot()).chatScene.scene_id);
