@@ -58,10 +58,10 @@ try{
   await input.dispatchEvent('compositionstart');await input.press('Enter');
   assert.equal(sends.length,before,'IME confirmation must not send');
   await input.dispatchEvent('compositionend');
-  // Exercise the macOS alias even when this test runs on another platform.
-  await page.evaluate(()=>Object.defineProperty(navigator,'platform',{configurable:true,value:'MacIntel'}));
-  await input.fill('Mac 排队');await page.waitForTimeout(60);await input.press('Meta+Enter');
-  await page.locator('.composer-queue-item').filter({hasText:'Mac 排队'}).waitFor();
+  // Each CI OS exercises its native modifier. Spoofing navigator.platform after
+  // mount does not update the rendered key handler or the host's Meta key behavior.
+  await input.fill('平台快捷键排队');await page.waitForTimeout(60);await input.press('ControlOrMeta+Enter');
+  await page.locator('.composer-queue-item').filter({hasText:'平台快捷键排队'}).waitFor();
   assert.equal(sends.length,before);
   await page.setViewportSize({width:375,height:800});
   await mkdir('test-results',{recursive:true});await page.screenshot({path:'test-results/chat-send-queue.png',fullPage:true});
