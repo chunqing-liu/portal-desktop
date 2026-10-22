@@ -50,6 +50,24 @@ async function start(runtime: ReturnType<typeof createChatRuntime>) {
 }
 
 describe("scene history cache fallback", () => {
+  it('hydrates local history when a preserving refresh wins startup without clearing live messages', async () => {
+    const state = new ChatState(), runtime = createChatRuntime(state);
+    const live = {kind:'message' as const,id:'pending-local',role:'user' as const,text:'尚未确认的消息',
+      sceneId:'old-room',streaming:false,timestamp:'',label:'you',consecutive:false,createdAt:Date.now()};
+    state.items.push(live);
+    try {
+      await runtime.refreshHistory();
+      expect(visible(state).filter(m => m.kind === 'message').map(m => m.text))
+        .toEqual([old[0].content, old[1].content, live.text]);
+      expect(state.items).toContain(live);
+      expect(queries[0].searchParams.get('after')).toBe('400');
+      await start(runtime);
+      expect(HistoryCache.prototype.read).toHaveBeenCalledTimes(1);
+      expect(state.items).toContain(live);
+      expect(visible(state).filter(m => m.kind === 'message')).toHaveLength(3);
+    } finally { runtime.dispose(); }
+  });
+
   it('seeks an older cached target while offline without requesting history', async () => {
     vi.mocked(HistoryCache.prototype.readScene).mockResolvedValue([]);
     vi.spyOn(HistoryCache.prototype, 'readAround').mockResolvedValue(old);

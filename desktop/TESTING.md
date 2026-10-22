@@ -167,6 +167,8 @@ macOS arm64：类型检查通过；单元测试 179 项通过、9 项按平台�
 
 ## 场景动态定位与上翻历史
 
+`npm run test:chat-scene-loading` 使用真实 IndexedDB 与聊天构建，将首屏 recent / incremental history 分别暂停，验证合并完成前只显示场景加载状态；同时覆盖切换场景、首屏 40 条、手动刷新保留 DOM、离线缓存和空场景。还会延迟 outbox 的 IndexedDB 读取，复现桌面 session-select 抢在初始化之前的竞态，并逐帧验证第一次显示即包含本地独有消息；加载骨架屏检查深浅色、窄屏和减少动态效果设置。`tests/chat-scene-loading.test.ts` 验证连续切换期间加载状态不会提前结束，失败后可再次切换。
+
 `npm run test:chat-history-target` 串联场景动态、客户端模型、可信 iframe 桥、真实 IndexedDB 与聊天构建，验证重复文字按 seq 定位、旧缓存、同场景与跨场景跳转、接口按需补取、迟到请求不抢占定位，以及消息已不存在时的反馈。跳转只读取目标附近的上下文，不推进正常增量同步游标。
 
 `tests/history-cache.mjs` 另验证定点补取高 seq 后重新打开数据库仍保留原同步游标，以及首次只写入定点消息时从零补齐历史；`tests/history-window.test.ts` 验证回复片段合并为一个气泡后仍能按片段的 seq 定位。

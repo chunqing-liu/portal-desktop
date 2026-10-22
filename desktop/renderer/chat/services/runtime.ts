@@ -3019,11 +3019,14 @@ function createStreamRuntime(state: any, options: any): any {
     lastHistoryReplyScenes = [];
     try {
       let hydrated = false;
-      if (!preserve && (full || lastHistorySeq === 0)) {
+      // The shell can select/refresh a scene before start() finishes reading
+      // the outbox. That request uses preserve=true and may own the shared
+      // reconciliation. Cache hydration must not depend on which caller wins.
+      if (!historyCacheSeeded || (!preserve && (full || lastHistorySeq === 0))) {
         const cached = await historyCache.read(60);
         if (disposed) return 0;
         if (cached) {
-          resetMessages();
+          if (!preserve) resetMessages();
           await renderHistoryBatched(cached.messages);
           lastHistorySeq = Math.max(lastHistorySeq, cached.lastSeq);
           historyCacheSeeded = true;

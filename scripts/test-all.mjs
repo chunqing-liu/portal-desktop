@@ -64,6 +64,7 @@ try {
   await npm('recent-history', ['run', 'test:recent-history']);
   await npm('chat-history-recovery', ['run', 'test:chat-history-recovery']);
   await npm('chat-history-target', ['run', 'test:chat-history-target']);
+  await npm('chat-scene-loading', ['run', 'test:chat-scene-loading']);
   await npm('chat-render-performance', ['run', 'test:chat-render-performance']);
   // Some engine tests share process-level environment variables; serialize Rust tests.
   // The sub-agent fixture suite uses Unix-only `/bin/sh` paths and assumes a

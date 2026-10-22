@@ -37,6 +37,7 @@ import { type ComposerHandle } from "../shared/components/rich-composer";
 import { ChatComposer } from "./components/composer";
 import { CopyMessage } from '../shared/components/copy-message';
 import { TemperatureGlow, ChatActivity } from "./components/messages";
+import { SceneLoading } from './components/scene-loading';
 import { ChatSettings } from "./components/settings";
 import { ChatInfoPanels } from "./components/panels";
 import { SubagentSetupHint } from "./components/subagent-hint";
@@ -138,7 +139,7 @@ function ChatView({
     return () => media.removeEventListener('change', change);
   }, [mobileWeb]);
   const timelineItems = replyBubbles(sceneItems(withScheduling(state.items.filter(item => item.kind !== "message" || !item.queued || !!item.attachmentViews?.length || !!item.attachmentUploads?.length), state.sceneTasks), state.historyScope, state.currentScene, state.showSbsMessages));
-  const historyWindow=useHistoryWindow(timelineItems,JSON.stringify([state.historyScope,state.currentScene.sceneId,state.showSbsMessages]),before=>runtime.loadOlderHistory(before));
+  const historyWindow=useHistoryWindow(state.historyLoading ? [] : timelineItems,JSON.stringify([state.historyScope,state.currentScene.sceneId,state.showSbsMessages]),before=>runtime.loadOlderHistory(before));
   const visibleItems=historyWindow.items;
   const pendingReveal=useRef<{seq:number;sceneId?:string}|null>(null);
   const queuedMessages = state.items.filter((item): item is Message => item.kind === 'message' && !!item.queued && item.sceneId === state.currentScene.sceneId && !hasAttachmentMessage(item));
@@ -354,7 +355,7 @@ function ChatView({
   // delays can scroll before the requested bubble has actually been mounted.
   useLayoutEffect(() => {
     const pending = pendingReveal.current;
-    if (!pending) return;
+    if (!pending || state.historyLoading) return;
     if (pending.sceneId && pending.sceneId !== state.currentScene.sceneId) { pendingReveal.current = null; return; }
     const message = historyTargetBubble(state.items, timelineItems, pending.seq);
     if (!message) return;
@@ -542,13 +543,14 @@ function ChatView({
           ref={messages}
           tabIndex={0}
           aria-label="对话消息"
-          aria-busy={state.historyRefreshing}
+          aria-busy={state.historyLoading || state.historyRefreshing}
           onWheel={reader.onWheel}
           onTouchMove={reader.onTouchMove}
-          onScroll={() => { reader.onScroll(); setSelection(null); if(messages.current && messages.current.scrollTop<Math.max(800,messages.current.clientHeight*1.5) && !scrollLock.current && historyWindow.hasMore)void historyWindow.more(); }}
+          onScroll={() => { reader.onScroll(); setSelection(null); if(!state.historyLoading && messages.current && messages.current.scrollTop<Math.max(800,messages.current.clientHeight*1.5) && !scrollLock.current && historyWindow.hasMore)void historyWindow.more(); }}
         >
-          {state.historyRefreshing && <div className="chat-refresh-overlay"><div className="chat-refresh-status" role="status"><span aria-hidden="true" />正在刷新对话…</div></div>}
-          {!state.historyRefreshing && !visibleItems.some(item => item.kind === "message") && !state.thinking && (
+          {state.historyLoading && <SceneLoading sceneName={currentSceneName} />}
+          {!state.historyLoading && state.historyRefreshing && <div className="chat-refresh-overlay"><div className="chat-refresh-status" role="status"><span aria-hidden="true" />正在刷新对话…</div></div>}
+          {!state.historyLoading && !state.historyRefreshing && !visibleItems.some(item => item.kind === "message") && !state.thinking && (
             <div className="chat-scope-empty">
               {state.historyScope === "current" ? "当前场景还没有对话。" : "暂无对话记录。"}
               {state.historyScope === "current" && <button type="button" onClick={() => changeScope("all")}>显示全部场景上下文</button>}
@@ -647,7 +649,7 @@ function ChatView({
         </div>}
         <div id="input-area">
           {state.intelligentUIForMessage && state.intelligentUITargetTitle && <div className="iui-context-target" role="status"><span>修改「{state.intelligentUITargetTitle}」<small>将携带原界面和当前选择</small></span><button type="button" aria-label="取消本条界面修改" onClick={() => state.setIntelligentUIForMessage(false)}>×</button></div>}
-          <JumpToLatest items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} />
+          {!state.historyLoading && <JumpToLatest items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} />}
           <div
             id="pending-files"
             className={state.files.length ? "active" : ""}

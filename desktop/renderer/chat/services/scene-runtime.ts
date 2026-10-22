@@ -13,6 +13,12 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
   let selected: any, owner: any, disposed = false, counter = 0;
   let lastActivity = "";
   let historyRefreshes = 0;
+  let initializing = true, sceneLoads = 0;
+  function updateHistoryLoading() {
+    if (disposed) return;
+    state.historyLoading = initializing || sceneLoads > 0;
+    state.changed();
+  }
   const sendQueue: any[] = [];
   let drainScheduled = false, dispatching = false;
   let submission = Promise.resolve();
@@ -535,6 +541,9 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       } catch {
         state.items.push({ kind: 'message', id: `queue-error-${++counter}`, role: 'system', text: '无法恢复本地排队记录，已暂停自动发送。请重新打开页面重试。', streaming: false, timestamp: '', label: 'system', consecutive: false, ...state.currentScene });
         await owner.runtime.start();
+      } finally {
+        initializing = false;
+        updateHistoryLoading();
       }
       publish();
       if (!disposed) activityTimer = setTimeout(syncActivity, 10000);
@@ -587,7 +596,11 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       return submission;
     },
     selectScene(scene: any) {
-      selection = selection.then(async () => {
+      // Keep cached seeds and the network reconciliation behind one scene load.
+      // Count queued selections too, so an older request cannot dismiss loading.
+      const loading = state.historyLoading || scene.sceneId !== state.currentScene.sceneId;
+      if (loading) { sceneLoads++; updateHistoryLoading(); }
+      selection = selection.catch(() => {}).then(async () => {
         await selected.runtime.waitForPendingFiles();
         if (disposed) return;
         selected.local.draft = state.draft;
@@ -601,7 +614,9 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
         publish();
         await owner.runtime.restoreSceneHistory?.(scene);
         if (disposed) return;
-        void owner.runtime.refreshHistory();
+        await owner.runtime.refreshHistory();
+      }).finally(() => {
+        if (loading) { sceneLoads--; updateHistoryLoading(); }
       });
       return selection;
     },

@@ -147,6 +147,7 @@ export interface Soul {
   [key: string]: unknown;
 }
 export class ChatState extends Store {
+  historyLoading = true;
   historyRefreshing = false;
   intelligentUISnapshots: Record<string, string> = {};
   private uiSnapshotStore = new UISnapshotStore();
