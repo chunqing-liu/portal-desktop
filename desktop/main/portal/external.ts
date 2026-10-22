@@ -7,9 +7,10 @@ import macLaunch from './mac-launch.py?raw';
 import { parseConnection, type Connection } from '../chat/connection';
 import type { PortalState } from '../../shared/types';
 import { readPortalSample, portalSampleState } from './status';
+import type { OrphanPortal } from './orphan';
 
 export const portalIdentity = (connection: Connection) => `${new URL(connection.endpoint).host.toLowerCase()}/${connection.being}`;
-export interface PortalConflict { id: string; root: string; roots?: string[]; label: string; pid?: number; service?: Service; problem?: string }
+export interface PortalConflict { id: string; root: string; roots?: string[]; label: string; pid?: number; service?: Service; orphan?: OrphanPortal; problem?: string }
 const proof = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const ps = (value: string) => `'${value.replaceAll("'", "''")}'`;
 async function localPortalName(root: string): Promise<string | undefined> {

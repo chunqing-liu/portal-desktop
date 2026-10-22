@@ -38,7 +38,15 @@ export class PortalTakeover {
     // Retry only that known failure through the full discovery/stop checks.
     const staleSupervisor = saved?.phase === 'blocked' && saved.message?.split('\n')[0].endsWith(
       'Portal supervisor identity changed; refusing to stop an unrelated process');
-    if (intent === 'automatic' && saved?.identity === identity && saved.phase !== 'cancelled' && !staleSupervisor) {
+    // Older clients could not discover their own orphaned foreground engine.
+    // Resume that specific failure only with a newly verified recovery target.
+    let discovered: PortalConflict[] | undefined;
+    if (intent === 'automatic' && saved?.identity === identity && saved.phase === 'blocked' && saved.replacing === false &&
+        saved.message?.split('\n')[0] === '检测到实例冲突，但无法确认旧守护程序。已停止自动重试，请检查旧 Portal 后手动启动。') {
+      discovered = await this.options.discover(connection);
+    }
+    const recoverableOrphan = discovered?.some(item => item.orphan);
+    if (intent === 'automatic' && saved?.identity === identity && saved.phase !== 'cancelled' && !staleSupervisor && !recoverableOrphan) {
       this.holdMessage = saved.message || '上次 Portal 切换未完成，请点击启动按钮重试。';
       return false;
     }
@@ -49,15 +57,15 @@ export class PortalTakeover {
       await atomic(this.file, JSON.stringify({ schema: 1, identity, phase, message, replacing: changing } satisfies Decision));
     };
     try {
-      const targets = await this.options.discover(connection, force);
+      const targets = discovered || await this.options.discover(connection, force);
       if (!targets.length && requireConflict) throw new Error('检测到实例冲突，但无法确认旧守护程序。已停止自动重试，请检查旧 Portal 后手动启动。');
-      if (targets.some(item => !item.service)) {
-        throw new Error(targets.filter(item => !item.service).map(item => `${item.root}：${item.problem}`).join('\n'));
+      if (targets.some(item => !item.service && !item.orphan)) {
+        throw new Error(targets.filter(item => !item.service && !item.orphan).map(item => `${item.root}：${item.problem}`).join('\n'));
       }
       if (targets.length || force) {
         await this.options.preflight(targets, force);
         const current = await this.options.discover(connection, force);
-        if (current.some(item => !item.service || !targets.some(approved => approved.id === item.id))) throw new Error('旧 Portal 或守护配置在启动检查期间发生变化，未执行切换，请重试。');
+        if (current.some(item => (!item.service && !item.orphan) || !targets.some(approved => approved.id === item.id))) throw new Error('旧 Portal 或守护配置在启动检查期间发生变化，未执行切换，请重试。');
         changing = true;
         await remember('stopping', '上次关闭旧 Portal 的过程未完成，已暂停自动启动，请手动重试。');
         for (const target of current) await this.options.stop(target, force);

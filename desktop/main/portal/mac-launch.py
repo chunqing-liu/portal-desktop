@@ -1,5 +1,5 @@
 # Launch snapshot adapter from the bundled Heart Portal (MIT).
-import ctypes, json, os, subprocess, sys
+import ctypes, hashlib, json, os, signal, subprocess, sys, time
 from pathlib import Path
 
 def executable_path(pid):
@@ -81,4 +81,46 @@ def launch_snapshot(identity):
 identity = process_identity(int(sys.argv[1]))
 if not identity or identity["executable"] != str(Path(sys.argv[2]).resolve()):
     raise RuntimeError("Portal identity changed")
-print(json.dumps(launch_snapshot(identity)))
+snapshot = launch_snapshot(identity)
+if len(sys.argv) == 3:
+    print(json.dumps(snapshot))
+else:
+    # Foreground engines are detached from Electron. After a client crash they
+    # have no guardian; only recover this profile's orphan, never a live owner.
+    profile = Path(sys.argv[3]).resolve()
+
+    def orphan_proof():
+        current = launch_snapshot(identity)
+        owner = subprocess.run(['/bin/ps', '-p', str(identity['pid']), '-o', 'ppid=,uid='],
+                               capture_output=True, text=True, check=True).stdout.split()
+        env = current['environment']
+        if (owner != ['1', str(os.getuid())]
+                or os.getpgid(identity['pid']) != identity['pid']
+                or env.get('HEART_PORTAL_CLIENT_MANAGED') != '1'
+                or env.get('HEART_PORTAL_SUPERVISED') != '1'
+                or not env.get('HEART_PORTAL_STATUS_NONCE')
+                or not env.get('PORTAL_CONNECT_LINK')
+                or Path(env.get('HEART_PORTAL_CLIENT_FILE', '')).resolve() != profile / '.portal-client.json'
+                or Path(env.get('HEART_PORTAL_STATUS_FILE', '')).resolve() != profile / '.portal-connection-status.json'):
+            raise RuntimeError('Portal is not an orphan owned by this client profile')
+        proof = hashlib.sha256(json.dumps([identity, current], sort_keys=True).encode()).hexdigest()
+        return current, proof
+
+    snapshot, proof = orphan_proof()
+    action = sys.argv[4]
+    if action == 'inspect':
+        print(json.dumps(dict(snapshot, proof=proof)))
+    elif action == 'stop' and len(sys.argv) == 6 and proof == sys.argv[5]:
+        # Revalidate start time, executable, owner and launch settings immediately
+        # before signalling. A recycled PID must never become a stop target.
+        if orphan_proof()[1] != proof:
+            raise RuntimeError('Portal identity changed before recovery')
+        os.kill(identity['pid'], signal.SIGTERM)
+        deadline = time.monotonic() + 12
+        while identity_alive(identity):
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Orphan Portal did not stop; replacement was not started')
+            time.sleep(0.1)
+        print('{}')
+    else:
+        raise RuntimeError('Portal recovery identity changed')

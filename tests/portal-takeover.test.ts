@@ -8,6 +8,35 @@ import type { PortalConflict } from '../desktop/main/portal/external';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const connection = parseConnection('https://example.org/alice/?token=private-fixture');
+const unknownGuardian = '检测到实例冲突，但无法确认旧守护程序。已停止自动重试，请检查旧 Portal 后手动启动。';
+it('recovers a verified foreground orphan even after an older client paused on an unknown guardian', async () => {
+  const f = await fixture();
+  f.targets([{ id: 'orphan', root: f.root, label: 'orphan', pid: 123,
+    orphan: { binary: '/client/heart-portal', proof: 'verified-launch' } }]);
+  await writeFile(f.takeover.file, JSON.stringify({ schema: 1, identity: 'example.org/alice', phase: 'blocked',
+    message: unknownGuardian + '\n已暂停自动切换和重试，请处理后点击启动按钮。', replacing: false }));
+  expect(await f.takeover.run(connection, 'automatic', f.start)).toBe(true);
+  expect(f.events).toEqual(['validate', 'stop:orphan', 'start:true']);
+  await expect(readFile(f.takeover.file)).rejects.toMatchObject({ code: 'ENOENT' });
+});
+it('keeps an unknown guardian failure paused without a verified orphan', async () => {
+  const f = await fixture();
+  await writeFile(f.takeover.file, JSON.stringify({ schema: 1, identity: 'example.org/alice', phase: 'blocked',
+    message: unknownGuardian, replacing: false }));
+  expect(await f.takeover.run(connection, 'automatic', f.start)).toBe(false);
+  expect(f.options.stop).not.toHaveBeenCalled();
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('does not retry a failed orphan stop automatically', async () => {
+  const f = await fixture();
+  f.targets([{ id: 'orphan', root: f.root, label: 'orphan', pid: 123,
+    orphan: { binary: '/client/heart-portal', proof: 'verified-launch' } }]);
+  f.options.stop.mockRejectedValue(new Error('identity changed'));
+  await expect(f.takeover.run(connection, 'automatic', f.start)).rejects.toThrow('identity changed');
+  expect(await f.takeover.run(connection, 'automatic', f.start)).toBe(false);
+  expect(f.options.stop).toHaveBeenCalledTimes(1);
+  expect(f.start).not.toHaveBeenCalled();
+});
 it('does not clear a failed external takeover after recovering a client runtime', async () => {
   const f = await fixture();
   await expect(f.takeover.run(connection, 'automatic', async () => { throw new Error('external takeover failed'); })).rejects.toThrow();

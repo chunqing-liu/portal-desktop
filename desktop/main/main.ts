@@ -29,6 +29,7 @@ import { createLogArchive } from './app/log-archive';
 import { portalLogText } from './portal/diagnostics';
 import { PortalSupervisor } from './portal/supervisor';
 import { ExternalPortalObserver } from './portal/external';
+import { OrphanPortalRecovery } from './portal/orphan';
 import { PortalTakeover } from './portal/takeover';
 import { WindowsForcePortal } from './portal/windows-force';
 import { RuntimeUpdater, RuntimeRollbackError, loadRuntimeBundle, restoreRuntimeMode, type RuntimeUpdateResult } from './updates/runtime';
@@ -556,6 +557,7 @@ async function ready() {
     startupNotice = undefined;
   };
   const externalPortal = new ExternalPortalObserver();
+  const orphanPortal = new OrphanPortalRecovery(directory);
   const forcePortal = new WindowsForcePortal();
   const ownedRoot = () => background.installedService?.label === background.label && !background.installedService.existing ? background.installedService.root : undefined;
   const publishBackground = async () => {
@@ -569,10 +571,14 @@ async function ready() {
     portal.emit('state', portal.state);
   };
   const takeover = new PortalTakeover(directory, {
-    discover: (connection, force) => force ? forcePortal.conflicts(connection) : externalPortal.conflicts(connection, ownedRoot()),
+    discover: async (connection, force) => force ? forcePortal.conflicts(connection) : [
+      ...await externalPortal.conflicts(connection, ownedRoot()), ...await orphanPortal.conflicts(connection),
+    ],
     preflight: async (targets, force) => {
       await verifyConnection();
-      if (!force) await store.reusePortalConfig(targets.map(item => item.service?.configPath || path.join(item.root, 'portal.toml')));
+      // Our foreground engine already uses this profile's saved settings.
+      // Import only external configs, not an older generated foreground TOML.
+      if (!force) await store.reusePortalConfig(targets.filter(item => !item.orphan).map(item => item.service?.configPath || path.join(item.root, 'portal.toml')));
       await store.save(store.settings);
       if (app.isPackaged) await loadRuntimeBundle(process.resourcesPath);
       else await access(binary);
@@ -581,7 +587,8 @@ async function ready() {
       if (force) {
         const details = await forcePortal.stop(target);
         errorLog.report('portal-force-stop', `runtime=${target.root}\n${details}`);
-      } else await background.unload(target.service!);
+      } else if (target.orphan) await orphanPortal.stop(target);
+      else await background.unload(target.service!);
     },
   });
   const startClientPortal = async (replacing = false, restart = false) => {

@@ -10,6 +10,7 @@ import type { Connection } from '../chat/connection';
 import { redact } from '../chat/connection';
 import type { PortalState, Settings } from '../../shared/types';
 import { windowsEnvironment, windowsExecutable } from './windows';
+import { saveForegroundRecord } from './foreground-record';
 
 export function portalConfig(settings: Settings): string {
   // JSON string escaping is compatible with TOML basic strings, including Windows paths.
@@ -59,7 +60,8 @@ export class PortalSupervisor extends EventEmitter {
     this.run = { settings: { ...settings }, connection: { ...connection }, configPath, environment: { ...environment } };
     this.wanted = true;
     this.crashes = 0;
-    this.launch();
+    const failure = this.launch();
+    if (failure) { await this.stop(); throw failure; }
     return this.state;
   }
   async waitReady(timeoutMs = 25_000) {
@@ -169,6 +171,18 @@ export class PortalSupervisor extends EventEmitter {
     };
     child.once('error', error => finish(error));
     child.once('exit', code => finish(undefined, code));
+    if (process.platform === 'win32' && child.pid) {
+      try {
+        saveForegroundRecord(root, { schema: 1, pid: child.pid, parentPid: process.pid, binary: settings.portalBinary,
+          config: configPath, identity: `${new URL(connection.endpoint).host.toLowerCase()}/${connection.being}`,
+          nonce, before: startedAt, after: Date.now() });
+      } catch (error) {
+        this.line(`无法保存 Portal 恢复记录：${(error as Error).message}`);
+        void this.stop().then(() => this.publish({ phase: 'error', message: '无法保存 Portal 恢复记录，请检查配置目录权限后重试。' }))
+          .catch(failure => this.line(String(failure)));
+        return error instanceof Error ? error : new Error(String(error));
+      }
+    }
   }
   async stop(): Promise<PortalState> {
     if (this.stopPromise) { await this.stopPromise; return this.state; }
