@@ -3,13 +3,11 @@ import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'nod
 import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { command, windowsPowerShellScript, type Command } from '../desktop/main/portal/background';
+import { command, type Command } from '../desktop/main/portal/background';
 import { WindowsForcePortal } from '../desktop/main/portal/windows-force';
 import { parseConnection } from '../desktop/main/chat/connection';
 
 const ps = (value: string) => "'" + value.replaceAll("'", "''") + "'";
-const powershell = (source: string) => command('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand',
-  Buffer.from(windowsPowerShellScript(source), 'utf16le').toString('base64')]);
 const cleanup = async (root: string) => {
   const relative = path.relative(os.tmpdir(), path.resolve(root));
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Invalid fixture cleanup path');
@@ -50,19 +48,19 @@ it.skipIf(process.platform !== 'win32')('force stops a respawning legacy Windows
   try {
     const roots = [path.join(root, 'old'), path.join(root, 'other')];
     for (const directory of roots) await mkdir(path.join(directory, 'scripts'), { recursive: true });
-    await powershell(`Add-Type -OutputAssembly ${ps(path.join(roots[0], 'heart-portal.exe'))} -OutputType ConsoleApplication -TypeDefinition @'
-using System.Threading;
-public class Fixture { public static void Main(string[] args) { Thread.Sleep(120000); } }
-'@`);
+    // Only process identity/lifetime matters here. Reuse the running Node binary
+    // under the legacy engine name instead of cold-compiling a C# sleeper.
+    await copyFile(process.execPath, path.join(roots[0], 'heart-portal.exe'));
     await copyFile(path.join(roots[0], 'heart-portal.exe'), path.join(roots[1], 'heart-portal.exe'));
     const connection = parseConnection(`http://127.0.0.1:1/${path.basename(root).replace(/[^a-z0-9]/gi, '')}/?token=fixture`);
     for (const [index, directory] of roots.entries()) {
+      await writeFile(path.join(directory, 'fixture-engine.cjs'), 'setTimeout(() => {}, 120000);');
       await writeFile(path.join(directory, '.portal-connection.url'), index ? 'http://127.0.0.1:1/unrelated/?token=other' : connection.link);
       const script = path.join(directory, 'scripts', 'portal-supervisor.ps1');
       await writeFile(script, '\ufeff' + `param([string]$Root)
 $ErrorActionPreference='Stop'
 while ($true) {
-  $engine=Start-Process -FilePath (Join-Path $Root 'heart-portal.exe') -WindowStyle Hidden -PassThru
+  $engine=Start-Process -FilePath (Join-Path $Root 'heart-portal.exe') -ArgumentList ('"' + (Join-Path $Root 'fixture-engine.cjs') + '"') -WindowStyle Hidden -PassThru
   [IO.File]::WriteAllText((Join-Path $Root 'fixture.pid'), [string]$engine.Id)
   $engine.WaitForExit()
   Start-Sleep -Milliseconds 100

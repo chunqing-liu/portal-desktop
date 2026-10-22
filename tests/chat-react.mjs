@@ -268,7 +268,7 @@ try {
   assert.equal(await frame.locator('.chat-code-link').getAttribute('href'), 'https://example.com/manual');
   await frame.getByRole('button', { name: '打开篝火', exact: true }).click();
   await page.waitForFunction(() => window.received.some(item => item.type === 'beings:open-place' && item.view === 'bonfire'));
-  await frame.locator('#input').fill('保留草稿');
+  await pasteDraft('保留草稿');
   assert.equal(await frame.locator('#chat-index').count(),1);
   await frame.locator('.chat-index-tick').first().hover();
   await frame.locator('#chat-index-preview').waitFor();
@@ -392,25 +392,25 @@ try {
   assert.equal(await toolReply.count(), 1, 'Tool-separated speech belongs in one bubble');
   assert.match(await toolReply.innerText(), /开始回复。/);
   const repliesBeforeContinuation = await frame.locator('.message.being:not(.thinking-indicator)').count();
-  await frame.locator('#input').fill('continuation'); await frame.locator('#send-btn').click();
+  await pasteDraft('continuation'); await frame.locator('#send-btn').click();
   await page.waitForFunction(() => window.received.some(item => item.type === 'beings:scene-result' && item.ok));
   await frame.locator('.message.being:not(.thinking-indicator)').nth(repliesBeforeContinuation + 1).waitFor();
   await frame.locator('.run-activity.running').waitFor({ state: 'hidden' });
   const continuationReplies = await frame.locator('.message.being:not(.thinking-indicator)').allTextContents();
   assert.equal(continuationReplies.length, repliesBeforeContinuation + 2,
     `A reply boundary must split continuation bubbles: ${JSON.stringify(continuationReplies.slice(-4))}`);
-  await frame.locator('#input').fill('hold'); await frame.locator('#send-btn').click(); await frame.locator('#send-btn.stop').waitFor();
+  await pasteDraft('hold'); await frame.locator('#send-btn').click(); await frame.locator('#send-btn.stop').waitFor();
   assert.equal(await frame.locator('.run-stop').count(), 0, 'Stop belongs in the composer');
-  await frame.locator('#input').fill('   ');
+  await pasteDraft('   ');
   assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '停止处理');
-  await frame.locator('#input').fill('继续补充');
+  await pasteDraft('继续补充');
   assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '立即打断并发送');
-  await frame.locator('#input').fill('');
+  await pasteDraft('');
   await frame.getByRole('button', {name:'停止处理',exact:true}).waitFor();
   await frame.locator('#file-input').setInputFiles({ name: 'splice.txt', mimeType: 'text/plain', buffer: Buffer.from('splice attachment') });
   await frame.locator('#pending-files.active').waitFor();
   assert.equal(await frame.locator('#send-btn').getAttribute('aria-label'), '立即打断并发送', 'Attachments can be sent without text');
-  await frame.locator('#input').fill('additional input'); await frame.locator('#send-btn').click();
+  await pasteDraft('additional input'); await frame.locator('#send-btn').click();
   await waitUntil(() => requests.at(-1)?.message === 'additional input', 'The interrupting message reaches the server');
   assert.equal(requests.at(-1).attachments[0].data, Buffer.from('splice attachment').toString('base64'));
   assert.equal(await frame.getByText(/消息已送达/).count(), 0, 'Interrupting a reply does not add a system bubble to the conversation');
@@ -423,10 +423,10 @@ try {
   rejectStop = false;
   await frame.getByRole('button', {name:'再次停止',exact:true}).click();
   await frame.locator('.run-activity[data-outcome="stopped"]').waitFor(); assert.equal(stopCount, 2);
-  await frame.locator('#input').fill('http-error'); await frame.locator('#send-btn').click(); await frame.getByText(/fixture request failed/).waitFor();
+  await pasteDraft('http-error'); await frame.locator('#send-btn').click(); await frame.getByText(/fixture request failed/).waitFor();
   assert.equal(await frame.locator('.run-activity.running').count(), 0);
   assert.equal(await frame.locator('.run-activity').last().getAttribute('data-outcome'), 'error');
-  await frame.locator('#input').fill('');
+  await pasteDraft('');
   const draft = { type: 'beings:scene-draft', id: 'draft1', text: '一起看：以下是引用内容：fixture', expiresAt: Date.now() + 10000 };
   await post(draft); await child().waitForFunction(() => (document.querySelector('#input').value ?? document.querySelector('#input').textContent).includes('fixture'));
   await post({ ...draft, id: 'draft2', text: '不得覆盖已有草稿' });
@@ -452,7 +452,7 @@ try {
   assert.equal(await child().evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: 'test-results/chat-react-dark-mobile.png' });
   // Keep a Markdown fence open across actual streamed React updates, then reload it from history.
-  await frame.locator('#input').fill('markdown-stream'); await frame.locator('#send-btn').click();
+  await pasteDraft('markdown-stream'); await frame.locator('#send-btn').click();
   const streamedMarkdown = frame.locator('.markdown-code-block').last();
   await streamedMarkdown.locator('.markdown-preview h1').waitFor();
   assert.equal(await streamedMarkdown.locator('h1').textContent(), markdownPrefix.slice(2), 'An unfinished Markdown fence is previewed during streaming');
