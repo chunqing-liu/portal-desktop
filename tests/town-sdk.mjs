@@ -4,7 +4,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { desktopExecutable, waitForChatReady, openNavigation } from './support/desktop.mjs';
+import { desktopExecutable, waitForChatReady, openNavigation, clickWhenPointerReady } from './support/desktop.mjs';
 
 const dir = await mkdtemp(path.join(os.tmpdir(), 'town-sdk-284bef4-'));
 let app, page, failure;
@@ -122,7 +122,7 @@ try {
   // Rapid clicks can batch into a closed state; select the target from the settled menu.
   if (await page.locator('#options-trigger').getAttribute('aria-expanded') !== 'true') await page.locator('#options-trigger').click();
   await page.waitForFunction(() => document.querySelector('#options-trigger')?.getAttribute('aria-expanded') === 'true');
-  await page.locator('#client-settings-button').click();
+  await clickWhenPointerReady(page, page.locator('#client-settings-button'));
   await page.locator('#client-settings-dialog[open]').waitFor();
   await page.locator('#settings-tab-appearance').click();
   assert.equal(await page.locator('#theme-toggle').isVisible(), true);
