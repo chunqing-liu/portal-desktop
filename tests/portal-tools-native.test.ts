@@ -96,8 +96,10 @@ it.skipIf(process.platform !== 'win32').each([
   }) as typeof spawn);
   try {
     await new Promise<void>(resolve => server.once('listening', resolve));
+    // This fixture checks host tool compatibility without an approval UI.
+    // Restricted modes are covered by the approval and sandbox suites.
     await portal.start({ endpoint: '', being: '', hasToken: true, workspace, portalBinary: binary, portalName: 'native-tools-fixture',
-      autoStart: false, allowExec: true, kitsEnabled: false, ...(restricted ? { portalEnvironmentPath: workspace } : {}) },
+      autoStart: false, allowExec: true, kitsEnabled: false, permissionMode: 'full-access', ...(restricted ? { portalEnvironmentPath: workspace } : {}) },
     parseConnection(`http://127.0.0.1:${server.address().port}/${path.basename(root)}/?token=local-fixture`));
     await vi.waitFor(() => expect(portal.state.phase, portal.state.message).toBe('connected'), { timeout: 15_000 });
     expect(launched).toBe(true);

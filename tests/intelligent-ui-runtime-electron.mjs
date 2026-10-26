@@ -40,9 +40,9 @@ app.whenReady().then(()=>{
   window.on('console',msg=>{if(msg.type()==='error') console.error(msg.text());});
   window.on('pageerror',error=>console.error(error.message));
   const page=await (await window.locator('#chat').elementHandle()).contentFrame();
-  await page.getByRole('button',{name:'Intelligent UI Beta 设置'}).click();
-  await page.getByRole('checkbox',{name:'启用智能 UI'}).check();
-  await page.getByText('体验本地交互示例',{exact:true}).click();
+  await page.getByRole('button',{name:'添加附件和工具'}).click();
+  await page.getByRole('menuitemcheckbox',{name:'启用智能 UI'}).check();
+  await page.getByRole('menuitem',{name:/交互示例/}).click();
   await page.getByLabel('选择交互示例').selectOption('simulation');
   await page.locator('.iui-app svg').waitFor().catch(async error=>{console.error(await page.locator('.iui-app').innerText());throw error;});
   assert.equal(await page.getByText('正在准备交互体验…',{exact:true}).count(),0);
@@ -61,9 +61,10 @@ app.whenReady().then(()=>{
   await copyFile('web/public/iui-runtime.html',path.join(dir,'assets','iui-runtime.html'));
   await page.getByRole('button',{name:'重新启动',exact:true}).click();
   await page.locator('.iui-app svg').waitFor().catch(async error=>{console.error(await page.locator('.iui-app').innerText());throw error;});
-  await page.getByRole('button',{name:'关闭智能界面设置'}).click();
+  await page.getByRole('button',{name:'关闭交互示例'}).click();
   await page.getByRole('textbox',{name:'message input'}).fill('生成一个可以点击并显示动画时间的计数器');
-  await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).click();
+  // Enabling UI from the add menu also arms the first message.
+  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'true');
   await page.getByRole('button',{name:'发送消息',exact:true}).click();
   await page.locator('.message.being .iui-app').getByRole('button',{name:'增加一次'}).click();
   await page.waitForFunction(()=>document.querySelector('.message.being .iui-app .iui-metric output')?.textContent==='1');

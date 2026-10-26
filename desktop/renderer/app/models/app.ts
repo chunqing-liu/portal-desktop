@@ -21,6 +21,10 @@ import { LocalHistoryReader } from './local-history';
 type SettingsRoute = "" | "connection" | "town" | "model" | "portal" | "diagnostics";
 
 export class AppModel extends Store {
+  permissionSettingsOpen = false;
+  permissionAnchor?: { left: number; top: number; bottom: number };
+  openPermissionSettings = (anchor?: { left: number; top: number; bottom: number }) => { this.permissionAnchor = anchor; this.permissionSettingsOpen = true; this.changed(); };
+  closePermissionSettings = () => { this.permissionSettingsOpen = false; this.changed(); };
   snapshot?: Snapshot;
   theme: "light" | "dark" = "light";
   startup: "loading" | "ready" | "error" = "loading";
@@ -733,6 +737,7 @@ export class AppModel extends Store {
       autoStart: s.autoStart,
       backgroundEnabled: Boolean(s.backgroundEnabled),
       allowExec: s.allowExec,
+      permissionMode: s.permissionMode ?? 'supervised',
       kitsEnabled: s.kitsEnabled,
       portalConfigPath: s.portalConfigPath,
       portalEnvironmentPath: s.portalEnvironmentPath,

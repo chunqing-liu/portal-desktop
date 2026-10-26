@@ -10,8 +10,9 @@ export interface ClientCommandRequest { endpoint: string; verb: string; args: st
 export class ClientCommandServer {
   private server?: Server;
   private token = randomBytes(32).toString('hex');
+  private pending = new Set<AbortController>();
   constructor(private file: string, private currentEndpoint: () => string | undefined,
-    private execute: (request: ClientCommandRequest) => Promise<string>) {}
+    private execute: (request: ClientCommandRequest, signal: AbortSignal) => Promise<string>) {}
 
   async start() {
     const server = createServer(async (request, response) => {
@@ -34,22 +35,26 @@ export class ClientCommandServer {
         }
         const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         if (!data || typeof data.verb !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(data.verb) ||
-            typeof data.args !== 'string' || data.args.length > (data.verb === 'plugins' ? 16000 : 1024) ||
+            typeof data.args !== 'string' || data.args.length > (['plugins', 'security-approve'].includes(data.verb) ? 16000 : 1024) ||
             (data.sceneId != null && (typeof data.sceneId !== 'string' || data.sceneId.length > 256))) {
           reply(400, { error: 'Invalid client command' }); return;
         }
         const endpoint = this.currentEndpoint();
         if (!endpoint || data.endpoint !== endpoint) { reply(409, { error: 'Being connection changed' }); return; }
         let timer: ReturnType<typeof setTimeout> | undefined;
+        const controller = new AbortController();
+        this.pending.add(controller);
+        const abort = () => controller.abort();
+        response.once('close', abort);
         try {
           const text = await Promise.race([
-            this.execute(data),
-            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Client command timed out')), 8000); }),
+            this.execute(data, controller.signal),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Client command timed out')); }, data.verb === 'security-approve' ? 120000 : 8000); }),
           ]);
           if (this.currentEndpoint() !== endpoint) { reply(409, { error: 'Being connection changed' }); return; }
           if (typeof text !== 'string' || text.length > 256_000) throw new Error('Client response too large');
           reply(200, { text });
-        } finally { clearTimeout(timer); }
+        } finally { clearTimeout(timer); controller.abort(); this.pending.delete(controller); response.off('close', abort); }
       } catch (error) { reply(200, { error: error instanceof Error ? error.message : 'Client command failed' }); }
     });
     server.requestTimeout = 10_000;
@@ -66,6 +71,7 @@ export class ClientCommandServer {
   }
 
   async close() {
+    for (const controller of this.pending) controller.abort();
     this.server?.closeAllConnections();
     if (this.server) await new Promise<void>(resolve => this.server!.close(() => resolve()));
     this.server = undefined;

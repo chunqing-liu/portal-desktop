@@ -1,4 +1,5 @@
 import { LocalFileAction, requestLocalFilePreview } from '../shared/components/local-file-link';
+import { PermissionIcon, permissionChoices } from '../shared/components/permission-picker';
 import { SbsControl } from "../shared/components/sbs-control";
 import {useHistoryWindow} from './hooks/use-history-window';
 import { AttachmentMessageContent, hasAttachmentMessage, originalMessageText } from "./components/message-content";
@@ -35,6 +36,7 @@ import { useModel } from "../shared/hooks/use-model";
 import { CodeClipboard, Markdown } from "../shared/components/markdown";
 import { type ComposerHandle } from "../shared/components/rich-composer";
 import { ChatComposer } from "./components/composer";
+import { ComposerAddMenu } from './components/composer-add-menu';
 import { CopyMessage } from '../shared/components/copy-message';
 import { TemperatureGlow, ChatActivity } from "./components/messages";
 import { SceneLoading } from './components/scene-loading';
@@ -683,13 +685,15 @@ function ChatView({
             ))}
           </div>
           {showIntelligentUI && <div className="iui-playground" id="intelligent-ui-settings">
-            <div className="iui-playground-actions"><strong>智能界面 <small>Beta</small></strong><button type="button" aria-label="关闭智能界面设置" onClick={() => setShowIntelligentUI(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
-            <label className="iui-beta-toggle"><input type="checkbox" checked={state.intelligentUIEnabled} onChange={event => state.setIntelligentUIEnabled(event.target.checked)} /><span>启用智能 UI</span></label>
-            <p className="iui-beta-description">启用后，可在输入框底部选择“本条使用智能 UI”。只为选中的消息附加界面能力和当前选择，发送后自动取消。</p>
-            {state.intelligentUIEnabled && <details className="iui-beta-demo"><summary>体验本地交互示例</summary><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></details>}
+            <div className="iui-playground-actions"><strong>交互示例 <small>Beta</small></strong><button type="button" aria-label="关闭交互示例" onClick={() => setShowIntelligentUI(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
+            <div className="iui-beta-demo"><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></div>
           </div>}
           {editingQueued && <div className="composer-editing-queue" role="status"><span>正在编辑排队消息</span><button type="button" onClick={() => { state.draft = ""; state.changed(); setEditingQueued(null); composer.current?.focus(); }}>取消编辑</button></div>}
           <div id="input-row">
+            {parent !== window && location.protocol === 'beings:' && <button type="button" className="btn-icon permission-quick-trigger" data-mode={state.permissionMode} title={`工作权限 · ${permissionChoices.find(choice => choice.value === state.permissionMode)?.title ?? '加载中'}`} aria-label="快捷设置工作权限" aria-haspopup="menu" aria-expanded={state.permissionMenuOpen} onClick={event => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              bridge.send({ type: 'beings:permission-settings', anchor: { left: rect.left, top: rect.top, bottom: rect.bottom } });
+            }}><PermissionIcon kind={permissionChoices.find(choice => choice.value === state.permissionMode)?.icon}/><span>{permissionChoices.find(choice => choice.value === state.permissionMode)?.title ?? '权限'}</span><svg className="permission-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>}
             <ChatComposer
               state={state}
               key={state.currentScene.sceneId || "global"}
@@ -723,17 +727,7 @@ function ChatView({
                 sendDraft(event.ctrlKey || (isMac && event.metaKey) ? undefined : "interrupt");
               }}
             />
-            <button type="button" className="btn-icon iui-trigger" title={`智能界面 Beta · ${state.intelligentUIForMessage ? "本条已选择" : state.intelligentUIEnabled ? "按条选择" : "未启用"}`} aria-label="Intelligent UI Beta 设置" aria-expanded={showIntelligentUI} aria-controls="intelligent-ui-settings" data-enabled={state.intelligentUIForMessage} onClick={() => setShowIntelligentUI(v => !v)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M3.5 9.5h17M10 9.5V20"/><path d="M14 13h3M14 16h2"/></svg><span className="iui-trigger-dot" aria-hidden="true" /></button>
-            <button
-              className="btn-icon"
-              type="button"
-              title="添加附件"
-              aria-label="添加附件"
-              onClick={() => fileInput.current?.click()}
-            >
-              ＋
-            </button>
-            {state.intelligentUIEnabled && <div className="iui-message-option"><button type="button" aria-label="本条使用智能 UI" aria-pressed={state.intelligentUIForMessage} onClick={() => state.setIntelligentUIForMessage(!state.intelligentUIForMessage)}>智能 UI <small>仅本条 · {state.intelligentUIForMessage ? "已开启" : "已关闭"}</small></button></div>}
+            <ComposerAddMenu state={state} onUpload={() => fileInput.current?.click()} onExamples={() => setShowIntelligentUI(true)} onSelect={() => composer.current?.focus()}/>
             {state.sendWillQueue && !editingQueued && (state.draft.trim() || state.files.length > 0) && <div className="composer-queue-hint"><button type="button" title={`加入队列（${queueShortcut}）`} aria-label="加入队列" disabled={state.stopping} onClick={() => sendDraft()}>排队 <span aria-hidden="true">{isMac ? "⌘ ↵" : "Ctrl ↵"}</span></button></div>}
             <button
               className={`btn-icon${showStop ? " stop" : ""}`}

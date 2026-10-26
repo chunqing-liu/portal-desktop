@@ -18,6 +18,8 @@ it('persists credentials encrypted, reloads and preserves them on workspace-only
   try {
     const store = new SettingsStore(dir, storage, process.execPath);
     await store.load(); expect(store.connection).toBeNull();
+    expect(store.settings.permissionMode).toBe('supervised');
+    expect(parse(portalConfig(store.settings))).toMatchObject({ security: { permission_mode: 'supervised' } });
     expect(store.settings.allowExec).toBe(true);
     expect(store.settings.kitsEnabled).toBe(true);
     expect(parse(portalConfig(store.settings))).toMatchObject({ kits_enabled: true, tools: { exec: true, screenshot: true, custom_tools_enabled: true } });
@@ -46,6 +48,10 @@ it('persists credentials encrypted, reloads and preserves them on workspace-only
     await expect(unavailable.save({ ...store.settings, connectionLink: 'https://echo.example/alice/?token=test' })).rejects.toThrow('密钥库');
     await expect(store.save({ ...store.settings, portalName: 'bad\nname' })).rejects.toThrow();
     await expect(store.save({ ...store.settings, workspace: '../outside' })).rejects.toThrow();
+    await expect(store.save({ ...store.settings, permissionMode: 'invalid' as any })).rejects.toThrow('权限');
+    await store.save({ ...store.settings, permissionMode: 'read-only' });
+    const restricted = new SettingsStore(dir, storage, process.execPath); await restricted.load();
+    expect(restricted.settings.permissionMode).toBe('read-only');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

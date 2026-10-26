@@ -39,14 +39,18 @@ try {
   page.setDefaultTimeout(10000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/loom.html?scene_id=desktop-fixture`);
-  await page.getByRole('button', { name: 'Intelligent UI Beta 设置' }).click();
-  const toggle = page.getByRole('checkbox', { name: '启用智能 UI' });
+  await page.getByRole('button', { name: '添加附件和工具' }).click();
+  await page.waitForFunction(() => {
+    const menu=document.querySelector('.composer-add-menu'), r=menu?.getBoundingClientRect();
+    return menu?.style.top && r.top>=0 && r.bottom<=innerHeight && r.left>=0 && r.right<=innerWidth;
+  }).catch(async error=>{console.error(await page.locator('.composer-add-menu').evaluate(el=>({html:el.outerHTML,bounds:el.getBoundingClientRect().toJSON()})));throw error;});
+  const toggle = page.getByRole('menuitemcheckbox', { name: '启用智能 UI' });
   assert.equal(await toggle.isChecked(), false);
   await toggle.check();
   await page.reload();
-  await page.getByRole('button', { name: 'Intelligent UI Beta 设置' }).click();
+  await page.getByRole('button', { name: '添加附件和工具' }).click();
   assert.equal(await toggle.isChecked(), true);
-  await page.getByText('体验本地交互示例', {exact:true}).click();
+  await page.getByRole('menuitem', {name:/交互示例/}).click();
   await page.getByLabel('选择交互示例').selectOption('simulation');
   await page.locator('.iui-app svg').waitFor();
   assert.equal(await page.getByText('正在准备交互体验…', {exact:true}).count(), 0);
@@ -55,7 +59,7 @@ try {
   await page.getByRole('button', {name:'重新启动',exact:true}).click();
   await page.locator('.iui-app svg').waitFor();
 
-  await page.locator('.iui-playground-actions').getByRole('button', { name: '关闭智能界面设置' }).click();
+  await page.locator('.iui-playground-actions').getByRole('button', { name: '关闭交互示例' }).click();
   // Filled drafts used to activate an older :has() rule that moved send onto the textarea.
   for (const web of [false, true]) {
     const webStyle = web ? await page.addStyleTag({ content: await readFile('web/chat.css', 'utf8') }) : null;
@@ -63,7 +67,7 @@ try {
       await page.setViewportSize({ width, height: 800 });
       for (const draft of ['', '给我一个实时预算', '第一行\n第二行\n较长的多行输入内容']) {
         await page.getByRole('textbox', { name: 'message input' }).fill(draft);
-        const boxes = await page.evaluate(() => ['[aria-label="Intelligent UI Beta 设置"]', '[aria-label="添加附件"]', '#input', '#send-btn'].map(selector => {
+        const boxes = await page.evaluate(() => ['button[aria-label="添加附件和工具"]', '#input', '#send-btn'].map(selector => {
           const r = document.querySelector(selector).getBoundingClientRect();
           return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
         }));
@@ -72,7 +76,7 @@ try {
           const a = boxes[i], b = boxes[j];
           assert.ok(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top, `composer overlap: web=${web}, width=${width}, draft=${draft}`);
         }
-        assert.ok(boxes[2].width > 50);
+        assert.ok(boxes[1].width > 50);
         assert.ok(boxes.at(-1).right <= width);
       }
     }
@@ -81,9 +85,10 @@ try {
   await page.setViewportSize({ width: 375, height: 800 });
   await page.getByRole('textbox', { name: 'message input' }).fill('给我一个实时预算');
   await page.screenshot({ path: 'test-results/intelligent-ui-composer-fixed.png' });
-  await page.getByRole('button', {name:'本条使用智能 UI',exact:true}).click();
+  await page.getByRole('button', {name:'添加附件和工具'}).click();
+  await page.getByRole('menuitemcheckbox', {name:'本条使用智能 UI',exact:true}).click();
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
-  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'false');
+  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'false');
   await page.getByRole('slider', { name: '人数' }).waitFor();
   assert.ok(sends[0].message.includes('[客户端 Intelligent UI Beta 上下文]'));
   assert.equal(await page.locator('.message.user .content').last().textContent(), '给我一个实时预算');
@@ -100,7 +105,7 @@ try {
   const composer = await page.locator('#input-area').boundingBox();
   assert.ok(bottom.y + bottom.height <= composer.y, 'The last UI element must be above the composer');
   await page.setViewportSize({ width: 375, height: 800 });
-  await page.getByRole('button', { name: 'Intelligent UI Beta 设置' }).click();
+  await page.getByRole('button', { name: '添加附件和工具' }).click();
   await page.screenshot({ path: 'test-results/intelligent-ui-beta.png' });
   await toggle.uncheck();
   assert.equal(await page.getByRole('slider').count(), 1); // Existing artifacts stay readable when generation is disabled.

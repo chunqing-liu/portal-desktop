@@ -1,16 +1,12 @@
 
 .rich-composer{min-width:0;--composer-mono:var(--mono,ui-monospace,monospace)}
 #input-area #input-row .rich-composer{grid-column:1 / -1;grid-row:1}
-#input-area #input-row>.btn-icon, #input-area #input-row>.btn-icon:not(#send-btn){grid-row:2}
+#input-area #input-row>.btn-icon, #input-area #input-row>.btn-icon:not(#send-btn){grid-row:2;align-self:center}
+#input-area #input-row>.btn-icon>svg{display:block;flex-shrink:0}
 #input-area #input-row:has(#input) #send-btn{grid-row:2}
 /* Keep the draft and its actions in two compact, stable rows. */
 #input-area{padding:8px 14px 10px;border-radius:24px;box-shadow:0 3px 14px #00000006}
 #input-area #input-row{column-gap:6px;row-gap:2px}
-#input-area #input-row>.iui-message-option{grid-column:3;grid-row:2;min-width:0;padding:0;align-items:center}
-#input-area .iui-message-option button{height:28px;padding:0 8px;gap:5px;border-color:transparent;border-radius:8px;background:transparent;white-space:nowrap}
-#input-area .iui-message-option button:hover{background:var(--bg-soft)}
-#input-area .iui-message-option button[aria-pressed=true]{background:var(--accent-tint);color:var(--accent)}
-#input-area .iui-message-option button small{display:none}
 .composer-format{display:flex;align-items:center;justify-content:space-between;gap:12px;height:32px;box-sizing:border-box;flex-shrink:0;padding:0 0 6px}
 .composer-format select,.composer-format button{max-width:100%;border:0;border-radius:5px;background:transparent;color:var(--text-dim,var(--muted));font:12px/1.5 var(--font-sans,sans-serif);padding:3px 4px;cursor:pointer}
 .composer-format select:focus-visible,.composer-format button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -59,6 +55,36 @@
 :is(.reading-text,.composer-highlight) .hljs-string{color:#3a7065}:is(.reading-text,.composer-highlight) .hljs-attr{color:#82631d}:is(.reading-text,.composer-highlight) .hljs-number,:is(.reading-text,.composer-highlight) .hljs-literal{color:#2867b2}:is(.reading-text,.composer-highlight) .hljs-keyword{color:#99579b}
 :root[data-theme=dark] :is(.reading-text,.composer-highlight) .hljs-string{color:#a5d6ff}:root[data-theme=dark] :is(.reading-text,.composer-highlight) .hljs-attr{color:#e3b341}:root[data-theme=dark] :is(.reading-text,.composer-highlight) .hljs-number,:root[data-theme=dark] :is(.reading-text,.composer-highlight) .hljs-literal{color:#79c0ff}:root[data-theme=dark] :is(.reading-text,.composer-highlight) .hljs-keyword{color:#ff7b72}
 
-/* Reserve toolbar room even while the queue shortcut is hidden. */
-#input-area #input-row>.iui-message-option{box-sizing:border-box;padding-right:96px}
-#input-area .iui-message-option button{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* Each composer action owns a column, including when the desktop adds permissions. */
+#input-area #input-row{grid-template-columns:32px minmax(0,1fr) 36px}
+#input-area #input-row>.composer-add{grid-column:1;grid-row:2;align-self:center}
+#input-area #input-row #send-btn{grid-column:3}
+#input-area #input-row:has(.permission-quick-trigger){grid-template-columns:max-content 32px minmax(0,1fr) 36px}
+#input-area #input-row>.permission-quick-trigger{grid-column:1;grid-row:2;display:inline-flex;align-items:center;justify-content:center;gap:5px;width:max-content;height:32px;min-width:32px;min-height:32px;padding:0 8px;border:0;border-radius:8px;font:12px/20px var(--font-sans,sans-serif);white-space:nowrap}
+#input-area #input-row>.permission-quick-trigger svg{width:16px;height:16px}
+#input-area #input-row>.permission-quick-trigger .permission-chevron{width:10px;height:10px}
+#input-area #input-row>.permission-quick-trigger[data-mode=full-access]{color:#b65122;background:#b6512210}
+:root[data-theme=dark] #input-area #input-row>.permission-quick-trigger[data-mode=full-access]{color:#ef9a65;background:#ef9a6514}
+#input-area #input-row:has(.permission-quick-trigger)>.composer-add{grid-column:2}
+#input-area #input-row:has(.permission-quick-trigger) #send-btn{grid-column:4}
+.composer-add-trigger{position:relative;display:grid;place-items:center;width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--text-dim);cursor:pointer}
+.composer-add-trigger:hover,.composer-add-trigger[aria-expanded=true]{background:var(--bg-softer);color:var(--text)}
+.composer-add-trigger[data-active=true]{color:var(--accent)}
+.composer-add-dot{position:absolute;right:3px;top:3px;width:5px;height:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--bg)}
+.composer-add-menu{position:fixed;inset:auto;margin:0;box-sizing:border-box;width:320px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;padding:6px;border:1px solid var(--border);border-radius:14px;background:var(--bg);color:var(--text);box-shadow:0 8px 30px #00000026;font:13px/1.5 var(--font-sans,sans-serif)}
+.composer-add-heading{display:flex;align-items:center;gap:6px;padding:4px 8px;color:var(--text-muted);font-size:11px}
+.composer-add-heading small{font-size:10px;line-height:16px;padding:0 4px;border:1px solid var(--border);border-radius:4px}
+.composer-add-menu>button{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:7px 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.composer-add-menu>button>svg{flex-shrink:0;color:var(--text-dim)}
+.composer-add-menu>button>span{flex:1;min-width:0}
+.composer-add-menu strong,.composer-add-menu button small{display:block;font-size:13px;font-weight:500;line-height:19px;overflow-wrap:anywhere}
+.composer-add-menu button small{font-size:11px;font-weight:400;color:var(--text-muted)}
+.composer-add-menu i{width:16px;flex-shrink:0;font-style:normal;text-align:center;color:var(--accent)}
+.composer-add-menu>button:hover:not(:disabled){background:var(--bg-softer)}
+.composer-add-menu>button:disabled{opacity:.45;cursor:default}
+.composer-add-menu>button:focus-visible,.composer-add-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;background:var(--bg-softer)}
+.composer-add-menu>[role=separator]{height:1px;margin:5px 8px;background:var(--border)}
+@media(max-width:520px){
+  #input-area #input-row>.permission-quick-trigger span{display:none}
+  #input-area #input-row:has(.permission-quick-trigger)>.composer-queue-hint span{display:none}
+}

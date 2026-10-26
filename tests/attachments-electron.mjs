@@ -74,7 +74,10 @@ try {
   const sampleFile=path.join(directory,'sample.txt'), imageFile=path.join(directory,'pixel.png');
   await writeFile(sampleFile,Buffer.alloc(11 * 1024 * 1024, 'x'));
   await writeFile(imageFile,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6b0sAAAAASUVORK5CYII=','base64'));
-  await page.locator('#file-input').setInputFiles([sampleFile,imageFile]);
+  await page.getByRole('button',{name:'添加附件和工具'}).click();
+  const choosing=page.waitForEvent('filechooser');
+  await page.getByRole('menuitem',{name:/上传附件/}).click();
+  await (await choosing).setFiles([sampleFile,imageFile]);
   await page.locator('#input').fill('请分析附件');await page.locator('#send-btn').click();
   await page.locator('.attachment-card').first().waitFor();
   await page.getByText(/正在整理完整结果/).first().waitFor().catch(async e=>{console.log(await page.locator('body').innerText());throw e;});

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PermissionPicker } from '../../shared/components/permission-picker';
 import type { AppModel } from "../models/app";
 import { useModel } from "../../shared/hooks/use-model";
 import { Dialog } from "../../shared/components/dialog";
@@ -491,7 +492,7 @@ export function ConnectionSettings({ model }: { model: AppModel }) {
             <label>
               <span>
                 <strong>允许命令执行</strong>
-                <small>默认开启，与 Portal 一同提供本机命令能力</small>
+                <small>同时受下方工具权限模式约束</small>
               </span>
               <input
                 id="exec-input"
@@ -518,6 +519,10 @@ export function ConnectionSettings({ model }: { model: AppModel }) {
                 }
               />
             </label>
+            <section className="permission-settings-section"><div className="permission-section-heading"><strong>工作权限</strong><small>主助手与子代理共用</small></div>
+              <PermissionPicker value={form?.permissionMode ?? 'supervised'} onChange={mode => app.editForm('permissionMode', mode)}/>
+              <p className="permission-note">Windows 安全协作使用系统命令沙箱。联网与扩展操作单独审批；其他平台不会自动回退为无沙箱命令。</p>
+            </section>
             <div className="subagent-switch-row">
               <label htmlFor="subagent-enabled-input">
                 <strong>启用 subagent</strong>

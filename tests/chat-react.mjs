@@ -140,14 +140,14 @@ try {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') event.stopPropagation();
     });
   });
-  // Inspect the compact composer with its optional per-message action enabled.
-  await frame.getByRole('button', { name: 'Intelligent UI Beta 设置', exact: true }).click();
-  await frame.locator('.iui-beta-toggle input').check();
-  await frame.getByRole('button', { name: '关闭智能界面设置', exact: true }).click();
+  // Enabling UI stays in the add menu, without adding controls to the action row.
+  await frame.getByRole('button', { name: '添加附件和工具', exact: true }).click();
+  await frame.getByRole('menuitemcheckbox', { name: '启用智能 UI', exact: true }).click();
+  await frame.getByRole('menu', { name: '添加附件和工具', exact: true }).press('Escape');
   await mkdir('test-results', { recursive: true });
   await frame.locator('#input-area').screenshot({ path: 'test-results/chat-composer-compact.png' });
   const actionBounds = await Promise.all([
-    frame.getByRole('button', { name: '本条使用智能 UI', exact: true }).boundingBox(),
+    frame.getByRole('button', { name: '添加附件和工具', exact: true }).boundingBox(),
     frame.locator('#send-btn').boundingBox(),
   ]);
   assert.ok(Math.abs(actionBounds[0].y + actionBounds[0].height / 2 - actionBounds[1].y - actionBounds[1].height / 2) < 2);

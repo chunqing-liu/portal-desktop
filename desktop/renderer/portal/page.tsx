@@ -132,13 +132,14 @@ export function Portal({ model }: { model: AppModel }) {
           <div>
             <span>▱</span>
             <strong>文件与搜索</strong>
-            <small>读写选定的工作目录</small>
+            <small>{snapshot?.settings.permissionMode === 'read-only' ? '仅允许读取选定工作目录' : '读写选定的工作目录'}</small>
           </div>
           <div>
             <span>⌘</span>
             <strong>命令执行</strong>
             <small id="exec-label">
-              {snapshot?.settings.allowExec ? "已允许本机命令" : "未启用"}
+              {!snapshot?.settings.allowExec ? '未启用' : snapshot.settings.permissionMode === 'read-only'
+                ? '只读模式下禁止' : snapshot.settings.permissionMode === 'full-access' ? '已允许本机命令' : '每次执行需要审批'}
             </small>
           </div>
           <div>
@@ -146,7 +147,8 @@ export function Portal({ model }: { model: AppModel }) {
             <strong>扩展工具</strong>
             <small id="kits-label">
               {snapshot?.settings.kitsEnabled
-                ? "Kits 与自定义工具已启用"
+                ? snapshot.settings.permissionMode === 'read-only' ? '只读模式下禁止调用'
+                  : snapshot.settings.permissionMode === 'full-access' ? 'Kits 与自定义工具已启用' : '扩展调用需要审批'
                 : "未启用"}
             </small>
           </div>

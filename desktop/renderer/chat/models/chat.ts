@@ -156,6 +156,8 @@ export class ChatState extends Store {
     if (selected !== undefined) this.intelligentUISnapshots[scene] = selected;
   }
   intelligentUIEnabled = readIntelligentUIPreference();
+  permissionMode?: import('../../../shared/security').PermissionMode;
+  permissionMenuOpen = false;
   get intelligentUITargetTitle(): string {
     try { return JSON.parse(this.intelligentUISnapshots[this.currentScene.sceneId || 'global'] || '{}').title || ''; }
     catch { return ''; }

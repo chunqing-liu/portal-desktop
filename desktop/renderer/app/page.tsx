@@ -18,6 +18,7 @@ import { ChatSearch } from "./components/search";
 import { ConnectionSettings, ClientSettings } from "./components/settings";
 import { SubagentModelSettings } from "./components/subagent-model-settings";
 import { Diagnostics } from "./components/diagnostics";
+import { PermissionSettings, ToolApprovalDialog } from './components/permissions';
 import { EditContextMenu } from "../shared/components/context-menu";
 import { PlaceHeading } from "./components/navigation";
 import { Plugins, PluginCommands, PluginSlots, PluginSidebar } from '../plugins/page';
@@ -181,6 +182,8 @@ export function App({ model }: { model: AppModel }) {
       <ClientSettings model={app} />
       <ConnectionSettings model={app} />
       <KitInstall model={app.town} />
+      <PermissionSettings app={app}/>
+      <ToolApprovalDialog app={app}/>
       <Toast message={app.toastMessage} />
       <EditContextMenu edit={app.api.editSelection} rootSelector="#client-main, dialog[open]"
         selectionSelector=".reading-text, .dialog-body, #town-body" />

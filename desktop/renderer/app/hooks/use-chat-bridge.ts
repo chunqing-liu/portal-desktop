@@ -18,6 +18,10 @@ export function useChatBridge(
     };
   }, [app, frame]);
   useEffect(() => {
+    app.post({ type: 'beings:permission-state', mode: app.snapshot?.settings.permissionMode ?? 'supervised', open: app.permissionSettingsOpen,
+      revision: new URL(frame.current?.src || 'https://invalid').searchParams.get('revision') });
+  }, [app, frame, app.snapshot?.settings.permissionMode, app.permissionSettingsOpen, app.chatSource]);
+  useEffect(() => {
     let disposed = false;
     const forward = (snapshot: import('../../../shared/types').SceneTaskSnapshot) => {
       if (!disposed && snapshot.endpoint === app.snapshot?.settings.endpoint) app.post({ type: 'beings:scene-tasks', ...snapshot,
@@ -160,6 +164,22 @@ export function useChatBridge(
       }
       if (message.type === "beings:subagent-settings") {
         app.openSubagentSettings();
+        return;
+      }
+      if (message.type === 'beings:permission-state-request') {
+        app.post({ type: 'beings:permission-state', mode: app.snapshot?.settings.permissionMode ?? 'supervised', open: app.permissionSettingsOpen, revision: message.revision });
+        return;
+      }
+      if (message.type === 'beings:permission-dismiss') { app.closePermissionSettings(); return; }
+      if (message.type === 'beings:permission-settings') {
+        if (document.querySelector('dialog[open]')) return;
+        if (app.permissionSettingsOpen) { app.closePermissionSettings(); return; }
+        const rect = message.anchor;
+        if (!rect || ![rect.left, rect.top, rect.bottom].every(Number.isFinite)) return;
+        const bounds = target.getBoundingClientRect();
+        app.openPermissionSettings({ left: bounds.left + Math.max(0, Math.min(bounds.width, rect.left)),
+          top: bounds.top + Math.max(0, Math.min(bounds.height, rect.top)),
+          bottom: bounds.top + Math.max(0, Math.min(bounds.height, rect.bottom)) });
         return;
       }
       if (message.type === "beings:chat-search") {

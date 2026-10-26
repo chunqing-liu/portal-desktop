@@ -96,6 +96,13 @@ const api: DesktopAPI = {
   openTownLink: route => ipcRenderer.invoke('beings:town-open', route),
   snapshot: () => ipcRenderer.invoke('beings:snapshot'),
   save: input => ipcRenderer.invoke('beings:save', input),
+  toolApprovalPending: () => ipcRenderer.invoke('beings:tool-approval-pending'),
+  answerToolApproval: (id, allowed) => ipcRenderer.invoke('beings:tool-approval-answer', id, allowed),
+  onToolApproval: callback => {
+    const listener = (_event: unknown, value: import('../shared/security').ToolApprovalView | null) => callback(value);
+    ipcRenderer.on('beings:tool-approval', listener);
+    return () => ipcRenderer.removeListener('beings:tool-approval', listener);
+  },
   beingModelCatalog: input => ipcRenderer.invoke('beings:model-catalog', input),
   beingModelConfig: patch => ipcRenderer.invoke("beings:model-config", patch),
   sceneTasks: () => ipcRenderer.invoke('beings:scene-tasks'),

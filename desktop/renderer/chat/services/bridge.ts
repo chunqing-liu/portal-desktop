@@ -162,6 +162,12 @@ export function createChatBridge(state: ChatState) {
           if (typeof data.subagentEnabled === 'boolean') state.subagentEnabled = data.subagentEnabled;
           runtime.updateSceneTasks(data.tasks, data.subagentReady === true);
           return;
+        case 'beings:permission-state':
+          if (data.revision !== revision || !['read-only', 'supervised', 'full-access'].includes(data.mode)) return;
+          state.permissionMode = data.mode;
+          state.permissionMenuOpen = data.open === true;
+          state.changed();
+          return;
         case 'beings:subagent-enable-result':
           if (data.revision === revision && typeof data.id === 'string') subagentEnables.get(data.id)?.(data.ok === true);
           return;
@@ -288,10 +294,24 @@ export function createChatBridge(state: ChatState) {
     };
     removeListener();
     window.addEventListener("message", receive);
-    removeListener = () => window.removeEventListener("message", receive);
+    // Native popover light-dismiss does not cross the sandboxed iframe boundary.
+    // This message may only dismiss the shell menu; it cannot change permissions.
+    const dismissPermissions = (event: PointerEvent) => {
+      if (state.permissionMenuOpen && !(event.target instanceof Element && event.target.closest('.permission-quick-trigger')))
+        send({ type: 'beings:permission-dismiss' });
+    };
+    const scrollPermissions = () => { if (state.permissionMenuOpen) send({ type: 'beings:permission-dismiss' }); };
+    window.addEventListener('pointerdown', dismissPermissions, true);
+    window.addEventListener('scroll', scrollPermissions, true);
+    removeListener = () => {
+      window.removeEventListener("message", receive);
+      window.removeEventListener('pointerdown', dismissPermissions, true);
+      window.removeEventListener('scroll', scrollPermissions, true);
+    };
     void refreshSbs();
     publishActivity();
     send({ type: 'beings:scene-tasks-request' });
+    send({ type: 'beings:permission-state-request' });
   }
   return {
     send,

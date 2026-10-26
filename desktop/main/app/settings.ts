@@ -4,6 +4,7 @@ import os from 'node:os';
 import { parse } from 'smol-toml';
 import { parseConnection, type Connection } from '../chat/connection';
 import type { Settings, SaveSettings } from '../../shared/types';
+import { permissionMode } from '../../shared/security';
 
 export interface SecretStorage { isEncryptionAvailable(): boolean; encryptString(value: string): Buffer; decryptString(value: Buffer): string }
 interface Stored { version: 1; settings: Omit<Settings, 'hasToken'>; credential: string }
@@ -13,7 +14,7 @@ export class SettingsStore {
   constructor(private directory: string, private storage: SecretStorage, private binary: string) {
     this.settings = { endpoint: '', being: '', hasToken: false, workspace: path.join(os.homedir(), 'portal-desktop Workspace'),
       portalBinary: binary, portalName: `portal-desktop-${os.hostname().replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 50)}`,
-      autoStart: false, backgroundEnabled: true, allowExec: true, kitsEnabled: true };
+      autoStart: false, backgroundEnabled: true, allowExec: true, kitsEnabled: true, permissionMode: 'supervised' };
   }
   async load() {
     let raw: string;
@@ -26,6 +27,7 @@ export class SettingsStore {
     connection.relaySecret = secrets.relaySecret || connection.token;
     this.connection = connection;
     this.settings = { ...this.settings, ...saved.settings, portalBinary: this.binary, endpoint: connection.endpoint, being: connection.being, hasToken: true };
+    this.settings.permissionMode = permissionMode(saved.settings.permissionMode);
     // A path persisted by an older client is only a hint. If it was removed or
     // is no longer valid TOML, fall back to the configuration generated from
     // the current client settings instead of failing Portal startup.
@@ -62,6 +64,7 @@ export class SettingsStore {
   }
   async save(input: SaveSettings) {
     if (!input || typeof input !== 'object') throw new Error('无效的设置。');
+    const mode = permissionMode(input.permissionMode ?? this.settings.permissionMode);
     const connection = this.resolveConnection(input);
     if (!this.storage.isEncryptionAvailable()) throw new Error('系统密钥库不可用，无法安全保存连接。请启用系统密钥库后重试。');
     if (typeof input.workspace !== 'string' || !path.isAbsolute(input.workspace)) throw new Error('请选择绝对路径的工作目录。');
@@ -73,6 +76,7 @@ export class SettingsStore {
     await mkdir(input.workspace, { recursive: true });
     if (!(await stat(input.workspace)).isDirectory()) throw new Error('工作路径不是目录。');
     const next: Settings = { endpoint: connection.endpoint, being: connection.being, hasToken: true,
+      permissionMode: mode,
       workspace: input.workspace, portalBinary: this.binary, portalName: input.portalName,
       autoStart: input.autoStart, allowExec: input.allowExec, kitsEnabled: input.kitsEnabled,
       backgroundEnabled: input.backgroundEnabled ?? this.settings.backgroundEnabled,

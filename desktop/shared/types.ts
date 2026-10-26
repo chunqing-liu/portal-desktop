@@ -14,6 +14,7 @@ export interface UpdateActivity {
 }
 
 export interface Settings {
+  permissionMode?: import('./security').PermissionMode;
   endpoint: string;
   being: string;
   hasToken: boolean;
@@ -29,6 +30,7 @@ export interface Settings {
 }
 export interface SubagentSetup { enabled?: boolean; base_url?: string; api?: string; provider: string; model: string; api_key: string; thinking: string }
 export interface SaveSettings {
+  permissionMode?: import('./security').PermissionMode;
   subagentEnabled?: boolean;
   subagentSetup?: SubagentSetup;
   connectionLink?: string;
@@ -65,6 +67,9 @@ export interface BrowserBounds { x: number; y: number; width: number; height: nu
 export type BrowserAction = 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'close';
 export type ChatEditCommand = 'cut' | 'copy' | 'paste';
 export interface DesktopAPI {
+  toolApprovalPending?(): Promise<import('./security').ToolApprovalView | null>;
+  answerToolApproval?(id: string, allowed: boolean): Promise<void>;
+  onToolApproval?(callback: (value: import('./security').ToolApprovalView | null) => void): () => void;
   checkLocalFiles?(paths: string[]): Promise<boolean[]>;
   revealLocalFile?(path: string): Promise<import('./local-file').LocalFileRevealResult | boolean>;
   previewLocalFile?(path: string): Promise<import('./local-file').LocalFilePreview>;

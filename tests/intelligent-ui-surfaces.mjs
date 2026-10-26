@@ -60,9 +60,9 @@ try{
   assert.equal(await page.getByRole('textbox',{name:'message input'}).evaluate(el=>el.value??el.editor.getMarkdown()),'按当前选择调整');
   await page.waitForFunction(()=>document.activeElement?.matches('#input, #input [contenteditable], [role=textbox][contenteditable]'));
   await page.locator('.iui-context-target').getByText('将携带原界面和当前选择').waitFor();
-  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'true');
   await page.getByRole('button',{name:'取消本条界面修改',exact:true}).click();
-  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'false');
+  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'false');
   await page.getByRole('button',{name:'用当前选择继续',exact:true}).click();
   await page.locator('#send-btn').click();
   await page.getByText('按当前选择调整后的建议',{exact:true}).waitFor();
@@ -76,7 +76,7 @@ try{
   assert.equal(original.revision,1);
   assert.ok(original.document.body[0].children.some(node=>node.type==='slider' && node.bind==='temp'),'Edit includes original component structure');
   assert.equal(await page.locator('.iui-context-target').count(),0,'Context clears after this send');
-  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'false');
+  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'false');
 
   assert.equal(await page.locator('.message.user').filter({hasText:'客户端当前界面选择'}).count(),0);
   await page.getByLabel('界面版本').selectOption('1');
@@ -112,7 +112,8 @@ try{
   await page.waitForFunction(()=>document.querySelector('.iui-app input[type=number]')?.value==='4');
   assert.equal(await appSurface.getByRole('button',{name:'用当前选择继续',exact:true}).count(),1);
   await page.getByRole('textbox',{name:'message input'}).fill('调整模拟计划');
-  await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).click();
+  await page.getByRole('button',{name:'添加附件和工具'}).click();
+  await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true}).click();
   await page.locator('#send-btn').click();
   await appSurface.getByText('按当前选择调整后的建议',{exact:true}).waitFor();
   const appAction=JSON.parse(sends.at(-1).message.match(/\[客户端当前界面选择\]\n(.*?)\n\[\/客户端当前界面选择\]/s)[1]);
@@ -125,7 +126,7 @@ try{
   await page.waitForFunction(ticks=>Number(document.querySelector('.iui-app .iui-metric output')?.textContent)>ticks,ticks);
   await page.getByRole('textbox',{name:'message input'}).fill('调整衣橱而不是模拟');
   await page.locator('.iui-surface').filter({has:page.getByRole('slider',{name:'温度'})}).getByRole('button',{name:'修改',exact:true}).click();
-  assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'true','Edit must arm next message for existing artifact');
+  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'true','Edit must arm next message for existing artifact');
   await page.waitForFunction(()=>document.activeElement?.matches('#input, #input [contenteditable], [role=textbox][contenteditable]'));
   await page.locator('#send-btn').click();
   await page.waitForFunction(()=>document.querySelector('select[aria-label="界面版本"] option')?.textContent.includes('第 3 版'));
@@ -160,7 +161,7 @@ try{
     await page.waitForFunction(()=>document.activeElement?.matches('#input, #input [contenteditable], [role=textbox][contenteditable]'));
     const draft=await composer.evaluate(el=>el.value??el.editor.getMarkdown());
     assert.ok(draft.startsWith('保留已有要求\n\n'+description),draft);
-    assert.equal(await page.getByRole('button',{name:'本条使用智能 UI',exact:true}).getAttribute('aria-pressed'),'true');
+    assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'true');
     await page.locator('.iui-context-target').getByText('修改「继续操作计划」').waitFor();
     await page.locator('#send-btn').click();
     await page.waitForFunction(revision=>[...document.querySelectorAll('select[aria-label="界面版本"]')].some(el=>el.closest('.iui-surface')?.textContent.includes('继续操作计划') && el.options[0].textContent.includes(`第 ${revision} 版`)),index+2);

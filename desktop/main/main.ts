@@ -5,6 +5,9 @@ import { subagentReady } from './portal/subagent-ready';
 import { SceneTaskObserver } from './portal/subagent-tasks';
 import { setupSubagent, validateSubagentSetup, readSubagentConfig, setSubagentEnabled } from './portal/subagent-setup';
 import { ClientCommandServer } from './chat/client-server';
+import { ToolApproval } from './chat/tool-approval';
+import { ApprovalDialogs } from './chat/approval-dialogs';
+import { permissionMode } from '../shared/security';
 import { ClientContextReader } from './chat/client-context';
 import { app, clipboard, dialog, ipcMain, net, nativeImage, nativeTheme, Notification, protocol, safeStorage, shell, type BrowserWindow, type Tray } from 'electron';
 import { DesktopNotifications } from './app/notifications';
@@ -310,8 +313,19 @@ async function ready() {
   registerLocalProtocol(assets, proxy, plugins, attachmentDownloads, localFiles);
   configureLocalSession();
   const clientContext = new ClientContextReader(shellURL());
+  const approvalDialogs = new ApprovalDialogs(request => {
+    if (window && !window.isDestroyed()) window.webContents.send('beings:tool-approval', request);
+  });
+  app.once('before-quit', () => approvalDialogs.cancel());
+  const toolApproval = new ToolApproval(() => permissionMode(store.settings.permissionMode), async input => {
+    if (!window || window.isDestroyed()) return false;
+    window.show();
+    return approvalDialogs.request(input);
+  });
   const clientCommands = new ClientCommandServer(path.join(directory, '.portal-client.json'),
-    () => store.connection?.endpoint, request => request.verb === 'plugins'
+    () => store.connection?.endpoint, (request, signal) => request.verb === 'security-approve'
+      ? toolApproval.request(request, signal)
+      : request.verb === 'plugins'
       ? plugins.agentCommand(request.endpoint, request.args, request.sceneId)
       : clientContext.execute({ ...request, scenes: chatSessions?.list(request.endpoint) }));
   try { await clientCommands.start(); }
@@ -359,6 +373,8 @@ async function ready() {
     });
   };
   handle('beings:local-file-preview', (reference: unknown) => localFiles.preview(reference));
+  handle('beings:tool-approval-pending', () => approvalDialogs.current());
+  handle('beings:tool-approval-answer', (id: unknown, allowed: unknown) => approvalDialogs.answer(id, allowed));
   handle('beings:local-files-check', (references: unknown) => localFiles.available(references));
   handle('beings:local-file-reveal', (reference: unknown) => localFiles.reveal(reference, file => shell.showItemInFolder(file)));
   handle('beings:local-file-release', (id: unknown) => localFiles.release(id));
