@@ -46,9 +46,146 @@ async function fixture(apiPrefix = "") {
     setActive: (value:any) => {active=value;},
     setActiveRead: (value?:() => Promise<Response>) => {readActive=value;},
     setPost: (value:()=>Response) => {post=value;},
+    closeStream: () => stream.close(),
+    failStream: () => stream.error(new TypeError('Failed to fetch')),
     emit: (event:string, data:object) => stream.enqueue(new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)),
   };
 }
+
+it.each(['timeout', 'reply'])('tracks a follow-up accepted after the previous reply boundary until %s', async outcome => {
+  const f = await fixture();
+  try {
+    await f.runtime.send('first');
+    await vi.advanceTimersByTimeAsync(20);
+    f.emit('tool_use', {scene_id:'room',name:'read'});
+    f.emit('tool_result', {scene_id:'room',content:'done'});
+    f.emit('content_block_delta', {scene_id:'room',delta:{text:'first answer'}});
+    f.emit('message_stop', {scene_id:'room'});
+    await vi.advanceTimersByTimeAsync(20);
+    const first = f.state.items.find(i=>i.kind==='run')!;
+    expect(first).toMatchObject({outcome:'done'});
+    f.setPost(()=>Response.json({queued:true},{status:202}));
+    await f.runtime.send('follow-up', [], {mode:'interrupt'});
+    await vi.advanceTimersByTimeAsync(20);
+    expect(f.posts).toHaveLength(2);
+    const runs = f.state.items.filter(i=>i.kind==='run');
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatchObject({status:'queued',waitingForReply:true,entries:[]});
+    if (outcome === 'reply') {
+      f.emit('content_block_delta', {scene_id:'room',delta:{text:'follow-up answer'}});
+      f.emit('message_stop', {scene_id:'room'});
+    } else {
+      f.setActive(null);
+    }
+    await vi.advanceTimersByTimeAsync(outcome === 'reply' ? 20 : 320000);
+    expect(runs[1]).toMatchObject({outcome:outcome === 'reply' ? 'done' : 'timeout',end:expect.any(Number)});
+    expect(first).toMatchObject({outcome:'done'});
+    expect(f.state.items.filter(i=>i.kind==='run')).toHaveLength(2);
+    expect(f.fetcher.mock.calls.some(([url])=>new URL(url).pathname==='/api/stop')).toBe(false);
+  } finally {f.runtime.dispose();}
+});
+
+it.each(['reasoning', 'tool_use', 'content_block_delta'])('bounds an unresolved EOF after %s and releases another scene', async event => {
+  const f = await fixture();
+  try {
+    await f.runtime.send('task without reply');
+    await vi.advanceTimersByTimeAsync(20);
+    f.emit(event, {scene_id:'room',text:'planning',name:'read',delta:{text:''}});
+    await vi.advanceTimersByTimeAsync(20);
+    f.closeStream();
+    f.setActive(null);
+    await vi.advanceTimersByTimeAsync(20);
+    const run = f.state.items.find(i=>i.kind==='run')!;
+    expect(run).toMatchObject({status:'waiting',waitingForReply:true});
+    await f.runtime.selectScene({sceneId:'other',strict:true});
+    f.setPost(()=>Response.json({queued:true},{status:202}));
+    await f.runtime.send('next scene');
+    expect(f.posts).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(302000);
+    expect(run).toMatchObject({outcome:'timeout',waitingForReply:false});
+    expect(f.posts).toHaveLength(2);
+    expect(f.posts[1]).toMatchObject({message:expect.stringContaining('next scene'),scene_id:'other'});
+    expect(f.state.items.some(i=>i.kind==='message' && i.queued)).toBe(false);
+    expect(f.fetcher.mock.calls.some(([url])=>new URL(url).pathname==='/api/stop')).toBe(false);
+  } finally {f.runtime.dispose();}
+});
+
+it.each(['POST', 'reader before meta'])('shows a retryable error when a new %s fails after a completed stream', async failure => {
+  const f = await fixture();
+  try {
+    await f.runtime.send('first');
+    await vi.advanceTimersByTimeAsync(20);
+    f.emit('content_block_delta', {scene_id:'room',delta:{text:'first answer'}});
+    f.emit('message_stop', {scene_id:'room'});
+    f.closeStream();
+    f.setActive(null);
+    await vi.advanceTimersByTimeAsync(20);
+    f.setPost(()=>{
+      if (failure === 'POST') throw new TypeError('Failed to fetch');
+      return new Response(new ReadableStream({start(controller) { controller.error(new TypeError('Failed to fetch')); }}));
+    });
+    await f.runtime.send('second never delivered');
+    await vi.advanceTimersByTimeAsync(10000);
+    const attempts = failure === 'POST' ? 5 : 2;
+    expect(f.posts).toHaveLength(attempts);
+    const notice = f.state.items.find(i=>i.kind==='message' && i.role==='system' && i.retry);
+    expect(notice).toMatchObject({retry:expect.any(Function),retryLabel:'重试'});
+    expect(f.state.items.filter(i=>i.kind==='run').at(-1)).toMatchObject({outcome:'error'});
+    expect(f.state.sendWillQueue).toBe(false);
+    f.setPost(()=>Response.json({queued:true},{status:202}));
+    if (notice?.kind === 'message') await notice.retry!();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(f.posts).toHaveLength(attempts + 1);
+    expect(f.state.items.filter(i=>i.kind==='message' && i.text==='second never delivered')).toHaveLength(1);
+    expect(f.state.items.filter(i=>i.kind==='run').at(-1)).toMatchObject({status:'queued'});
+  } finally {f.runtime.dispose();}
+});
+
+it.each([false, true])('tracks a fresh 200 stream returned to a follow-up through EOF (final reply: %s)', async replied => {
+  const f = await fixture();
+  try {
+    await f.runtime.send('first');
+    await vi.advanceTimersByTimeAsync(20);
+    f.emit('content_block_delta', {scene_id:'room',delta:{text:'first answer'}});
+    f.emit('message_stop', {scene_id:'room'});
+    await vi.advanceTimersByTimeAsync(20);
+    const events = [
+      {event:'meta',data:{stream_id:'human-2',scene_id:'room'}},
+      {event:'reasoning',data:{scene_id:'room',text:'new task'}},
+      ...(replied ? [{event:'content_block_delta',data:{scene_id:'room',delta:{text:'new answer'}}}] : []),
+    ];
+    f.setPost(()=>new Response(events.map(({event,data})=>`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('')));
+    await f.runtime.send('follow-up', [], {mode:'interrupt'});
+    await vi.advanceTimersByTimeAsync(20);
+    f.closeStream();
+    f.setActive(null);
+    const runs = f.state.items.filter(i=>i.kind==='run');
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatchObject({status:replied ? 'done' : 'waiting'});
+    await vi.advanceTimersByTimeAsync(302000);
+    expect(runs[1]).toMatchObject({outcome:replied ? 'done' : 'timeout'});
+    expect(f.posts).toHaveLength(2);
+    expect(f.state.sendWillQueue).toBe(false);
+  } finally {f.runtime.dispose();}
+});
+
+it('still recovers a failed reader using the current stream identity', async () => {
+  const f = await fixture();
+  try {
+    await f.runtime.send('recover my answer');
+    await vi.advanceTimersByTimeAsync(20);
+    f.setActive({stream_id:'human-1',scene_id:'room',origin:'human',finished:true,next_seq:4,events:[
+      {seq:2,event:'content_block_delta',data:{scene_id:'room',delta:{text:'recovered answer'}}},
+      {seq:3,event:'message_stop',data:{scene_id:'room'}},
+    ]});
+    f.failStream();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.state.items.filter(i=>i.kind==='message' && i.text==='recovered answer')).toHaveLength(1);
+    expect(f.state.items.some(i=>i.kind==='message' && i.retry)).toBe(false);
+    expect(f.state.items.find(i=>i.kind==='run')).toMatchObject({outcome:'done'});
+    expect(f.posts).toHaveLength(1);
+  } finally {f.runtime.dispose();}
+});
 
 it.each(['callback', 'beating'])('discovers SBS %s while idle, lets a room interrupt it, and routes its continuation back to that room', async origin => {
   const f = await fixture();

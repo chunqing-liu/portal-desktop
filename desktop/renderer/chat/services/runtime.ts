@@ -2029,16 +2029,24 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
     if (sendOptions.attachmentDelivery) await sendOptions.attachmentDelivery(res.ok ? 'accepted' : res.status >= 500 ? 'unknown' : 'failed');
+    if (res.status === 202 || (res.ok && res.body)) {
+      // A reply can finish while its transport remains open. Accepted follow-ups
+      // need their own visible wait, without inheriting the completed tool log.
+      if (currentRun?.end) actionLogClear();
+      replyRunSettled = false;
+      pendingReply = { baseline: replyBaseline, submittedAt, phase: res.status === 202 ? "queued" : "processing",
+        autonomousOrigin: interruptedOrigin, interrupted: true };
+    }
     if (res.status === 202) {
       // Heart accepted this input for splice/yield. The Being decides whether
       // to resume, switch scene or delegate; 202 is not task completion.
-      pendingReply = { baseline: replyBaseline, submittedAt, phase: "queued", autonomousOrigin: interruptedOrigin, interrupted: true };
       updateSendButton();
       startCatchUpWatcher();
       return;
     }
     if (res.ok && res.body) {
       console.warn("splice 收到 200，本地 isStreaming 状态已脏，转入流读取");
+      currentStreamId = lastStreamId = null;
       isStreaming = false;
       setStatus("thinking");
       actionLogClear();
@@ -2046,7 +2054,7 @@ function createStreamRuntime(state: any, options: any): any {
       showThinkingIndicator();
       isStreaming = true;
       updateSendButton();
-      await driveChatStream(res, spliceMsg, [], replyBaseline, requestMessage, submittedAt, !!sendOptions.attachmentDelivery);
+      await driveChatStream(res, spliceMsg, [], requestMessage, !!sendOptions.attachmentDelivery);
       return;
     }
     // 非 200/202：主动排空 body，别让连接挂着
@@ -2092,6 +2100,9 @@ function createStreamRuntime(state: any, options: any): any {
     const requestMessage = stripLocalFileContext(isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withIntelligentUIContext(sendOptions.requestMessage ??
       options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction));
     turnContext = sceneTransitionNotice(requestMessage);
+    // Recovery identities belong to one request. A failed new POST (or reader
+    // before its first meta event) must not probe the previous completed turn.
+    currentStreamId = lastStreamId = null;
     replyRunSettled = false;
     pendingReply = { baseline: replyBaseline, submittedAt, phase: "processing" };
     autonomousStream = false;
@@ -2184,20 +2195,20 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
 
-    await driveChatStream(res, msg, filesToSend, replyBaseline, requestMessage, submittedAt, !!sendOptions.attachmentDelivery);
+    await driveChatStream(res, msg, filesToSend, requestMessage, !!sendOptions.attachmentDelivery);
   }
 
   // 读取循环 + 统一的异常处理 + 统一的收尾。
   // send() 和 spliceSend() 都走这里，保证 isStreaming / 队列 / 按钮在任何路径上都能复位。
-  async function driveChatStream(res: any, msg: any, filesToSend: any, replyBaseline = new Set(state.items), requestMessage = msg, submittedAt = Date.now(), attachmentAccepted = false) {
+  async function driveChatStream(res: any, msg: any, filesToSend: any, requestMessage = msg, attachmentAccepted = false) {
     let handedOff = false;
     try {
       const result = await consumeChatStream(res, msg, filesToSend);
-      if (result.outcome === "done" && result.empty && !result.handled) {
-        // EOF without any scene response is not evidence that the request completed.
-        pendingReply = { baseline: replyBaseline, submittedAt, phase: "reply" };
+      if (result.outcome === "done" && !result.handled && pendingReply) {
+        // Reasoning/tool events are not a final reply. Every unresolved EOF
+        // needs a bounded wait, retaining any newer splice request's baseline.
         removeThinkingIndicator();
-        startCatchUpWatcher();
+        settleReplyBoundary();
       }
       if (result.outcome === "switch_to_replay") {
         // watchdog probe 判定服务端仍在推进：SSE 管道死了但 breath 活着。
