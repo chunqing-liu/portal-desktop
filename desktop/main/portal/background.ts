@@ -8,6 +8,7 @@ import { redact, type Connection } from '../chat/connection';
 import { portalArguments, portalConfig } from './supervisor';
 import { readPortalSample, readPortalReady, portalSampleState } from './status';
 import type { BackgroundState, PortalState, Settings } from '../../shared/types';
+import { permissionMode } from '../../shared/security';
 import { windowsEnvironment, windowsExecutable } from './windows';
 
 // No shell interpolation or credentials in command arguments. Windows DPAPI input uses stdin.
@@ -59,7 +60,8 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 export interface Service { label: string; file: string; root: string; existing: boolean; kind?: 'portable'; login?: boolean; name?: string; beingEndpoint?: string; environmentPath?: string; environment?: Record<string, string>; fingerprint?: string; bundleId?: string; configPath?: string; generatedConfig?: boolean; cwd?: string; binary?: string }
 export function fingerprint(settings: Settings, connection: Connection) {
   return hash(JSON.stringify([connection.link, settings.portalBinary, settings.portalConfigPath, settings.portalName,
-    settings.workspace, settings.portalEnvironmentPath, settings.allowExec, settings.kitsEnabled, 'client-tools-v5-scene-context']));
+    settings.workspace, settings.portalEnvironmentPath, settings.allowExec, settings.kitsEnabled,
+    permissionMode(settings.permissionMode), 'client-tools-v6-permission-mode']));
 }
 export function launchAgent(label: string, root: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>

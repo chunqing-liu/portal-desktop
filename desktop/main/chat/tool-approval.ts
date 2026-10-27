@@ -23,7 +23,9 @@ export class ToolApproval {
     try {
       const allowed = await this.prompt({ title: '工具操作审批',
         message: `允许 ${value.tool} 执行这一次操作？`,
-        detail: (value.isolation === 'windows-lpac-offline' ? 'Windows 沙箱 · 仅授权工作区 · 禁止网络\n\n' : '本机工具 · 可能访问网络或工作区外数据\n\n') +
+        detail: (value.isolation === 'windows-lpac-offline' ? 'Windows 沙箱 · 仅授权工作区 · 禁止网络\n\n' :
+          value.isolation === 'macos-seatbelt-offline' ? 'macOS 沙箱 · 仅授权工作区及系统运行库 · 禁止网络\n\n' :
+          '本机工具 · 可能访问网络或工作区外数据\n\n') +
           detail.replace(/[\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`), signal });
       return allowed && !signal.aborted && this.mode() === 'supervised' ? 'allow-once' : 'deny';
     } finally { this.busy = false; }

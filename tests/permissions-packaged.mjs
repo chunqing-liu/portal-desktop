@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { mkdtemp, mkdir, readFile, access, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, access, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { launchDesktop } from './support/electron-lifecycle.mjs';
@@ -32,12 +32,12 @@ sockets.on('connection',socket => {
   });
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-function call(command) {
+function call(command, name = 'portal_exec', args = {command}) {
   return new Promise((resolve,reject)=>{
     const id=++nextId;
     const timer=setTimeout(()=>{pending.delete(id);reject(new Error('Tool call timed out'));},30000);
     pending.set(id,{resolve,timer});
-    relay.send(JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name:'portal_exec',arguments:{command}}}));
+    relay.send(JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:args}}));
   });
 }
 async function reconnectedAfter(generation) {
@@ -154,11 +154,38 @@ try {
   assert.match(JSON.stringify(await denied),/approval|denied|rejected/i);
   await assert.rejects(access(path.join(workspace,'denied.txt')));
   const approved=call('echo approved>approved.txt');
+  await page.getByRole('button',{name:'允许这一次'}).waitFor();
+  assert.equal(await page.evaluate(()=>document.activeElement?.textContent),'拒绝');
+  if(process.platform==='darwin') await page.getByText('macOS 沙箱',{exact:false}).waitFor();
+  await page.screenshot({path:'output/playwright/permissions-approved-sandbox.png'});
   await page.getByRole('button',{name:'允许这一次'}).click();
   const result=await approved;
   assert.equal(result.error,undefined,JSON.stringify(result));
   assert.notEqual(result.result?.isError,true,JSON.stringify(result));
   assert.match(await readFile(path.join(workspace,'approved.txt'),'utf8'),/approved/);
+  if(process.platform==='darwin') {
+    await writeFile(path.join(directory,'outside-secret'), 'private-test-content');
+    const outside=call('cat ../outside-secret');
+    await page.getByRole('button',{name:'允许这一次'}).click();
+    const blocked=await outside;
+    assert.equal(blocked.result?.isError,true,JSON.stringify(blocked));
+    assert.doesNotMatch(JSON.stringify(blocked),/private-test-content/);
+  }
+  await chat.getByRole('button',{name:'快捷设置工作权限'}).click();
+  const beforeFull=relayGeneration;
+  await menu.getByRole('menuitemradio',{name:/完全信任/}).click();
+  await reconnectedAfter(beforeFull);
+  const full=await call('echo full>full.txt');
+  assert.notEqual(full.result?.isError,true,JSON.stringify(full));
+  assert.match(await readFile(path.join(workspace,'full.txt'),'utf8'),/full/);
+  await chat.getByRole('button',{name:'快捷设置工作权限'}).click();
+  const beforeFinalReadonly=relayGeneration;
+  await menu.getByRole('menuitemradio',{name:/只读/}).click();
+  await reconnectedAfter(beforeFinalReadonly);
+  assert.match(JSON.stringify(await call('echo forbidden>readonly.txt')),/denied by permission mode/);
+  const readonlyWrite=await call('', 'portal_file_write', {path:'readonly.txt',content:'blocked'});
+  assert.match(JSON.stringify(readonlyWrite),/denied by permission mode/);
+  await assert.rejects(access(path.join(workspace,'readonly.txt')));
   console.log('PASS packaged app: unified add menu handles keyboard, UI toggles, examples and real file chooser; composer and menus fit 900/640/380/300px; permission dropdown and real approval/sandbox execution work.');
 } finally {
   if(page) await page.evaluate(()=>window.beings.stopPortal()).catch(()=>{});

@@ -54,3 +54,14 @@ it('does not turn rejection or a dialog failure into authorization', async () =>
   await expect(approval.request(request, signal)).rejects.toThrow('window closed');
   await expect(approval.request(request, signal)).rejects.toThrow('window closed');
 });
+
+it.each([
+  ['macos-seatbelt-offline', 'macOS 沙箱'],
+  ['windows-lpac-offline', 'Windows 沙箱'],
+  ['host-tool', '本机工具'],
+])('describes the actual %s isolation in the approval', async (isolation, label) => {
+  const prompt = vi.fn(async () => true);
+  const approval = new ToolApproval(() => 'supervised', prompt);
+  await approval.request({ ...request, args: JSON.stringify({ ...JSON.parse(request.args), isolation }) }, new AbortController().signal);
+  expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ detail: expect.stringContaining(label) }));
+});

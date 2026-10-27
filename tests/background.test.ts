@@ -236,3 +236,18 @@ it.skipIf(process.platform === 'win32')('shows terminal startup failure and expl
   await expect(readFile(path.join(root, '.portal-start-failure'))).rejects.toMatchObject({ code: 'ENOENT' });
   await expect(readFile(path.join(root, '.portal-start-attempt'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
+
+it.skipIf(process.platform === 'win32')('rebuilds background policy on every permission change and reuses equivalent default settings', async () => {
+  const f = await fixture();
+  for (const mode of ['full-access', 'read-only', 'supervised'] as const) {
+    const previousRoot = f.service.installedService?.root;
+    await f.service.enable({ ...f.settings, permissionMode: mode }, f.connection);
+    const service = f.service.installedService!;
+    expect(service.root).not.toBe(previousRoot);
+    expect(await readFile(path.join(service.root, 'run.sh'), 'utf8')).toContain(`'--permission-mode' '${mode}'`);
+    expect(await readFile(service.configPath!, 'utf8')).toContain(`permission_mode = "${mode}"`);
+  }
+  const supervisedRoot = f.service.installedService!.root;
+  await f.service.enable(f.settings, f.connection);
+  expect(f.service.installedService!.root).toBe(supervisedRoot);
+});
