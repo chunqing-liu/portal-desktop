@@ -56,6 +56,9 @@ export function BeingModelSettings({
   onBusy,
   mobilePage = false,
   fallback,
+  profilesSection,
+  profileBusy = false,
+  onKeySaved,
 }: {
   state: ChatState;
   runtime: Pick<ChatRuntime, "loadLlmConfig" | "applyConfigChange"> &
@@ -67,6 +70,9 @@ export function BeingModelSettings({
   onBusy?: (busy: boolean) => void;
   mobilePage?: boolean;
   fallback: ReactNode;
+  profilesSection?: ReactNode;
+  profileBusy?: boolean;
+  onKeySaved?: (provider: string, base_url: string | undefined, key: string) => void;
 }) {
   useModel(state);
   const [legacy, setLegacy] = useState(false);
@@ -87,6 +93,7 @@ export function BeingModelSettings({
     base_url: "",
     model: "",
     provider: "openai",
+    api: "openai-completions",
   });
   const [reload, setReload] = useState(0);
   const cache = useRef(new Map<string, ModelList>());
@@ -108,7 +115,7 @@ export function BeingModelSettings({
   const current = cache.current
     .get(state.config.provider || "")
     ?.models.find((item) => item.id === state.config.model);
-  const disabled = busy || state.configLoading;
+  const disabled = busy || profileBusy || state.configLoading;
   const showKey =
     routeId !== "custom" &&
     route &&
@@ -249,6 +256,7 @@ export function BeingModelSettings({
       if (!response.ok || !data.ok)
         throw new Error(data.error || "密钥保存失败。");
       if (!mounted.current) return;
+      onKeySaved?.(route.id, route.base_url, key.trim());
       setKey("");
       setNeedsKey(false);
       setRoutes((items) =>
@@ -272,7 +280,8 @@ export function BeingModelSettings({
     const patch =
       routeId === "custom"
         ? {
-            ...custom,
+            provider: custom.provider,
+            ...(custom.provider === "portal-custom" ? { api: custom.api } : {}),
             base_url: custom.base_url.trim(),
             model: custom.model.trim(),
             ...(key.trim() ? { api_key: key.trim() } : {}),
@@ -500,6 +509,7 @@ export function BeingModelSettings({
                 <p className="hint">{capabilities(current)}</p>
               )}
             </section>
+            {profilesSection}
             <div className="model-parameter">
               <div className="parameter-heading">思考深度</div>
               <div
@@ -671,6 +681,9 @@ export function BeingModelSettings({
                       ["anthropic", "Anthropic"],
                       ["google", "Google"],
                       ["openai-responses", "OpenAI Responses"],
+                      ["glm", "智谱"],
+                      ["self-hosted", "自部署"],
+                      ["portal-custom", "自定义接口"],
                     ].map(([value, label]) => (
                       <option key={value} value={value}>
                         {label}
@@ -678,6 +691,14 @@ export function BeingModelSettings({
                     ))}
                   </select>
                 </div>
+                {custom.provider === "portal-custom" && <div className="settings-section">
+                  <label className="field-label" htmlFor={id("llm-custom-api")}>接口协议</label>
+                  <select id={id("llm-custom-api")} className="field-input" disabled={disabled} value={custom.api}
+                    onChange={event => setCustom(value => ({ ...value, api: event.target.value }))}>
+                    {["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"].map(value =>
+                      <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </div>}
                 <div className="settings-section">
                   <label className="field-label" htmlFor={id("llm-custom-key")}>
                     API 密钥

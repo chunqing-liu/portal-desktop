@@ -129,6 +129,22 @@
 @container model-settings (max-width:360px){#settings-panel .provider-items{grid-template-columns:1fr}#settings-panel .parameter-heading{flex-wrap:wrap}#settings-panel .parameter-hint{max-width:none;text-align:left}}
 
 /* Route-based Being catalog. The local subagent keeps its separate credentials. */
+#settings-panel .model-profile-section{margin:0 0 24px}
+#settings-panel .model-profile-list{list-style:none;padding:0;margin:12px 0}
+#settings-panel .model-profile-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
+#settings-panel .model-profile-copy{flex:1 1 150px;min-width:0}
+#settings-panel .model-profile-name{font-size:13px;font-weight:600;line-height:1.6;overflow-wrap:anywhere}
+#settings-panel .model-profile-detail,#settings-panel .model-profile-hint{color:var(--text-dim);font-size:11px;line-height:1.8;overflow-wrap:anywhere}
+#settings-panel .model-profile-hint{margin:8px 0}
+#settings-panel .model-profile-current{display:inline-block;margin-left:7px;padding:1px 6px;border-radius:5px;background:var(--accent-tint);color:var(--accent);font-size:10px;font-weight:500}
+#settings-panel .model-profile-actions{display:flex;flex-wrap:wrap;gap:6px}
+#settings-panel .model-profile-actions button,#settings-panel .model-profile-save{padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--accent);font:12px/1.5 var(--font-sans);cursor:pointer}
+#settings-panel .model-profile-actions button:hover:not(:disabled),#settings-panel .model-profile-save:hover:not(:disabled){background:var(--accent-tint);border-color:var(--accent-border)}
+#settings-panel .model-profile-form{margin-top:12px}
+#settings-panel .model-profile-form label{display:block;margin-bottom:8px;font-size:12px}
+#settings-panel .model-profile-input{width:100%;box-sizing:border-box;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font:13px/1.5 var(--font-sans)}
+#settings-panel .model-profile-input:focus{outline:2px solid var(--accent-border);outline-offset:1px}
+#settings-panel .model-profile-section button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #settings-panel .llm-current-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
 #settings-panel .model-indicator.missing-key{background:var(--text-dim);opacity:.5}
 #settings-panel .llm-route-settings .step2-back{margin-bottom:22px}

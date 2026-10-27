@@ -44,6 +44,7 @@ import { BackgroundPortal } from './portal/background';
 import { KitInstaller } from './kits/install';
 import { ChatProxy } from './chat/proxy';
 import { RecentChatHistory } from './chat/recent-history';
+import { ModelProfileStore, handleModelProfiles } from './chat/model-profiles';
 import { loadDesktopScene, ChatSessions } from './chat/scene';
 import { verifyBeingConnection } from './chat/ready';
 import { redact } from './chat/connection';
@@ -190,6 +191,13 @@ async function ready() {
   let startupNotice: string | undefined;
   try { await store.load(); }
   catch (error) { startupNotice = errorLog.report('settings-load', error, '连接配置读取失败，请检查密钥库或连接设置。'); }
+  const modelProfiles = new ModelProfileStore(directory, secretStorage);
+  let modelProfilesError: unknown;
+  try { await modelProfiles.load(); }
+  catch (error) {
+    modelProfilesError = error;
+    errorLog.report('model-profiles-load', error, '模型档案读取失败，请检查本地档案文件。');
+  }
   let configCandidates: string[] = [];
   const reusePreviousConfig = async () => {
     await store.reusePortalConfig(configCandidates);
@@ -679,9 +687,9 @@ async function ready() {
     }));
     return { status: response.status, data: await response.json().catch(() => ({ error: '无法读取模型目录。' })) };
   });
-  handle('beings:model-config', async (patch?: Record<string, unknown>) => {
+  const beingModelConfig = async (patch?: Record<string, unknown>) => {
     if (patch !== undefined && (!patch || Array.isArray(patch) || typeof patch !== 'object' ||
-      Object.entries(patch).some(([key, value]) => !['model', 'provider', 'base_url', 'api_key', 'thinking', 'temperature', 'rollback'].includes(key) || !['string', 'number', 'boolean'].includes(typeof value)) || JSON.stringify(patch).length > 16384))
+      Object.entries(patch).some(([key, value]) => !['model', 'provider', 'base_url', 'api', 'api_key', 'thinking', 'temperature', 'rollback'].includes(key) || !['string', 'number', 'boolean'].includes(typeof value)) || JSON.stringify(patch).length > 16384))
       throw new Error('无效的模型配置。');
     const response = await proxy.handle(new Request('beings://chat/api/llm/config', {
       method: patch === undefined ? 'GET' : 'PATCH',
@@ -691,6 +699,11 @@ async function ready() {
     const data = await response.json();
     if (!response.ok && patch === undefined) throw new Error(data.error || '无法读取或保存 Being 模型配置。');
     return { ...data, ...(!response.ok ? { ok: false, http_status: data.http_status || response.status } : {}) };
+  };
+  handle('beings:model-config', beingModelConfig);
+  handle('beings:model-profiles', async (input: unknown) => {
+    if (modelProfilesError) throw modelProfilesError;
+    return handleModelProfiles(input, modelProfiles, beingModelConfig);
   });
   const taskSnapshot = async (tasks: import('../shared/types').SceneTask[]) => {
     const endpoint = store.connection?.endpoint || '';

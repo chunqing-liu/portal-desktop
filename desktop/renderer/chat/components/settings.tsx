@@ -1,8 +1,9 @@
 import { BeingModelSettings } from "./being-model-settings";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChatRuntime, ChatState, Preset } from "../models/chat";
 import { useModel } from "../../shared/hooks/use-model";
 import { NavigationControls } from "../../shared/components/navigation-controls";
+import { useModelProfiles } from "./model-profiles";
 
 const baseUrls: Record<string, string> = {
   anthropic: "https://api.anthropic.com",
@@ -59,6 +60,8 @@ function LegacyChatSettings({
   catalogHint,
   onEnableSubagent,
   mobilePage = false,
+  profilesSection,
+  profileBusy = false,
 }: {
   state: ChatState;
   runtime: Pick<ChatRuntime, "loadLlmConfig" | "applyConfigChange"> & Partial<Pick<ChatRuntime, "request">>;
@@ -74,6 +77,8 @@ function LegacyChatSettings({
   catalogHint?: string;
   onEnableSubagent?: () => Promise<void>;
   mobilePage?: boolean;
+  profilesSection?: ReactNode;
+  profileBusy?: boolean;
 }) {
   useModel(state);
   const subagent = target === "subagent";
@@ -124,7 +129,7 @@ function LegacyChatSettings({
       preset,
     ]);
   }
-  const disabled = busy || state.configLoading;
+  const disabled = busy || profileBusy || state.configLoading;
   useEffect(() => { onBusy?.(busy); }, [busy, onBusy]);
   async function enableSubagent() {
     if (disabled || !onEnableSubagent) return;
@@ -200,7 +205,7 @@ function LegacyChatSettings({
         model,
         ...(draft.provider.trim() ? { provider: draft.provider.trim() } : {}),
         ...((!subagent || draft.provider === "portal-custom") && draft.baseUrl.trim() ? { base_url: draft.baseUrl.trim() } : {}),
-        ...(subagent && draft.provider === "portal-custom" ? { api: draft.api || "openai-completions" } : {}),
+        ...(draft.provider === "portal-custom" ? { api: draft.api || "openai-completions" } : {}),
         ...(subagent ? { thinking } : {}),
         ...(draft.apiKey.trim() ? { api_key: draft.apiKey.trim() } : {}),
       });
@@ -297,6 +302,7 @@ function LegacyChatSettings({
             {subagent && state.config.model && <button type="button" className="llm-custom-link" disabled={disabled} onClick={() => select({ id: "__custom", provider: state.config.provider || "", model: state.config.model || "", base_url: state.config.base_url, api: state.config.api, label: "编辑 subagent 模型" })}>编辑配置</button>}
           </section>
 
+          {!subagent && profilesSection}
           <section
             className="model-catalog"
             aria-labelledby={fieldId("model-catalog-title")}
@@ -643,7 +649,7 @@ function LegacyChatSettings({
                       : "如需更新密钥，可在此填写。"}
               </p>
             </div>
-            {subagent && draft.provider === 'portal-custom' && <div className="settings-section">
+            {draft.provider === 'portal-custom' && <div className="settings-section">
               <label className="field-label" htmlFor={fieldId('s2-api')}>接口协议</label>
               <select id={fieldId('s2-api')} className="field-input" value={draft.api} disabled={disabled} onChange={event => update({ api: event.target.value })}>
                 {['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'].map(value => <option key={value} value={value}>{value}</option>)}
@@ -687,6 +693,13 @@ function LegacyChatSettings({
 }
 
 export function ChatSettings(props: Parameters<typeof LegacyChatSettings>[0]) {
-  if (props.target === "subagent" || !props.runtime.request) return <LegacyChatSettings {...props} />;
-  return <BeingModelSettings {...props} fallback={<LegacyChatSettings {...props} />} />;
+  const [panelBusy, setPanelBusy] = useState(false);
+  const profiles = useModelProfiles({
+    state: props.state, runtime: props.runtime, open: props.open,
+    enabled: props.target !== "subagent" && !props.mobilePage, busy: panelBusy,
+  });
+  useEffect(() => { props.onBusy?.(panelBusy || profiles.busy); }, [props.onBusy, panelBusy, profiles.busy]);
+  const panelProps = { ...props, runtime: profiles.runtime, onBusy: setPanelBusy, profilesSection: profiles.section, profileBusy: profiles.busy };
+  if (props.target === "subagent" || !props.runtime.request) return <LegacyChatSettings {...panelProps} />;
+  return <BeingModelSettings {...panelProps} onKeySaved={profiles.onKeySaved} fallback={<LegacyChatSettings {...panelProps} />} />;
 }
