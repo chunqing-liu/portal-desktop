@@ -10,9 +10,29 @@ it('compares semantic versions and constructs release links from the trusted rep
   const checker = new UpdateChecker('0.1.9', 'd5z/portal-desktop', (async (url, options) => {
     expect(url).toBe('https://api.github.com/repos/d5z/portal-desktop/releases/latest');
     expect(options?.redirect).toBe('error');
+    expect(options?.cache).toBe('no-store');
     return Response.json({ ...release('v0.1.10'), html_url: 'https://evil.invalid' });
   }) as typeof fetch);
   expect(await checker.check()).toMatchObject({ phase: 'available', latestVersion: '0.1.10', releaseUrl: 'https://github.com/d5z/portal-desktop/releases/tag/v0.1.10' });
+});
+
+it.each([
+  ['timeout', () => { throw new DOMException('deadline', 'TimeoutError'); }, '超时'],
+  ['network', () => { throw new TypeError('net::ERR_NETWORK_CHANGED'); }, '网络或代理'],
+  ['rate limit', () => new Response('', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }), '限流'],
+  ['server', () => new Response('', { status: 503 }), 'HTTP 503'],
+  ['invalid metadata', () => new Response('{broken'), '更新信息读取失败'],
+] as const)('releases a failed %s check and retries without restarting', async (_, fail, message) => {
+  let calls = 0;
+  const errors: unknown[] = [];
+  const checker = new UpdateChecker('0.1.10', 'd5z/portal-desktop', (async () => {
+    if (++calls === 1) return fail();
+    return Response.json(release('v0.1.11'));
+  }) as typeof fetch, undefined, 'darwin', 'arm64', error => errors.push(error));
+  expect(await checker.check()).toMatchObject({ phase: 'unavailable', latestVersion: undefined, message: expect.stringContaining(message) });
+  expect(errors).toHaveLength(1);
+  expect(await checker.check()).toMatchObject({ phase: 'available', latestVersion: '0.1.11' });
+  expect(calls).toBe(2);
 });
 it('does not offer installation without exactly one matching platform package and checksum manifest', async () => {
   const metadata = release();

@@ -1,0 +1,6 @@
+{"op":"begin","version":2,"surfaceId":"wonton-2026-10-27","title":"馄饨：从和馅到出锅"}
+{"op":"state","key":"fold","initial":"①"}
+{"op":"node","node":{"id":"top","type":"hero","label":"馄饨：从和馅到出锅","value":"一份馅、一叠皮，五十分钟出一锅","meta":"先调馅 → 包三下 → 宽水下锅 → 碗底冲汤"}}
+{"op":"node","node":{"id":"fold-map","type":"diagram","label":"包法示意","bind":"fold","width":360,"height":130,"parts":[{"id":"①","label":"馅放中间"},{"id":"②","label":"对折成三角"},{"id":"③","label":"两角捏拢"}],"shapes":[{"type":"text","x":54,"y":20,"text":"①","part":"①"},{"type":"rect","x":25,"y":32,"width":70,"height":52,"part":"①"},{"type":"circle","x":60,"y":58,"r":9,"part":"①"},{"type":"text","x":174,"y":20,"text":"②","part":"②"},{"type":"rect","x":145,"y":32,"width":70,"height":52,"part":"②"},{"type":"line","x":145,"y":32,"x2":180,"y2":84,"part":"②"},{"type":"line","x":215,"y":32,"x2":180,"y2":84,"part":"②"},{"type":"text","x":294,"y":20,"text":"③","part":"③"},{"type":"rect","x":265,"y":32,"width":70,"height":52,"part":"③"},{"type":"circle","x":278,"y":80,"r":6,"part":"③"},{"type":"circle","x":322,"y":80,"r":6,"part":"③"},{"type":"line","x":278,"y":80,"x2":300,"y2":92,"part":"③"},{"type":"line","x":322,"y":80,"x2":300,"y2":92,"part":"③"}]}}
+{"op":"node","node":{"id":"go","type":"button","label":"按这份流程生成采购清单","action":"continue","value":"按这份馄饨流程生成采购清单，人数用 4 人，含馅料、皮和碗底调料","variant":"primary"}}
+{"op":"commit"}

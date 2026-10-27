@@ -4,10 +4,12 @@ import type { ComponentProps } from 'react';
 import type { SceneTask } from '../../../shared/types';
 import { splitSchedulingHint } from '../models/scheduling';
 import { Markdown } from '../../shared/components/markdown';
+import { CommandMessageMarkdown } from './command-message';
 
-export function ScheduledMessage({ text, streaming, chat, onPlace, intelligentUI = false, storageKey, onContinue, onSnapshot, onEdit, messageId }: UIActions & { text: string; streaming: boolean; messageId?: string; chat?: boolean; intelligentUI?: boolean; onPlace?: ComponentProps<typeof Markdown>['onPlace'] }) {
+export function ScheduledMessage({ text, streaming, chat, onPlace, intelligentUI = false, commandLabels = false, storageKey, onContinue, onSnapshot, onEdit, messageId }: UIActions & { text: string; streaming: boolean; messageId?: string; chat?: boolean; intelligentUI?: boolean; commandLabels?: boolean; onPlace?: ComponentProps<typeof Markdown>['onPlace'] }) {
   const content = splitSchedulingHint(text);
   if (intelligentUI) return <IntelligentAnswer messageId={messageId} text={content.text} streaming={streaming} onPlace={onPlace} storageKey={storageKey} onContinue={onContinue} onSnapshot={onSnapshot} onEdit={onEdit} />;
+  if (commandLabels) return <CommandMessageMarkdown content={content.text} className="content" chat={chat} onPlace={onPlace} />;
   return <>
     <Markdown content={content.text} className={`content${streaming ? ' stream-cursor' : ''}`} chat={chat} onPlace={onPlace} intelligentUI={intelligentUI} streaming={streaming} />
 

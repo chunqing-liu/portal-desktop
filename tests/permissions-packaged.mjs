@@ -65,19 +65,18 @@ try {
   const addMenu=chat.getByRole('menu',{name:'添加附件和工具',exact:true});
   await add.click();await addMenu.waitFor();
   assert.equal(await chat.locator('.iui-trigger, .iui-message-option').count(),0);
-  assert.equal(await addMenu.getByRole('menuitemcheckbox',{name:'本条使用智能 UI'}).isDisabled(),true);
-  await addMenu.press('ArrowDown');await addMenu.press('Enter');
-  assert.equal(await addMenu.getByRole('menuitemcheckbox',{name:'启用智能 UI'}).getAttribute('aria-checked'),'true');
-  assert.equal(await addMenu.getByRole('menuitemcheckbox',{name:'本条使用智能 UI'}).getAttribute('aria-checked'),'true');
+  assert.equal(await addMenu.getByRole('menuitem',{name:/智能 UI.*\/ui/}).isEnabled(),true);
   await addMenu.screenshot({path:'output/playwright/composer-add-menu-light.png'});
   await chat.locator('html').evaluate(el=>el.dataset.theme='dark');
   await addMenu.screenshot({path:'output/playwright/composer-add-menu-dark.png'});
   await chat.locator('html').evaluate(el=>el.dataset.theme='light');
   await addMenu.press('Escape');await addMenu.waitFor({state:'hidden'});
-  await add.click();await addMenu.getByRole('menuitemcheckbox',{name:'本条使用智能 UI'}).click();
-  await addMenu.waitFor({state:'hidden'});assert.equal(await add.getAttribute('data-active'),'false');
-  await add.click();await addMenu.getByRole('menuitemcheckbox',{name:'本条使用智能 UI'}).click();
-  assert.equal(await add.getAttribute('data-active'),'true');
+  await add.click();await addMenu.getByRole('menuitem',{name:/智能 UI.*\/ui/}).click();
+  await addMenu.waitFor({state:'hidden'});
+  assert.equal((await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown())).trim(),'/ui');
+  await add.click();await addMenu.getByRole('menuitem',{name:/出图.*\/image/}).click();
+  assert.equal((await chat.locator('#input').evaluate(el => el.value ?? el.editor.getMarkdown())).trim(),'/ui /image');
+  await chat.locator('#input').fill('');
   await add.click();await chat.locator('#messages').click({position:{x:10,y:10}});await addMenu.waitFor({state:'hidden'});
   await add.click();await add.click();await addMenu.waitFor({state:'hidden'});
   await add.click();
@@ -89,8 +88,8 @@ try {
   await addMenu.waitFor({state:'hidden'});
   await chat.getByRole('button',{name:'移除 add-menu-test.txt',exact:true}).click();
   await add.click();await addMenu.getByRole('menuitem',{name:/交互示例/}).click();
-  await chat.getByRole('combobox',{name:'选择交互示例'}).waitFor();
-  await chat.getByRole('button',{name:'关闭交互示例'}).click();
+  await page.frameLocator('.ui-examples-frame').getByRole('combobox',{name:'选择交互示例'}).waitFor();
+  await page.getByRole('button',{name:'回到对话',exact:true}).click();
   for(const width of [900,640,380,300]) {
     await page.locator('#chat-frame').evaluate((el,w)=>{el.style.width=`${w}px`;el.style.maxWidth='none';},width);
     const metrics=await chat.locator('#input-row').evaluate(row=>{

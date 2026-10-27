@@ -1136,3 +1136,5 @@ button.being-history-row:hover{background:var(--hover)}
 .being-history-text{display:block;flex:1;min-width:0}
 .being-history-preview{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:500;line-height:1.6}
 .being-history-time{display:block;margin-top:3px;color:var(--secondary);font-size:11px;line-height:1.5}
+
+.ui-examples-frame{display:block;flex:1;width:100%;min-height:0;border:0;background:var(--bg)}

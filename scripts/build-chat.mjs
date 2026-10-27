@@ -42,6 +42,7 @@ await writeFile(path.join(output, "chat.css"),
   await readFile("desktop/renderer/shared/components/remote-image.css", "utf8") + "\n" +
   await readFile("desktop/renderer/chat/styles.css", "utf8") + "\n" +
   await readFile("desktop/renderer/shared/components/rich-composer.css", "utf8") + "\n" +
+  await readFile("desktop/renderer/chat/components/intelligent-ui-examples.css", "utf8") + "\n" +
   await readFile("desktop/renderer/shared/model-settings.css", "utf8"));
 await writeThirdPartyLicenses(
   path.join(output, "THIRD-PARTY-LICENSES.txt"),

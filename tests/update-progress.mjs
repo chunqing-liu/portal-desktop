@@ -14,8 +14,15 @@ const bundle = await build({ stdin: { contents: `
     platform: 'win32',
     checkUpdates: () => {
       window.checks = (window.checks || 0) + 1;
-      return new Promise(resolve => { window.finishCheck = phase => resolve({ ...app.update, phase, latestVersion: '0.2.0', message: phase === 'current' ? '当前已是最新正式版本。' : '发现新版本' }); });
+      return new Promise((resolve, reject) => {
+        window.finishCheck = phase => resolve({ ...app.update, phase, latestVersion: '0.2.0', message: phase === 'current' ? '当前已是最新正式版本。' : phase === 'unavailable' ? '无法连接更新服务' : '发现新版本' });
+        window.failCheck = () => reject(new Error('检查更新 IPC 中断'));
+      });
     },
+    updateState: () => new Promise(resolve => { window.finishInitialUpdate = resolve; }),
+    onUpdate: listener => { window.sendUpdate = listener; return () => {}; },
+    onPortal: () => () => {},
+    onNotificationOpen: () => () => {},
     downloadUpdate: () => {
       window.downloads = (window.downloads || 0) + 1;
       return new Promise((resolve, reject) => { finishDownload = resolve; failDownload = reject; });
@@ -27,6 +34,11 @@ const bundle = await build({ stdin: { contents: `
     installUpdate: async () => { window.installations = (window.installations || 0) + 1; },
   });
   app.update = { phase: 'idle', currentVersion: '0.1.0', message: '尚未检查更新', releaseUrl: '' };
+  // Exercise the real update subscription/bootstrap while isolating unrelated services.
+  app.plugins.refresh = async () => {};
+  app.plugins.start = app.workspace.start = app.town.start = () => () => {};
+  app.initialize = async () => {};
+  app.start();
   window.updateActivity = activity => { app.update = { ...app.update, activity }; app.changed(); if (activity?.phase === 'ready') finishDownload?.(); };
   window.failDownload = () => failDownload(new Error('下载失败，请重试'));
   window.app = app;
@@ -56,9 +68,28 @@ try {
   await page.evaluate(() => window.finishCheck('current'));
   await page.getByRole('button', { name: '手动检查更新' }).waitFor();
   assert.equal(await page.evaluate(() => window.app.toastMessage), '当前已是最新正式版本。');
+  // A delayed bootstrap snapshot must not overwrite a completed live check.
+  await page.evaluate(async () => {
+    window.sendUpdate({ ...window.app.update, phase: 'current' });
+    window.finishInitialUpdate({ ...window.app.update, phase: 'checking' });
+    await Promise.resolve();
+  });
+  assert.equal(await page.evaluate(() => window.app.update.phase), 'current');
+  await page.getByRole('button', { name: '手动检查更新' }).click();
+  await page.evaluate(() => {
+    window.sendUpdate({ ...window.app.update, phase: 'checking' });
+    window.failCheck();
+  });
+  await page.getByRole('button', { name: '手动检查更新', disabled: false }).waitFor();
+  assert.equal(await page.evaluate(() => window.app.update.phase), 'unavailable');
+  // An ordinary network failure must also allow retry on this same page.
+  await page.getByRole('button', { name: '手动检查更新' }).click();
+  await page.evaluate(() => window.finishCheck('unavailable'));
+  await page.getByRole('button', { name: '手动检查更新', disabled: false }).waitFor();
   await page.getByRole('button', { name: '手动检查更新' }).click();
   await page.evaluate(() => window.finishCheck('available'));
   await page.getByRole('button', { name: '下载更新 v0.2.0' }).waitFor();
+  assert.equal(await page.evaluate(() => window.checks), 4);
   assert.equal(await page.locator('#options-trigger').getAttribute('aria-expanded'), 'true');
   await mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/update-menu-available.png' });

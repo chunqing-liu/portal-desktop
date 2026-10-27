@@ -6,9 +6,8 @@ import { AttachmentMessageContent, hasAttachmentMessage, originalMessageText } f
 import { ImageGenerationAnswer } from './components/image-generation';
 import { SurfaceContext } from '../shared/intelligent-ui/surface-view';
 import { SurfaceTimeline } from '../shared/intelligent-ui/surfaces';
-import { templates, toUIStream } from "../shared/intelligent-ui/templates";
 import { useMessageScroll } from "./hooks/use-message-scroll";
-import { IntelligentUI } from "../shared/intelligent-ui/view";
+import { IntelligentUIExamples, type UIExampleId } from "./components/intelligent-ui-examples";
 import { ConversationSearch, searchEntries } from "./services/conversation-search";
 import { replyBubbles, historyTargetBubble } from "./models/reply-bubbles";
 import { ScheduledMessage } from './components/scheduling';
@@ -37,12 +36,12 @@ import { CodeClipboard, Markdown } from "../shared/components/markdown";
 import { type ComposerHandle } from "../shared/components/rich-composer";
 import { ChatComposer } from "./components/composer";
 import { ComposerAddMenu } from './components/composer-add-menu';
+import { canUseComposerCommand, parseComposerCommands } from './models/composer-commands';
 import { CopyMessage } from '../shared/components/copy-message';
 import { TemperatureGlow, ChatActivity } from "./components/messages";
 import { SceneLoading } from './components/scene-loading';
 import { ChatSettings } from "./components/settings";
 import { ChatInfoPanels } from "./components/panels";
-import { SubagentSetupHint } from "./components/subagent-hint";
 import { EditContextMenu } from "../shared/components/context-menu";
 import { ChatIndex, JumpToLatest } from "./components/navigation";
 import type { ChatBridge } from "./services/bridge";
@@ -172,8 +171,10 @@ function ChatView({
   const queueShortcut = isMac ? "⌘ Enter / Ctrl Enter" : "Ctrl Enter";
   const sendLabel = editingQueued ? "保存修改" : state.sendWillQueue ? (state.canInterruptQueue ? "立即打断并发送" : "加入队列") : "发送消息";
   const showStop = (state.streaming || state.attachmentPending) && !state.draft.trim() && state.files.length === 0;
+  const configureSubagent = parent !== window && location.protocol === 'beings:' ? () => bridge.send({ type: 'beings:subagent-settings' }) : undefined;
   function sendDraft(mode?: "interrupt") {
     if (state.stopping) return;
+    if (!parseComposerCommands(state.draft).commands.every(command => canUseComposerCommand(command, state, configureSubagent))) return;
     if (editingQueued) {
       const text = state.draft.trim();
       if (!text) return;
@@ -228,9 +229,8 @@ function ChatView({
       ? "dark"
       : "light",
   );
-  const [viewport, setViewport] = useState({ height: innerHeight, offset: 0 });
+  const [viewport, setViewport] = useState({ height: innerHeight, offset: 0, width: innerWidth });
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const [subagentHintDismissed, setSubagentHintDismissed] = useState(false);
   const [subagentEnabling, setSubagentEnabling] = useState(false);
   const [subagentEnableFailed, setSubagentEnableFailed] = useState(false);
   const [selection, setSelection] = useState<{
@@ -240,9 +240,6 @@ function ChatView({
     left: number;
     top: number;
   } | null>(null);
-  const subagentHintMode = state.subagentConfigured === false
-    ? 'configure'
-    : state.subagentConfigured === true && state.subagentEnabled === false ? 'enable' : null;
   async function enableSubagent() {
     if (subagentEnabling) return;
     setSubagentEnabling(true);
@@ -331,6 +328,7 @@ function ChatView({
     const resize = () =>
       setViewport({
         height: visualViewport?.height || innerHeight,
+        width: innerWidth,
         offset: visualViewport?.offsetTop || 0,
       });
     resize();
@@ -418,7 +416,15 @@ function ChatView({
     [bridge],
   );
   const [showIntelligentUI, setShowIntelligentUI] = useState(false);
-  const [uiExample, setUIExample] = useState<keyof typeof templates>("bicycle");
+  const [uiExample, setUIExample] = useState<UIExampleId>("bicycle");
+  const openExamples = () => {
+    if (parent !== window && location.protocol === 'beings:') bridge.send({ type: 'beings:ui-examples-open' });
+    else setShowIntelligentUI(true);
+  };
+  const closeExamples = () => {
+    setShowIntelligentUI(false);
+    requestAnimationFrame(() => composer.current?.focus());
+  };
   const close = () => {
     setPanel(null);
     if (panelReturnsToSettings)
@@ -437,7 +443,7 @@ function ChatView({
     <CodeClipboard.Provider value={bridge.copyText}>
     <LocalFileAction.Provider value={location.protocol === "beings:" && parent !== window ? requestLocalFilePreview : undefined}>
     <div
-      className={`chat-root${parent === window ? " standalone-chat" : ""}`}
+      className={`chat-root${parent === window ? " standalone-chat" : ""}${showIntelligentUI ? " has-ui-examples" : ""}`}
       style={
         {
           "--reading-size": `${readingSize}px`,
@@ -487,7 +493,7 @@ function ChatView({
       <div id="drop-zone" className={dragging ? "active" : ""}>
         松开以添加附件
       </div>
-      <div id="app" inert={nativeTouch && panel === 'model'}>
+      <div id="app" inert={(nativeTouch && panel === 'model') || (showIntelligentUI && viewport.width <= 900)}>
         <header id="header">
           <SbsControl known={state.sbsKnown} enabled={state.sbsEnabled} origin={state.sbsStreamingOrigin} phase={state.sbsActivityPhase}
             showContent={state.showSbsMessages} allScenes={state.historyScope==='all'}
@@ -609,6 +615,7 @@ function ChatView({
                       text={item.role === 'being' ? text : item.text}
                       messageId={item.id}
                       intelligentUI={item.role === "being"}
+                      commandLabels={item.role === 'user'}
                       storageKey={JSON.stringify([new URLSearchParams(location.search).get('history_scope') || location.origin, state.soul.being_id || state.name, item.sceneId || 'global', item.historySeq ?? item.id]) + (blockId ? `:${blockId}` : '')}
                       onContinue={text => { state.draft = [state.draft.trim(), text].filter(Boolean).join('\n\n'); state.changed(); composer.current?.focus(); }}
                       onEdit={inCurrentScene(item, state.currentScene) ? () => {
@@ -684,10 +691,6 @@ function ChatView({
               </div>
             ))}
           </div>
-          {showIntelligentUI && <div className="iui-playground" id="intelligent-ui-settings">
-            <div className="iui-playground-actions"><strong>交互示例 <small>Beta</small></strong><button type="button" aria-label="关闭交互示例" onClick={() => setShowIntelligentUI(false)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button></div>
-            <div className="iui-beta-demo"><select aria-label="选择交互示例" value={uiExample} onChange={e => setUIExample(e.target.value as keyof typeof templates)}>{Object.entries(templates).map(([id, doc]) => <option key={id} value={id}>{doc.title}</option>)}</select><IntelligentUI key={uiExample} source={toUIStream(templates[uiExample])} onContinue={text => { state.draft = text; state.changed(); setShowIntelligentUI(false); composer.current?.focus(); }} /></div>
-          </div>}
           {editingQueued && <div className="composer-editing-queue" role="status"><span>正在编辑排队消息</span><button type="button" onClick={() => { state.draft = ""; state.changed(); setEditingQueued(null); composer.current?.focus(); }}>取消编辑</button></div>}
           <div id="input-row">
             {parent !== window && location.protocol === 'beings:' && <button type="button" className="btn-icon permission-quick-trigger" data-mode={state.permissionMode} title={`工作权限 · ${permissionChoices.find(choice => choice.value === state.permissionMode)?.title ?? '加载中'}`} aria-label="快捷设置工作权限" aria-haspopup="menu" aria-expanded={state.permissionMenuOpen} onClick={event => {
@@ -696,12 +699,14 @@ function ChatView({
             }}><PermissionIcon kind={permissionChoices.find(choice => choice.value === state.permissionMode)?.icon}/><span>{permissionChoices.find(choice => choice.value === state.permissionMode)?.title ?? '权限'}</span><svg className="permission-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>}
             <ChatComposer
               state={state}
+              onExamples={openExamples}
+              onConfigureSubagent={configureSubagent}
               key={state.currentScene.sceneId || "global"}
               textareaRef={composer}
               id="input"
               rows={1}
               className={state.queued ? "queued" : ""}
-              placeholder="说点什么…"
+              placeholder="说点什么，或输入 / 选择功能…"
               aria-label="message input"
               aria-keyshortcuts={isMac ? "Enter Control+Enter Meta+Enter Shift+Enter" : "Enter Control+Enter Shift+Enter"}
               onCompositionStart={() => {
@@ -727,7 +732,10 @@ function ChatView({
                 sendDraft(event.ctrlKey || (isMac && event.metaKey) ? undefined : "interrupt");
               }}
             />
-            <ComposerAddMenu state={state} onUpload={() => fileInput.current?.click()} onExamples={() => setShowIntelligentUI(true)} onSelect={() => composer.current?.focus()}/>
+            <ComposerAddMenu state={state} onUpload={() => fileInput.current?.click()} onExamples={openExamples} onSelect={() => requestAnimationFrame(() => composer.current?.focus())}
+              onConfigureSubagent={configureSubagent}
+              onEnableSubagent={parent !== window && location.protocol === 'beings:' ? () => { void enableSubagent(); } : undefined}
+              subagentEnabling={subagentEnabling} subagentEnableFailed={subagentEnableFailed}/>
             {state.sendWillQueue && !editingQueued && (state.draft.trim() || state.files.length > 0) && <div className="composer-queue-hint"><button type="button" title={`加入队列（${queueShortcut}）`} aria-label="加入队列" disabled={state.stopping} onClick={() => sendDraft()}>排队 <span aria-hidden="true">{isMac ? "⌘ ↵" : "Ctrl ↵"}</span></button></div>}
             <button
               className={`btn-icon${showStop ? " stop" : ""}`}
@@ -746,14 +754,6 @@ function ChatView({
               ↵
             </button>
           </div>
-          <SubagentSetupHint
-            mode={!subagentHintDismissed && parent !== window && location.protocol === "beings:" ? subagentHintMode : null}
-            enabling={subagentEnabling}
-            enableFailed={subagentEnableFailed}
-            onConfigure={() => bridge.send({ type: "beings:subagent-settings" })}
-            onEnable={() => { void enableSubagent(); }}
-            onClose={() => setSubagentHintDismissed(true)}
-          />
           <input
             ref={fileInput}
             type="file"
@@ -767,6 +767,8 @@ function ChatView({
           />
         </div>
       </div>
+      {showIntelligentUI && <IntelligentUIExamples example={uiExample} overlay={viewport.width <= 900} onSelect={setUIExample} onClose={closeExamples}
+        onContinue={text => { state.draft = text; state.changed(); closeExamples(); }}/>}
       <ChatSettings
         mobilePage={nativeTouch}
         state={state}

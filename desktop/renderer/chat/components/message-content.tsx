@@ -7,6 +7,7 @@ import { attachmentMessageReader, messageReferences, type AttachmentMessage } fr
 import { viewRequest } from '../services/attachment-view';
 import { AttachmentCard } from './attachments';
 import { useNearViewport } from '../../shared/hooks/use-near-viewport';
+import { CommandMessageText } from './command-message';
 const delivery: Record<string,string> = {pending:'等待处理或发送', sending:'正在发送', accepted:'已发送', unknown:'发送结果待确认，请核对历史', failed:'发送失败', cancelled:'已取消'};
 export function hasAttachmentMessage(message: Message) { return message.role === 'user' && (!!message.attachmentUploads?.length || !!message.attachmentViews?.length || messageReferences(message.text).length > 0); }
 export function originalMessageText(message: Message) {
@@ -49,7 +50,7 @@ function LoadedAttachmentMessage({message}: {message: Message}) {
         <small>{transferBytes(p?.loaded || 0)} / {transferBytes(p?.total || file.size)}</small>
       </section>;
     })}
-    {!message.text.startsWith('[发送了') && <p className="attachment-original-text">{message.text}</p>}
+    {!message.text.startsWith('[发送了') && <p className="attachment-original-text"><CommandMessageText text={message.text}/></p>}
   </div>;
   if (!views.length) return <div className="content attachment-fallback"><p role="status">{error || '正在加载附件消息…'}</p>{error && <button onClick={() => { setError(''); setAttempt(attempt + 1); }}>重试加载</button>}<details><summary>查看原始消息</summary><pre>{message.text}</pre></details></div>;
   return <div className="content attachment-message">{views.map(view => <div key={view.message_id}>
@@ -57,7 +58,7 @@ function LoadedAttachmentMessage({message}: {message: Message}) {
     {view.parts.filter(part=>part.type==='attachment').map((part,index)=><AttachmentCard key={part.attachment_id} part={part} endpoint={endpoint} localImage={views.length===1 ? localImages[index] : undefined}/>)}
     <AttachmentProcessing items={[message]} name="" />
     <div className="attachment-message-copy">
-      {view.parts.filter(part=>part.type==='text').map((part,i)=><p className="attachment-original-text" key={i}>{part.text}</p>)}
+      {view.parts.filter(part=>part.type==='text').map((part,i)=><p className="attachment-original-text" key={i}><CommandMessageText text={part.text}/></p>)}
     </div>
     {['unknown','failed','cancelled'].includes(view.delivery_status) && <small role="status">{delivery[view.delivery_status]}</small>}
   </div>)}</div>;

@@ -1,17 +1,13 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { canUseComposerCommand, composerCommands, insertComposerCommand } from '../models/composer-commands';
+import { ComposerMenuIcon } from './composer-menu-icon';
+import { ComposerExamples } from './composer-examples';
 import type { ChatState } from '../models/chat';
 
-function MenuIcon({ kind }: { kind: 'file' | 'ui' | 'message' | 'example' }) {
-  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {kind === 'file' ? <path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l10-10M6 15l9-9"/>
-      : kind === 'ui' ? <><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M10 10v10"/></>
-      : kind === 'message' ? <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 3V6a2 2 0 0 1 2-2Z"/>
-      : <><path d="m9 5-6 7 6 7m6-14 6 7-6 7"/><path d="m13 5-2 14"/></>}
-  </svg>;
-}
 
-export function ComposerAddMenu({ state, onUpload, onExamples, onSelect }: {
+export function ComposerAddMenu({ state, onUpload, onExamples, onSelect, onConfigureSubagent, onEnableSubagent, subagentEnabling, subagentEnableFailed }: {
   state: ChatState; onUpload: () => void; onExamples: () => void; onSelect: () => void;
+  onConfigureSubagent?: () => void; onEnableSubagent?: () => void; subagentEnabling?: boolean; subagentEnableFailed?: boolean;
 }) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -19,9 +15,9 @@ export function ComposerAddMenu({ state, onUpload, onExamples, onSelect }: {
   const [open, setOpen] = useState(false);
   const close = () => { if (menu.current?.matches(':popover-open')) menu.current.hidePopover(); };
   const position = () => {
-    const element = menu.current!, anchor = trigger.current!.getBoundingClientRect(), bounds = element.getBoundingClientRect();
-    element.style.left = `${Math.max(8, Math.min(anchor.left, innerWidth - bounds.width - 8))}px`;
-    element.style.top = `${anchor.top - bounds.height - 8 >= 8 ? anchor.top - bounds.height - 8 : Math.max(8, Math.min(anchor.bottom + 8, innerHeight - bounds.height - 8))}px`;
+    const element = menu.current!, anchor = trigger.current!.getBoundingClientRect(), composer = trigger.current!.closest('#input-area')?.getBoundingClientRect(), bounds = element.getBoundingClientRect();
+    element.style.left = `${Math.max(8, Math.min(composer?.left ?? anchor.left, innerWidth - bounds.width - 8))}px`;
+    element.style.top = `${(composer?.top ?? anchor.top) - bounds.height - 10 >= 8 ? (composer?.top ?? anchor.top) - bounds.height - 10 : Math.max(8, Math.min(anchor.bottom + 8, innerHeight - bounds.height - 8))}px`;
   };
   const toggle = () => {
     const element = menu.current!;
@@ -53,19 +49,17 @@ export function ComposerAddMenu({ state, onUpload, onExamples, onSelect }: {
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
         items[next]?.focus();
       }}>
-      <div className="composer-add-heading">添加</div>
-      <button type="button" role="menuitem" onClick={() => { close(); onUpload(); }}><MenuIcon kind="file"/><span><strong>上传附件</strong><small>图片、文档和其他文件</small></span></button>
-      <div role="separator"/>
-      <div className="composer-add-heading">智能 UI <small>Beta</small></div>
-      <button type="button" role="menuitemcheckbox" aria-label="启用智能 UI" aria-checked={state.intelligentUIEnabled} onClick={() => {
-        const enabled = !state.intelligentUIEnabled;
-        state.setIntelligentUIEnabled(enabled);
-        if (enabled) state.setIntelligentUIForMessage(true);
-      }}><MenuIcon kind="ui"/><span><strong>启用智能 UI</strong><small>支持生成可交互的界面</small></span><i aria-hidden="true">{state.intelligentUIEnabled ? '✓' : ''}</i></button>
-      <button type="button" role="menuitemcheckbox" aria-label="本条使用智能 UI" aria-checked={state.intelligentUIForMessage} disabled={!state.intelligentUIEnabled} onClick={() => {
-        state.setIntelligentUIForMessage(!state.intelligentUIForMessage); close(); onSelect();
-      }}><MenuIcon kind="message"/><span><strong>本条使用智能 UI</strong><small>仅本条消息，发送后自动取消</small></span><i aria-hidden="true">{state.intelligentUIForMessage ? '✓' : ''}</i></button>
-      <button type="button" role="menuitem" onClick={() => { close(); onExamples(); }}><MenuIcon kind="example"/><span><strong>交互示例</strong><small>预览智能 UI 的效果</small></span><i aria-hidden="true">›</i></button>
+      <div className="composer-menu-header"><strong>添加到对话</strong><span>快捷调用 <kbd>/</kbd></span></div>
+      {composerCommands.map(command => <div key={command.id} className="composer-command-row" role="presentation"><button className="composer-command-main" type="button" role="menuitem" onClick={() => {
+        close();
+        if (!canUseComposerCommand(command.id, state, onConfigureSubagent)) return;
+        state.draft = insertComposerCommand(state.draft, command.id);
+        state.changed(); onSelect();
+      }}><ComposerMenuIcon kind={command.id}/><span className="composer-menu-copy"><strong>{command.label}</strong><small>{command.id === 'subagent' && onConfigureSubagent && state.subagentConfigured !== true ? '尚未配置 · 点击配置模型' : command.description}</small></span><code className="composer-menu-shortcut">/{command.id}</code></button>
+        {command.id === 'ui' && <ComposerExamples onSelect={() => { close(); onExamples(); }}/>}</div>)}
+      {onEnableSubagent && state.subagentConfigured && state.subagentEnabled === false && <button type="button" role="menuitem" disabled={subagentEnabling} onClick={onEnableSubagent}><ComposerMenuIcon kind="subagent"/><span className="composer-menu-copy"><strong>{subagentEnabling ? '正在开启 Subagent…' : '开启 Subagent'}</strong><small>{subagentEnableFailed ? '开启失败，请重试' : '已配置模型，开启后即可委派任务'}</small></span></button>}
+      <div role="separator"/><div className="composer-add-heading">附件</div>
+      <button type="button" role="menuitem" onClick={() => { close(); onUpload(); }}><ComposerMenuIcon kind="file"/><span className="composer-menu-copy"><strong>上传附件</strong><small>图片、文档和其他文件</small></span></button>
     </div>
   </div>;
 }

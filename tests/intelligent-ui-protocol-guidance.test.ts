@@ -5,6 +5,22 @@ import { UIStream } from '../desktop/renderer/shared/intelligent-ui/stream';
 import { compileUI, evaluate } from '../desktop/renderer/shared/intelligent-ui/runtime';
 
 describe('model-facing protocol and wardrobe regressions', () => {
+  it('explains both invalid diagram IDs and missing descriptions in the wonton output', () => {
+    const source = readFileSync(new URL('./fixtures/intelligent-ui-wonton-invalid.jsonl', import.meta.url), 'utf8');
+    const result = new UIStream().update(source, false);
+    expect(result.error).toContain('fold-map');
+    expect(result.error).toContain('parts[0]');
+    expect(result.error).toContain('id 必须以英文字母开头');
+    expect(result.error).toContain('description 必须提供文本');
+    expect(result.doc?.body.some(node => node.id === 'top')).toBe(true);
+    const records = source.trim().split('\n').map(line => JSON.parse(line));
+    const ids: Record<string, string> = { '①': 'step1', '②': 'step2', '③': 'step3' };
+    records.find(record => record.op === 'state').initial = 'step1';
+    const diagram = records.find(record => record.node?.id === 'fold-map').node;
+    for (const part of diagram.parts) { part.id = ids[part.id]; part.description = part.label; }
+    for (const shape of diagram.shapes) shape.part = ids[shape.part];
+    expect(new UIStream().update(records.map(record => JSON.stringify(record)).join('\n'), false).error).toBe('');
+  });
   it.each([1, 2])('pinpoints misplaced parent and accepts the corrected original output %s', attempt => {
     const source = readFileSync(new URL(`./fixtures/intelligent-ui-wardrobe-invalid-${attempt}.jsonl`, import.meta.url), 'utf8');
     const failed = new UIStream().update(source, false);

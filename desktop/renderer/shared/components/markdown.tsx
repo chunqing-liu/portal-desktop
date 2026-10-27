@@ -127,6 +127,7 @@ export const Markdown = memo(function Markdown({
   chat = false,
   richCode = chat,
   renderText,
+  leadingContent,
   previewMarkdownCode = true,
   intelligentUI = false,
   streaming = false,
@@ -137,6 +138,7 @@ export const Markdown = memo(function Markdown({
   chat?: boolean;
   richCode?: boolean;
   renderText?: (text: string) => ReactNode;
+  leadingContent?: ReactNode;
   previewMarkdownCode?: boolean;
   intelligentUI?: boolean;
   streaming?: boolean;
@@ -154,6 +156,7 @@ export const Markdown = memo(function Markdown({
     [content, chat, richCode, references],
   );
   const linked = new Set<PlaceView>();
+  const firstContentToken = tokens.find(token => token.type !== 'space');
   // Explicit links take precedence over automatic word links throughout the message.
   function collect(list: Token[]) {
     for (const token of list) {
@@ -243,7 +246,7 @@ export const Markdown = memo(function Markdown({
           node = null;
           break;
         case "paragraph":
-          node = <p>{inner}</p>;
+          node = <p>{token === firstContentToken && leadingContent}{inner}</p>;
           break;
         case "text":
         case "escape":
@@ -418,7 +421,7 @@ export const Markdown = memo(function Markdown({
       return <Fragment key={index}>{node}</Fragment>;
     });
   }
-  return <div className={className}>{render(tokens)}</div>;
+  return <div className={className}>{leadingContent && firstContentToken?.type !== 'paragraph' && <p>{leadingContent}</p>}{render(tokens)}</div>;
 });
 
 function MarkdownCodeBlock({ text, language, streaming }: { text: string; language: string; streaming: boolean }) {

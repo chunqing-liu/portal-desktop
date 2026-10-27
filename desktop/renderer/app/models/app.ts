@@ -29,6 +29,14 @@ export class AppModel extends Store {
   theme: "light" | "dark" = "light";
   startup: "loading" | "ready" | "error" = "loading";
   view = "chat";
+  openUIExamples = () => {
+    this.chatSplitOpen = true;
+    this.navigate('ui-examples');
+  };
+  returnFromUIExamples = (text?: string) => {
+    this.closePlace();
+    this.post({ type: 'beings:ui-examples-return', text, revision: new URL(this.chatSource || 'https://invalid').searchParams.get('revision') });
+  };
   chatSplitOpen = false;
   toggleChatSplit = () => { this.chatSplitOpen = !this.chatSplitOpen; this.changed(); };
   beingInfoOpen = true;
@@ -112,15 +120,23 @@ export class AppModel extends Store {
   chatHistoryLimit = DEFAULT_CHAT_HISTORY_LIMIT;
   update?: UpdateState;
   updateChecking = false;
+  private updateRevision = 0;
   async checkClientUpdates() {
     if (this.updateChecking || this.update?.phase === "checking" || this.update?.activity) return;
     this.updateChecking = true;
+    ++this.updateRevision;
     this.changed();
     try {
       const state = await this.api.checkUpdates();
       if (!this.update?.activity) this.update = state;
       if (state.phase !== "available") this.toast(state.message);
     } catch (error) {
+      // An IPC rejection may arrive after the main process broadcast checking.
+      // Release that UI state so a second click can retry without reloading.
+      if (this.update?.phase === "checking" && !this.update.activity) {
+        this.update = { ...this.update, phase: "unavailable", latestVersion: undefined,
+          message: "更新检查未完成，请再次点击检查更新。" };
+      }
       this.toast(error);
     } finally {
       this.updateChecking = false;
@@ -207,6 +223,7 @@ export class AppModel extends Store {
   start() {
     void this.plugins.refresh();
     let active = true;
+    const updateRevision = this.updateRevision;
     const cleanupWorkspace = this.workspace.start();
     if (!this.api) {
       this.startup = "error";
@@ -247,6 +264,8 @@ export class AppModel extends Store {
         });
       }),
       this.api.onUpdate((state) => {
+        if (!active) return;
+        ++this.updateRevision;
         this.update = state;
         this.changed();
       }),
@@ -254,7 +273,7 @@ export class AppModel extends Store {
     void this.api
       .updateState()
       .then((state) => {
-        if (active) {
+        if (active && this.updateRevision === updateRevision) {
           this.update = state;
           this.changed();
         }

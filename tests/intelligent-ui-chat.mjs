@@ -39,18 +39,24 @@ try {
   page.setDefaultTimeout(10000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/loom.html?scene_id=desktop-fixture`);
+  const input = page.getByRole('textbox', { name: 'message input' });
+  await input.fill('保留我的草稿');
   await page.getByRole('button', { name: '添加附件和工具' }).click();
   await page.waitForFunction(() => {
     const menu=document.querySelector('.composer-add-menu'), r=menu?.getBoundingClientRect();
     return menu?.style.top && r.top>=0 && r.bottom<=innerHeight && r.left>=0 && r.right<=innerWidth;
   }).catch(async error=>{console.error(await page.locator('.composer-add-menu').evaluate(el=>({html:el.outerHTML,bounds:el.getBoundingClientRect().toJSON()})));throw error;});
-  const toggle = page.getByRole('menuitemcheckbox', { name: '启用智能 UI' });
-  assert.equal(await toggle.isChecked(), false);
-  await toggle.check();
-  await page.reload();
-  await page.getByRole('button', { name: '添加附件和工具' }).click();
-  assert.equal(await toggle.isChecked(), true);
-  await page.getByRole('menuitem', {name:/交互示例/}).click();
+  const examples = page.getByRole('menuitem', {name:'交互示例',exact:true});
+  assert.equal(await examples.count(), 1);
+  assert.equal(await examples.locator('..').getByRole('menuitem', {name:/智能 UI.*\/ui/}).count(), 1, 'One example button shares the UI command row');
+  await examples.click();
+  await page.getByRole('complementary', {name:'智能 UI 交互示例'}).waitFor();
+  const chatBounds = await page.locator('#app').boundingBox(), panelBounds = await page.locator('.iui-examples-panel').boundingBox();
+  assert.ok(panelBounds.x >= chatBounds.x + chatBounds.width - 1, 'Examples occupy a separate panel to the right');
+  assert.equal(await page.locator('#input-area .iui-examples-panel, #input-area .iui-playground').count(), 0);
+  assert.equal(await input.textContent(), '保留我的草稿');
+  assert.equal(sends.length, 0);
+
   await page.getByLabel('选择交互示例').selectOption('simulation');
   await page.locator('.iui-app svg').waitFor();
   assert.equal(await page.getByText('正在准备交互体验…', {exact:true}).count(), 0);
@@ -59,7 +65,31 @@ try {
   await page.getByRole('button', {name:'重新启动',exact:true}).click();
   await page.locator('.iui-app svg').waitFor();
 
-  await page.locator('.iui-playground-actions').getByRole('button', { name: '关闭交互示例' }).click();
+  await page.locator('.iui-examples-header').getByRole('button', { name: '关闭交互示例' }).click();
+  await input.fill('/ui');
+  const picker = page.getByRole('listbox', {name:'斜杠功能'});
+  assert.equal(await picker.getByRole('option', {name:'交互示例',exact:true}).count(), 1);
+  await input.press('ArrowDown');
+  assert.equal(await picker.getByRole('option', {selected:true}).getAttribute('aria-label'), '交互示例');
+  await input.press('Enter');
+  await page.getByRole('complementary', {name:'智能 UI 交互示例'}).waitFor();
+  assert.equal(await input.textContent(), '/ui');
+  assert.equal(sends.length, 0, 'Previewing must not submit');
+  await page.screenshot({path:'test-results/intelligent-ui-examples-desktop.png'});
+  await page.setViewportSize({width:375,height:800});
+  await page.getByRole('dialog', {name:'智能 UI 交互示例'}).waitFor();
+  assert.equal(await page.locator('#app').evaluate(el=>el.inert), true);
+  const narrowPanel = await page.locator('.iui-examples-panel').boundingBox();
+  assert.equal(narrowPanel.x, 0); assert.equal(narrowPanel.width, 375);
+  await page.getByRole('button', {name:'关闭交互示例'}).focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.ok(await page.locator('.iui-examples-panel').evaluate(el=>el.contains(document.activeElement)), 'Focus stays inside the mobile preview');
+  await page.screenshot({path:'test-results/intelligent-ui-examples-mobile.png'});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.iui-examples-panel').count(), 0);
+  assert.equal(await page.locator('#app').evaluate(el=>el.inert), false);
+  await input.waitFor();
+  assert.equal(await input.textContent(), '/ui');
   // Filled drafts used to activate an older :has() rule that moved send onto the textarea.
   for (const web of [false, true]) {
     const webStyle = web ? await page.addStyleTag({ content: await readFile('web/chat.css', 'utf8') }) : null;
@@ -86,12 +116,12 @@ try {
   await page.getByRole('textbox', { name: 'message input' }).fill('给我一个实时预算');
   await page.screenshot({ path: 'test-results/intelligent-ui-composer-fixed.png' });
   await page.getByRole('button', {name:'添加附件和工具'}).click();
-  await page.getByRole('menuitemcheckbox', {name:'本条使用智能 UI',exact:true}).click();
+  await page.getByRole('menuitem', {name:/智能 UI.*\/ui/}).click();
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
-  assert.equal(await page.getByRole('menuitemcheckbox',{name:'本条使用智能 UI',exact:true,includeHidden:true}).getAttribute('aria-checked'),'false');
   await page.getByRole('slider', { name: '人数' }).waitFor();
   assert.ok(sends[0].message.includes('[客户端 Intelligent UI Beta 上下文]'));
-  assert.equal(await page.locator('.message.user .content').last().textContent(), '给我一个实时预算');
+  assert.equal(await page.locator('.message.user .content').last().textContent(), '智能 UI 给我一个实时预算');
+  assert.ok(sends[0].message.startsWith('/ui 给我一个实时预算'));
   await page.getByRole('slider', { name: '人数' }).fill('10');
   event('content_block_delta', { delta: { text: source.slice(split + 1) + '\n```' } });
   event('message_stop', {}); pending.end();
@@ -107,8 +137,8 @@ try {
   await page.setViewportSize({ width: 375, height: 800 });
   await page.getByRole('button', { name: '添加附件和工具' }).click();
   await page.screenshot({ path: 'test-results/intelligent-ui-beta.png' });
-  await toggle.uncheck();
-  assert.equal(await page.getByRole('slider').count(), 1); // Existing artifacts stay readable when generation is disabled.
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('slider').count(), 1); // Existing artifacts stay readable after this one-shot command.
   assert.deepEqual(errors, []);
-  console.log('Chat Beta: default off, saved toggle, automatic context, clean user bubble, progressive stream, preserved input, disabled fallback passed.');
+  console.log('Chat Beta: slash selection, automatic context, clean user bubble, progressive stream, preserved input, disabled fallback passed.');
 } finally { pending?.end(); await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

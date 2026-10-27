@@ -162,6 +162,10 @@ export function useChatBridge(
         app.openModelSettings();
         return;
       }
+      if (message.type === 'beings:ui-examples-open') {
+        app.openUIExamples();
+        return;
+      }
       if (message.type === "beings:subagent-settings") {
         app.openSubagentSettings();
         return;

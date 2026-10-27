@@ -140,10 +140,10 @@ try {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') event.stopPropagation();
     });
   });
-  // Enabling UI stays in the add menu, without adding controls to the action row.
+  // Function selection stays in the add menu, without adding controls to the action row.
   await frame.getByRole('button', { name: '添加附件和工具', exact: true }).click();
-  await frame.getByRole('menuitemcheckbox', { name: '启用智能 UI', exact: true }).click();
-  await frame.getByRole('menu', { name: '添加附件和工具', exact: true }).press('Escape');
+  await frame.getByRole('menuitem', { name: /智能 UI.*\/ui/ }).click();
+  await frame.getByRole('menu', { name: '添加附件和工具', exact: true }).waitFor({state:'hidden'});
   await mkdir('test-results', { recursive: true });
   await frame.locator('#input-area').screenshot({ path: 'test-results/chat-composer-compact.png' });
   const actionBounds = await Promise.all([

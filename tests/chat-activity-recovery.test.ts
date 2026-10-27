@@ -563,6 +563,44 @@ it('restores one continuation marker from a refreshed stream with user history',
   } finally {f.runtime.dispose();}
 });
 
+it('does not turn the settled prefix of a resumed human stream into a zero-second run', async () => {
+  const f = await fixture();
+  try {
+    const at = new Date(Date.now() - 6000).toISOString();
+    f.history.push(
+      {seq:10,from:'system',type:'marker',content:'[breath yielded]',scene_id:'room',at},
+      {seq:11,role:'user',content:'change direction',scene_id:'room',at:new Date(Date.now() - 5900).toISOString()},
+    );
+    await f.runtime.refreshHistory();
+    const events = Array.from({length:9}, (_, index) => [
+      {seq:7147+index*2,event:'tool_use',data:{scene_id:'room',id:`old-${index}`,name:'old task'}},
+      {seq:7148+index*2,event:'tool_result',data:{scene_id:'room',tool_use_id:`old-${index}`,content:'done'}},
+    ]).flat();
+    f.setActive({stream_id:'resumed-human',origin:'human',finished:false,next_seq:8745,events:[
+      ...events,
+      {seq:8534,event:'content_block_delta',data:{scene_id:'room',delta:{text:'earlier progress'}}},
+      {seq:8535,event:'message_stop',data:{scene_id:'room'}},
+      {seq:8536,event:'meta',data:{continuation:true,scene_id:'room'}},
+      {seq:8742,event:'tool_use',data:{scene_id:'room',id:'new-tool',name:'current task'}},
+      {seq:8744,event:'tool_result',data:{scene_id:'room',tool_use_id:'new-tool',content:'done'}},
+    ]});
+    await vi.advanceTimersByTimeAsync(10020);
+    const runs = f.state.items.filter(item => item.kind==='run');
+    expect(runs).toHaveLength(1);
+    expect(runs[0].entries.filter(entry=>entry.type==='tool').map(entry=>entry.name)).toEqual(['current task']);
+    expect(f.state.items.some(item=>item.kind==='message' && item.text==='earlier progress')).toBe(true);
+    expect(f.state.items.filter(item=>item.kind==='separator' && item.text.includes('转向你'))).toHaveLength(1);
+    expect(f.state.items.find(item=>item.kind==='separator' && item.text.includes('转向你'))).toMatchObject({historySeq:10});
+    f.setActive({stream_id:'resumed-human',origin:'human',finished:true,next_seq:8747,events:[
+      {seq:8745,event:'content_block_delta',data:{scene_id:'room',delta:{text:'new answer'}}},
+      {seq:8746,event:'message_stop',data:{scene_id:'room'}},
+    ]});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f.state.items.filter(item=>item.kind==='run')).toHaveLength(1);
+    expect(runs[0]).toMatchObject({outcome:'done'});
+  } finally {f.runtime.dispose();}
+});
+
 
 it('does not drop unrelated durable replies from the same room during a newer live turn', async () => {
   const f = await fixture();

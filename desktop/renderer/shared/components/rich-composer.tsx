@@ -3,6 +3,7 @@ import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type R
 import { HighlightedCode } from './markdown';
 import { detectStructuredText } from './structured-text';
 import { MarkdownEditor, type ComposerHandle } from './markdown-editor';
+import type { Extensions } from '@tiptap/core';
 export type { ComposerHandle } from './markdown-editor';
 
 type Format = 'auto' | 'markdown' | 'json' | 'plaintext';
@@ -12,13 +13,14 @@ export interface RichComposerProps extends Omit<TextareaHTMLAttributes<HTMLTextA
   value: string;
   onChange: (value: string) => void;
   showFormatControls?: boolean;
+  editorExtensions?: Extensions;
   onKeyDown?: KeyboardEventHandler<HTMLElement>;
   onCompositionStart?: CompositionEventHandler<HTMLElement>;
   onCompositionEnd?: CompositionEventHandler<HTMLElement>;
 }
 
 /** Markdown is an editable document; JSON and explicit source mode retain exact source. */
-export function RichComposer({ textareaRef, value, onChange, onKeyDown, onCompositionStart, onCompositionEnd, showFormatControls = false, ...props }: RichComposerProps) {
+export function RichComposer({ textareaRef, value, onChange, onKeyDown, onCompositionStart, onCompositionEnd, showFormatControls = false, editorExtensions, ...props }: RichComposerProps) {
   const [format, setFormat] = useState<Format>('auto');
   const [source, setSource] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -46,7 +48,7 @@ export function RichComposer({ textareaRef, value, onChange, onKeyDown, onCompos
       {language === 'markdown' && <button type="button" aria-pressed={source} onClick={() => setSource(value => !value)}>{source ? '排版' : '源码'}</button>}
     </div>}
     {rich ? <MarkdownEditor inputRef={textareaRef} id={props.id} label={props['aria-label']} placeholder={props.placeholder}
-      value={value} onChange={change} disabled={props.disabled} />
+      value={value} onChange={change} disabled={props.disabled} extensions={editorExtensions} suggestions={{ controls: props['aria-controls'], active: props['aria-activedescendant'], autocomplete: props['aria-autocomplete'] }} />
       : <SourceEditor {...props} inputRef={textareaRef} value={value} language={language} onChange={change} />}
   </div>;
 }

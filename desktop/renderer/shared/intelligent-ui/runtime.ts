@@ -153,8 +153,13 @@ export function compileUI(source: string): UIDocument {
       if (!Number.isFinite(n.width) || !Number.isFinite(n.height) || n.width < 1 || n.height < 1 || n.width > 2000 || n.height > 2000 || !Array.isArray(n.shapes) || n.shapes.length > 300 || !Array.isArray(n.parts) || n.parts.length > 40) fail('图解范围无效');
       if (typeof n.bind !== 'string' || !owns(doc.state, n.bind) || typeof doc.state[n.bind] !== 'string') fail('图解需要文本选择状态');
       const parts = new Set<string>();
-      for (const part of n.parts) {
-        if (!object(part) || typeof part.id !== 'string' || !keyOK(part.id) || parts.has(part.id) || typeof part.label !== 'string' || part.label.length > 100 || typeof part.description !== 'string' || part.description.length > 2000) fail('部件描述无效');
+      for (const [index, part] of n.parts.entries()) {
+        if (!object(part)) fail(`组件「${n.id}」（diagram）的 parts[${index}] 必须是部件对象`);
+        const issues = [];
+        if (typeof part.id !== 'string' || !keyOK(part.id) || parts.has(part.id)) issues.push('id 必须以英文字母开头，仅含字母、数字、下划线或连字符，最长 64 字符且不可重复（例如 step1；① 可放在 label 中）；修改 id 后请同步 shapes.part、绑定状态、选项及引用它的表达式');
+        if (typeof part.label !== 'string' || part.label.length > 100) issues.push('label 必须是最多 100 字符的文本');
+        if (typeof part.description !== 'string' || part.description.length > 2000) issues.push('description 必须提供文本，最多 2000 字符（无说明可填空字符串）');
+        if (issues.length) fail(`组件「${n.id}」（diagram）的 parts[${index}]：${issues.join('；')}`);
         parts.add(part.id);
       }
       for (const shape of n.shapes) {

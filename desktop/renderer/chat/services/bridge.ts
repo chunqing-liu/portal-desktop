@@ -254,6 +254,15 @@ export function createChatBridge(state: ChatState) {
         case "beings:scene-captured":
           if (typeof data.id === "string") waiting.get(data.id)?.();
           return;
+        case 'beings:ui-examples-return': {
+          if (data.revision !== revision || (data.text !== undefined && (typeof data.text !== 'string' || data.text.length > 100000))) return;
+          if (data.text?.trim()) {
+            state.draft = state.draft.trim() ? state.draft.trimEnd() + '\n\n' + data.text : data.text;
+            state.changed();
+          }
+          requestAnimationFrame(() => ui.focus());
+          return;
+        }
         case "beings:scene-draft": {
           if (
             typeof data.id !== "string" ||

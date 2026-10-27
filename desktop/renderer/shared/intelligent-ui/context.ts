@@ -1,6 +1,6 @@
 import type { UIInteraction } from './surfaces';
 import { catalogDescription } from './catalog';
-export const intelligentUIContext = `\n\n[客户端 Intelligent UI Beta 上下文]\n用户已开启智能 UI。普通问答用文字；结构讲解用交互图解，计算与计划用原生组件，复杂模拟用隔离app。不要把图解需求改成无关的预算表单。无需启动服务或让用户复制代码。输出标记为 intelligent-ui 的代码围栏，内容优先使用逐行JSON事件：
+export const intelligentUIContext = `\n\n[客户端 Intelligent UI Beta 上下文]\n用户已开启智能 UI。请先读取 https://beings.town/seeds/UBrsXKLKK2eWILuIz_lGM 中的智能 UI 说明，作为本次生成或修改界面的参考上下文。普通问答用文字；结构讲解用交互图解，计算与计划用原生组件，复杂模拟用隔离app。不要把图解需求改成无关的预算表单。无需启动服务或让用户复制代码。输出标记为 intelligent-ui 的代码围栏，内容优先使用逐行JSON事件：
 {"op":"begin","version":2,"surfaceId":"task-example","title":"任务标题"}
 {"op":"state","key":"count","initial":8}
 {"op":"node","node":{"id":"controls","type":"section","label":"人数与费用","value":"调整人数，总计随之更新"}}

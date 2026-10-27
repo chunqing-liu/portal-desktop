@@ -485,7 +485,8 @@ async function ready() {
   });
   let runtimeUpdate: RuntimeUpdateResult = { phase: 'current', message: 'Portal 升级状态将在启动检查后显示。' };
   const updates = new UpdateChecker(app.getVersion(), PORTAL_DESKTOP_UPDATE_REPOSITORY, net.fetch.bind(net) as typeof fetch,
-    state => { if (window && !window.isDestroyed()) window.webContents.send('beings:update-state', state); });
+    state => { if (window && !window.isDestroyed()) window.webContents.send('beings:update-state', state); },
+    process.platform, process.arch, error => { errorLog.report('update-check', error); });
   let updateDownload: AbortController | undefined;
   let updateHandoff: Awaited<ReturnType<typeof stageInstaller>> | undefined;
   const downloadUpdate = async () => {

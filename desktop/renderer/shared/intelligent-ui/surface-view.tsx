@@ -24,7 +24,7 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
   </div>;
   const version = surface.versions.find(v => v.revision === selectedRevision) || latest;
   const activate = () => {
-    if (selectedRevision !== null || !snapshot.current) return false;
+    if (!latest || selectedRevision !== null || !snapshot.current) return false;
     const [text, values, apps] = snapshot.current;
     actions.onSnapshot?.(text, values, apps, true);
     return true;
@@ -35,6 +35,7 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
       {surface.versions.slice(0, -1).map(v => <option key={v.revision} value={v.revision}>第 {v.revision} 版</option>)}
     </select>{selectedRevision !== null && <span>历史预览 · 选择不会影响当前版本</span>}</label>}
     <IntelligentUI key={selectedRevision ?? 'latest'} source={version ? JSON.stringify(version.doc) : source} streaming={!version && streaming} {...actions}
+      onRepair={actions.onContinue ? error => actions.onContinue?.(surfaceRepairPrompt(surface, entry.error || error)) : actions.onRepair}
       storageKey={selectedRevision === null ? JSON.stringify(['surface', surface.scope, surface.id]) : undefined}
       submitDisabled={!latest || selectedRevision !== null}
       onEdit={actions.onEdit && latest && selectedRevision === null ? () => {

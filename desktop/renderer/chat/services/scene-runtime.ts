@@ -466,14 +466,14 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
       selectedScene: () => state.currentScene,
       activeAutonomousOrigin: () => [...sessions.values()].map(s => s.runtime?.activeAutonomousOrigin?.()).find(Boolean),
       restoredHistory,
-      routeEvent(type: any, data: any) {
+      routeEvent(type: any, data: any, settled = false) {
         if (!Object.hasOwn(data, "scene_id")) return false;
         const scene = messageScene(data);
         if (scene.sceneId === local.currentScene.sceneId ||
             (scene.sceneId && local.currentScene.legacySceneId && inCurrentScene(scene, local.currentScene))) return false;
         const target = sessionFor(scene);
         routed.add(target);
-        target.runtime.acceptSceneEvent(type, data);
+        target.runtime.acceptSceneEvent(type, data, settled);
         return true;
       },
       finishRoutes() {
@@ -552,7 +552,7 @@ export function createSceneRuntime(state: ChatState, options: RuntimeOptions, cr
     send(...args: any[]) {
       const target = selected;
       args[2] = { intelligentUI: state.intelligentUIEnabled && state.intelligentUIForMessage,
-        uiSnapshot: state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], ...args[2] };
+        uiSnapshot: state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'] ?? '', ...args[2] };
       // Detach structured UI values now, before any queued asynchronous work.
       if (args[2].uiAction) args[2].uiAction = structuredClone(args[2].uiAction);
       const sendSnapshot = !Array.isArray(args[1])

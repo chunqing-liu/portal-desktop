@@ -1,9 +1,10 @@
+import { withComposerCommandContext, usesIntelligentUICommand } from './composer-command-context';
 import { newToolActivity, completeToolActivity } from '../models/tool-activity';
 import { stripLocalFileContext, stripClientMessageContext } from './local-file-context';
 import {registerAttachmentSource} from './attachment-source';
 import { MAX_ATTACHMENT_BYTES, LEGACY_WEB_ATTACHMENT_BYTES } from '../../../shared/attachment-limits';
 import { messageReferences } from './attachment-messages';
-import { withIntelligentUIContext, validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
+import { validateIntelligentUIContext } from "../../shared/intelligent-ui/context";
 import { createSceneRuntime } from "./scene-runtime";
 import { HistoryCache, normalizeHistoryRows } from "./history-cache";
 import { chatHistoryLimit } from '../../../shared/chat-history';
@@ -239,6 +240,9 @@ function createStreamRuntime(state: any, options: any): any {
   let autonomousStream = false;
   let autonomousOrigin: string | undefined;
   let autonomousHandedOff = false;
+  let replayingSettledReply = false;
+  let replayingInitialEvents = false;
+  let replayRunStartedAt: number | undefined;
   function setStreamScene(scene: any) {
     state.activeScene = {
       ...scene,
@@ -303,6 +307,7 @@ function createStreamRuntime(state: any, options: any): any {
     }
   }
   function updateRun(finished = false) {
+    if (replayingSettledReply) return;
     if (replayTransportOnly && !pendingReply) return;
     if (replyRunSettled) return;
     if (!currentRun || currentRun.end) {
@@ -314,13 +319,14 @@ function createStreamRuntime(state: any, options: any): any {
         streamId: currentStreamId || undefined,
         id: `run-${options.nextId()}`,
         entries: [],
-        start: Date.now(),
+        start: replayRunStartedAt ?? Date.now(),
         label: "思考中",
         hint: "",
         context: turnContext,
         arg: "",
       };
       state.items.push(currentRun);
+      replayRunStartedAt = undefined;
     }
     const run = currentRun;
     moveRun();
@@ -920,10 +926,13 @@ function createStreamRuntime(state: any, options: any): any {
     // A continuation can be replayed after refresh. Anchor it to the user turn,
     // rather than requiring the ephemeral pendingReply to survive the reload.
     if (!user) return;
+    if (replayingInitialEvents && Number.isFinite(user.createdAt)) replayRunStartedAt = Math.min(Date.now(), user.createdAt);
     const key = user.id;
     if (state.items.some((item: any) => item.continuationTurn === key ||
       (item.marker && item.historySeq && item.text.includes("转向你") &&
-       echoScenesMatch(item, scene) && item.createdAt >= user.createdAt))) return;
+       echoScenesMatch(item, scene) && (item.createdAt >= user.createdAt ||
+         // Heart persists the yield marker immediately BEFORE the inserted user row.
+         (user.historySeq && item.historySeq === user.historySeq - 1))))) return;
     const now = Date.now();
     state.items.push({ ...scene, kind: "separator", id: `marker-${options.nextId()}`,
       marker: true, handoffMarker: true, continuationMarker: true, continuationTurn: key,
@@ -1998,7 +2007,7 @@ function createStreamRuntime(state: any, options: any): any {
     let spliceMsg = (text || "").trim();
     if (!spliceMsg && !files.length) return;
     spliceMsg = options.prepareMessage?.(spliceMsg || `[${files.length} file(s)]`) ?? spliceMsg;
-    const requestMessage = stripLocalFileContext(withIntelligentUIContext((sendOptions.requestMessage ?? spliceMsg) || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction));
+    const requestMessage = stripLocalFileContext(withComposerCommandContext((sendOptions.requestMessage ?? spliceMsg) || `[${files.length} file(s)]`, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction));
     const localMessage = ensureUserMessage(sendOptions.queuedMessage, spliceMsg || `[${files.length} file(s)]`);
     noteLocalEcho("user", requestMessage, state.currentScene, localMessage, [spliceMsg]);
     if (!sendOptions.uiAction && !sendOptions.queuedMessage) clearComposer();
@@ -2064,7 +2073,7 @@ function createStreamRuntime(state: any, options: any): any {
 
   async function send(text: any, filesOverride: any = null, sendOptions: any = {}) {
     if (disposed || preparingSend) return;
-    try { validateIntelligentUIContext(!!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction); }
+    try { validateIntelligentUIContext(usesIntelligentUICommand(text || "") || !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction); }
     catch (error) { addMessage('system', error instanceof Error ? error.message : '智能 UI 上下文无效，未发送'); return; }
 
     if (!Array.isArray(filesOverride) && pendingFileReads.size) {
@@ -2097,7 +2106,7 @@ function createStreamRuntime(state: any, options: any): any {
       : [...pendingFiles];
     if (!msg && !filesToSend.length) return;
     if (!isManualRetry) msg = options.prepareMessage?.(msg || `[${filesToSend.length} file(s)]`) ?? msg;
-    const requestMessage = stripLocalFileContext(isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withIntelligentUIContext(sendOptions.requestMessage ??
+    const requestMessage = stripLocalFileContext(isManualRetry && typeof sendOptions.requestMessage === "string" ? sendOptions.requestMessage : withComposerCommandContext(sendOptions.requestMessage ??
       options.prepareRequestMessage?.(msg || `[${filesToSend.length} file(s)]`, sendingScene, sendOptions) ?? msg, !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction));
     turnContext = sceneTransitionNotice(requestMessage);
     // Recovery identities belong to one request. A failed new POST (or reader
@@ -3350,7 +3359,25 @@ function createStreamRuntime(state: any, options: any): any {
     updateSendButton();
 
     const events = Array.isArray(data.events) ? data.events : [];
-    for (const item of events) processReplayEvent(item.event, item.data || {}, Number(item.seq) || undefined);
+    // A fresh replay buffer contains already-settled replies too. Restore their
+    // prose/acknowledgements, but do not time old tool logs as brand-new activity.
+    const settledThrough = new Map<string | undefined, number>();
+    let eventScene = state.activeScene.sceneId;
+    const eventScenes = events.map((item: any) => {
+      if (Object.hasOwn(item.data || {}, 'scene_id')) eventScene = messageScene(item.data).sceneId;
+      return eventScene;
+    });
+    if (!autonomousStream) events.forEach((item: any, index: number) => {
+      // Only a later continuation proves these events belong to an older turn.
+      // A stop without a continuation can be the reply a local 202 still awaits.
+      if (item.event === 'meta' && item.data?.continuation === true) settledThrough.set(eventScenes[index], index - 1);
+    });
+    replayRunStartedAt = undefined;
+    replayingInitialEvents = true;
+    try {
+      events.forEach((item: any, index: number) => processReplayEvent(item.event, item.data || {}, Number(item.seq) || undefined,
+        index <= (settledThrough.get(eventScenes[index]) ?? -1)));
+    } finally { replayingInitialEvents = false; replayRunStartedAt = undefined; }
 
     if (data.finished) {
       // 先渲染已累积的文字，再 finalize
@@ -3524,9 +3551,15 @@ function createStreamRuntime(state: any, options: any): any {
       persistedFrom: data.persisted?.from, continuation: data.continuation === true,
       ...(type === 'content_block_delta' ? {textLength: typeof data.delta?.text === 'string' ? data.delta.text.length : 0} : {})});
   }
-  function processReplayEvent(eventType: any, eventData: any, seq?: number) {
+  function processReplayEvent(eventType: any, eventData: any, seq?: number, settled = false) {
+    const previous = replayingSettledReply;
+    replayingSettledReply = settled;
+    try { applyReplayEvent(eventType, eventData, seq); }
+    finally { replayingSettledReply = previous; }
+  }
+  function applyReplayEvent(eventType: any, eventData: any, seq?: number) {
     traceStreamEvent(seq === undefined ? 'routed' : 'replay', eventType, eventData, seq);
-    if (options.routeEvent?.(eventType, eventData)) {
+    if (options.routeEvent?.(eventType, eventData, replayingSettledReply)) {
       // SBS may hand the same transport to a room. Close the previous activity
       // segment without stopping the shared reader or the room's pending reply.
       if (autonomousStream && !autonomousHandedOff && PROGRESS_EVENTS.has(eventType) && eventType !== 'message_stop' && eventType !== 'error' &&
@@ -3552,7 +3585,8 @@ function createStreamRuntime(state: any, options: any): any {
       return;
     }
     splitStreamProgress(eventType, eventData);
-    markProgress(eventType, eventData);
+    if (replayingSettledReply && ['thinking', 'reasoning', 'tool_use', 'tool_result'].includes(eventType)) return;
+    if (!replayingSettledReply) markProgress(eventType, eventData);
     switch (eventType) {
       case "meta":
         acceptPersisted(eventData);
@@ -3649,8 +3683,8 @@ function createStreamRuntime(state: any, options: any): any {
       renderTimer = null;
     }
     solidifyReplayBubble();
-    settleReplyBoundary();
-    if (!pendingReply) {
+    if (!replayingSettledReply) settleReplyBoundary();
+    if (!pendingReply && !replayingSettledReply) {
       updateRun(true);
       replyRunSettled = true;
     }
@@ -3782,7 +3816,7 @@ function createStreamRuntime(state: any, options: any): any {
     reconcileActivity,
     discoverActiveStream,
     stageQueuedSend(text: any, filesOverride = null, sendOptions: any = {}) {
-    try { validateIntelligentUIContext(!!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction); }
+    try { validateIntelligentUIContext(usesIntelligentUICommand(text || "") || !!sendOptions.uiAction || (!!state.intelligentUIEnabled && (sendOptions.intelligentUI ?? state.intelligentUIForMessage)), sendOptions.uiSnapshot ?? state.intelligentUISnapshots?.[state.currentScene.sceneId || 'global'], sendOptions.uiAction); }
     catch (error) { addMessage('system', error instanceof Error ? error.message : '智能 UI 上下文无效，未发送'); return null; }
 
       const msg = (text || "").trim();
@@ -3858,18 +3892,18 @@ function createStreamRuntime(state: any, options: any): any {
     recoverConnection: onReconnected,
     syncConnection: (next: any) => { connState = next; applyDotClass(); },
     acceptReplay: replayStream,
-    acceptSceneEvent: (type: any, data: any) => {
+    acceptSceneEvent: (type: any, data: any, settled = false) => {
       if ((type === "meta" && !data.persisted) || type === "usage") return;
       // A boundary is not the start of another run. Shared streams may replay
       // stops for idle scenes; opening a run here creates a phantom "已结束 0 秒".
-      if (!isStreaming && PROGRESS_EVENTS.has(type) && type !== "message_stop" && type !== "error") {
+      if (!settled && !isStreaming && PROGRESS_EVENTS.has(type) && type !== "message_stop" && type !== "error") {
         routedStreaming = true;
         isStreaming = true;
         updateSendButton();
       }
       if (type === "message_stop" && data.session_id) sessionId = data.session_id;
-      processReplayEvent(type, data);
-      if (routedStreaming && (type === "message_stop" || type === "error")) {
+      processReplayEvent(type, data, undefined, settled);
+      if (!settled && routedStreaming && (type === "message_stop" || type === "error")) {
         routedStreaming = false;
         isStreaming = false;
         updateSendButton();

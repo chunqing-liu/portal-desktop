@@ -7,12 +7,15 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { safeLink } from './markdown';
 import { EditorState } from '@tiptap/pm/state';
+import type { Extensions } from '@tiptap/core';
 
 export interface ComposerHandle { focus: () => void }
 
-export function MarkdownEditor({ value, onChange, inputRef, id, label, placeholder, disabled }: {
+export function MarkdownEditor({ value, onChange, inputRef, id, label, placeholder, disabled, suggestions, extensions = [] }: {
   value: string; onChange: (value: string) => void; inputRef: RefObject<ComposerHandle | null>;
   id?: string; label?: string; placeholder?: string; disabled?: boolean;
+  suggestions?: { controls?: string; active?: string; autocomplete?: string };
+  extensions?: Extensions;
 }) {
   const latest = useRef(onChange);
   latest.current = onChange;
@@ -23,6 +26,7 @@ export function MarkdownEditor({ value, onChange, inputRef, id, label, placehold
       StarterKit.configure({ link: { openOnClick: false, isAllowedUri: url => Boolean(safeLink(url)) }, underline: false, trailingNode: false }),
       TableKit, TaskList, TaskItem.configure({ nested: true }),
       Markdown.configure({ markedOptions: { gfm: true, breaks: true } }),
+      ...extensions,
     ],
     content: value,
     contentType: 'markdown',
@@ -78,5 +82,12 @@ export function MarkdownEditor({ value, onChange, inputRef, id, label, placehold
     editor.view.updateState(EditorState.create({ schema: editor.schema, doc: editor.state.doc, plugins: editor.state.plugins }));
   }, [editor, value]);
   useEffect(() => { editor?.setEditable(!disabled, false); }, [editor, disabled]);
+  useEffect(() => {
+    if (!editor) return;
+    for (const [attribute, value] of Object.entries({ 'aria-controls': suggestions?.controls, 'aria-activedescendant': suggestions?.active, 'aria-autocomplete': suggestions?.autocomplete })) {
+      if (value) editor.view.dom.setAttribute(attribute, value);
+      else editor.view.dom.removeAttribute(attribute);
+    }
+  }, [editor, suggestions?.controls, suggestions?.active, suggestions?.autocomplete]);
   return <EditorContent editor={editor} className="markdown-input-host" />;
 }

@@ -104,12 +104,43 @@ try {
     frame.contentWindow.postMessage({type:'beings:scene-tasks',revision:new URL(frame.src).searchParams.get('revision'),endpoint:snapshot.settings.endpoint,
       tasks:[],subagentReady:false,subagentConfigured:false,subagentEnabled:false},'beings://chat');
   });
-  const subagentHint = chat.locator('#subagent-setup-hint');
-  await subagentHint.waitFor();
-  assert.equal(await subagentHint.locator('.subagent-hint-text').textContent(),'用 subagent 并行处理任务');
-  await clickWhenPointerReady(page, subagentHint.getByRole('button',{name:'去配置'}));
+  const subagentSetup = chat.getByRole('menuitem',{name:/Subagent.*\/subagent/});
+  await chat.getByRole('button',{name:'添加附件和工具'}).click();
+  await subagentSetup.waitFor();
+  await clickWhenPointerReady(page, subagentSetup);
   await page.waitForFunction(() => window.fixtureApp.subagentSettingsOpen === true);
   await page.evaluate(() => window.fixtureApp.closeSubagentSettings());
+  // Both pickers and direct submissions must open setup without touching the draft or posting.
+  const commandInput = chat.getByRole('textbox',{name:'message input'});
+  for (const trigger of ['plus', 'slash', 'enter', 'send', 'queue']) {
+    const draft = trigger === 'plus' ? '保留已有要求' : trigger === 'slash' ? '/sub' : '/子代理 保留已有要求';
+    await commandInput.fill(draft);
+    if (trigger === 'plus') {
+      await chat.getByRole('button',{name:'添加附件和工具'}).click();
+      await subagentSetup.click();
+    } else if (trigger === 'slash') await commandInput.press('Enter');
+    else if (trigger === 'send') await chat.locator('#send-btn').click();
+    else await commandInput.press(trigger === 'queue' ? 'Control+Enter' : 'Enter');
+    await page.waitForFunction(() => window.fixtureApp.subagentSettingsOpen === true);
+    assert.equal(await commandInput.evaluate(el => el.value ?? el.editor.getMarkdown()),draft,'Setup preserves the existing draft');
+    assert.equal(await application.evaluate(() => globalThis.fixture.requests.length),0,'Unconfigured subagent must not send');
+    assert.equal(await chat.locator('.message.user').count(),0,'Setup must not create a user bubble');
+    await page.evaluate(() => window.fixtureApp.closeSubagentSettings());
+  }
+  await page.evaluate(async () => {
+    const frame = document.querySelector('iframe'), snapshot = await window.beings.snapshot();
+    frame.contentWindow.postMessage({type:'beings:scene-tasks',revision:new URL(frame.src).searchParams.get('revision'),endpoint:snapshot.settings.endpoint,
+      tasks:[],subagentReady:true,subagentConfigured:true,subagentEnabled:true},'beings://chat');
+  });
+  await commandInput.fill('保留已有要求');
+  await chat.getByRole('button',{name:'添加附件和工具'}).click();
+  await subagentSetup.click();
+  assert.equal(await commandInput.evaluate(el => el.value ?? el.editor.getMarkdown()),'/subagent 保留已有要求');
+  assert.equal(await page.evaluate(() => window.fixtureApp.subagentSettingsOpen),false);
+  await commandInput.fill('/sub');
+  await commandInput.press('Tab');
+  assert.equal((await commandInput.evaluate(el => el.value ?? el.editor.getMarkdown())).trim(),'/subagent');
+  await commandInput.fill('');
   const original = await page.evaluate(async () => (await window.beings.snapshot()).chatScene.scene_id);
   await chat.locator('#input').fill('原会话草稿');
   await page.getByRole('button',{name:'展开场景列表',exact:true}).click();
@@ -386,7 +417,7 @@ try {
       subagentReady:true, subagentConfigured:true, subagentEnabled:true, tasks:[{id:'sub-fixture',sceneId:'feishu-shared',status,createdAt:Date.now()+1000,endedAt:status==='done'?Date.now()+2000:undefined,error:status==='failed'?'模型鉴权失败，请检查 subagent 密钥':undefined}]},'beings://chat');
   },status);
   await pushTasks('running');
-  await subagentHint.waitFor({state:'hidden'});
+  assert.equal(await chat.getByText('尚未配置 · 点击配置模型',{exact:true}).count(),0);
   await page.getByRole('button',{name:'切换到场景：跨客户端场景'}).getByText('执行中').waitFor();
   if (await schedulingRun.getAttribute('open') === null) await schedulingRun.locator('summary').click();
   await chat.locator('.scene-task-list').getByText('后台执行中',{exact:true}).waitFor();

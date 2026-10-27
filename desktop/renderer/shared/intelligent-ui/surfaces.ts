@@ -121,7 +121,7 @@ export class SurfaceTimeline {
 /** A self-contained repair draft also works when per-message UI context is off. */
 export function surfaceRepairPrompt(surface: Surface, error: string): string {
   const latest = surface.versions.at(-1);
-  if (!latest) return `请修正未成功保存的界面。客户端报告：${error}。请使用新的唯一 surfaceId 输出完整 intelligent-ui 界面，省略 baseRevision，以 commit 结束。`;
+  if (!latest) return `请修正未成功保存的界面「${surface.id}」。客户端报告：${error}。保留原任务和有效内容，请使用新的唯一 surfaceId 输出完整 intelligent-ui 界面，省略 baseRevision，以 commit 结束。`;
   const begin = { op: 'begin', version: 2, surfaceId: surface.id, title: latest.doc.title, mode: 'replace', baseRevision: latest.revision };
   return `请修正界面 ${surface.id} 的更新。客户端报告：${error}\n当前已保存的是第 ${latest.revision} 版；协议 version 固定为 2，与 baseRevision 不同。\n请使用 intelligent-ui 代码围栏，第一条事件为：\n${JSON.stringify(begin)}\n然后输出完整的 state/node 事件，最后输出 {"op":"commit"}。保留原任务内容、稳定节点 id 和状态键，客户端会保留用户选择。不要省略 baseRevision，也不要为更新重复创建新 surfaceId。`;
 }

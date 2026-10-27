@@ -6,6 +6,7 @@ import { useModel } from "../shared/hooks/use-model";
 import { useChatBridge } from "./hooks/use-chat-bridge";
 import { WorkspaceNavigation, BeingInfo } from "./components/workspace-navigation";
 import { PanelResizeHandle, usePanelWidth } from "../shared/components/panel-resize";
+import { UIExamplesPlace } from "./components/ui-examples-place";
 import { Topbar } from "./components/topbar";
 import { SceneRibbon, Companion } from "./components/workspace";
 import { Browser } from "../browser/page";
@@ -201,8 +202,8 @@ function PlaceContent({ app }: { app: AppModel }) {
     <>
       <PlaceHeading
         view={app.view}
-        title={app.view === 'plugins' ? selectedPlugin?.manifest.name : undefined}
-        actions={<>
+        title={app.view === 'ui-examples' ? '智能交互示例' : app.view === 'plugins' ? selectedPlugin?.manifest.name : undefined}
+        actions={app.view !== 'ui-examples' && <>
           <PluginSlots model={app.plugins} />
           {app.view === 'plugins' && <button className="plugin-manage-button" aria-label="管理插件" title="管理插件" onClick={() => plugins.manage()}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg>
@@ -211,17 +212,17 @@ function PlaceContent({ app }: { app: AppModel }) {
         chatExpanded={app.chatSplitOpen}
         onToggleChat={app.toggleChatSplit}
         navigate={app.navigate}
-        onBack={app.settingsRoute === "portal" || app.town.returnView ? app.returnFromPlace : undefined}
-        onForward={app.town.forwardView ? app.forwardFromPlace : undefined}
-        onClose={app.closePlace}
+        onBack={app.view !== "ui-examples" && (app.settingsRoute === "portal" || app.town.returnView) ? app.returnFromPlace : undefined}
+        onForward={app.view !== "ui-examples" && app.town.forwardView ? app.forwardFromPlace : undefined}
+        onClose={app.view === "ui-examples" ? () => app.returnFromUIExamples() : app.closePlace}
       />
-      <div className="plugin-place-layout">
+      {app.view === "ui-examples" ? <UIExamplesPlace key={`${app.chatSource}:${app.snapshot?.chatScene?.scene_id || ""}`} app={app} /> : <div className="plugin-place-layout">
         <div className="plugin-place-main">
           {app.view === "portal" ? <Portal model={app} /> : app.view !== "plugins" && <Town model={app.town} />}
           {app.view === 'plugins' && <Plugins model={app.plugins} theme={app.theme} contextKey={`${app.chatSource}:${JSON.stringify(app.snapshot?.chatScene)}:${app.town.live?.generation}`} />}
         </div>
         <PluginSidebar model={app.plugins} theme={app.theme} contextKey={`${app.chatSource}:${JSON.stringify(app.snapshot?.chatScene)}:${app.town.live?.generation}`} />
-      </div>
+      </div>}
     </>
   );
 }
