@@ -10,6 +10,7 @@ import { readPortalSample, readPortalReady, portalSampleState } from './status';
 import type { BackgroundState, PortalState, Settings } from '../../shared/types';
 import { permissionMode } from '../../shared/security';
 import { windowsEnvironment, windowsExecutable } from './windows';
+import { windowsLogCopy } from './windows-log-copy';
 
 // No shell interpolation or credentials in command arguments. Windows DPAPI input uses stdin.
 export type Command = (file: string, args: string[], input?: string) => Promise<string>;
@@ -61,7 +62,7 @@ export interface Service { label: string; file: string; root: string; existing: 
 export function fingerprint(settings: Settings, connection: Connection) {
   return hash(JSON.stringify([connection.link, settings.portalBinary, settings.portalConfigPath, settings.portalName,
     settings.workspace, settings.portalEnvironmentPath, settings.allowExec, settings.kitsEnabled,
-    permissionMode(settings.permissionMode), 'client-tools-v6-permission-mode']));
+    permissionMode(settings.permissionMode), 'client-tools-v7-bounded-logs']));
 }
 export function launchAgent(label: string, root: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
@@ -127,10 +128,11 @@ $env:NO_COLOR = '1'
 $env:PATH = ${ps(windowsEnvironment(process.env, environment, ...(settings.portalEnvironmentPath ? [{ PATH: settings.portalEnvironmentPath }] : [])).PATH!)}
 $stage = 'working-directory'
 Set-Location -LiteralPath ${ps(settings.workspace)}
+${windowsLogCopy}
 $crashes = 0
 while ($true) {
   $child = $null
-  $out = $null; $err = $null
+  $outCopy = $null; $errCopy = $null
   $exitCode = $null
   $started = [DateTime]::UtcNow
   try {
@@ -152,24 +154,34 @@ while ($true) {
       $file = Join-Path $root $name
       if (Test-Path -LiteralPath $file) { Move-Item -LiteralPath $file -Destination ($file + '.previous') -Force }
     }
-    $out = [System.IO.File]::Open((Join-Path $root 'portal.log'), 'Create', 'Write', 'ReadWrite')
-    $err = [System.IO.File]::Open((Join-Path $root 'portal.err.log'), 'Create', 'Write', 'ReadWrite')
     $stage = 'launch-engine'
     $child = [System.Diagnostics.Process]::Start($si)
     Write-PortalSupervisorLog ('engine-start pid=' + $child.Id + ' attempt=' + ($crashes + 1))
     $child.Id | Set-Content -LiteralPath (Join-Path $root 'pid')
-    $outCopy = $child.StandardOutput.BaseStream.CopyToAsync($out)
-    $errCopy = $child.StandardError.BaseStream.CopyToAsync($err)
+    $outCopy = [PortalLogCopy]::Copy($child.StandardOutput.BaseStream, (Join-Path $root 'portal.log'), 10485760)
+    $errCopy = [PortalLogCopy]::Copy($child.StandardError.BaseStream, (Join-Path $root 'portal.err.log'), 10485760)
     $stage = 'wait-engine'
-    $child.WaitForExit()
+    while (-not $child.WaitForExit(1000)) {
+      # A failed log writer no longer drains its pipe. Do not let the engine
+      # block forever on stdout/stderr while the supervisor waits for exit.
+      if ($outCopy.IsFaulted) { $outCopy.GetAwaiter().GetResult() }
+      if ($errCopy.IsFaulted) { $errCopy.GetAwaiter().GetResult() }
+    }
     $exitCode = $child.ExitCode
     Write-PortalSupervisorLog ('engine-exit pid=' + $child.Id + ' code=' + $exitCode + ' runtime_ms=' + [int64]([DateTime]::UtcNow - $started).TotalMilliseconds)
     if (-not $outCopy.Wait(1000)) { $child.StandardOutput.Close() }
     if (-not $errCopy.Wait(1000)) { $child.StandardError.Close() }
   } catch { Write-PortalSupervisorLog ('stage=' + $stage + ' error=' + $_.Exception.Message) $true }
   finally {
-    if ($child) { if (-not $child.HasExited) { $child.Kill() }; $child.Dispose() }
-    if ($out) { $out.Dispose() }; if ($err) { $err.Dispose() }
+    if ($child) {
+      if (-not $child.HasExited) { $child.Kill(); [void]$child.WaitForExit(1000) }
+      $child.StandardOutput.Close(); $child.StandardError.Close()
+      # Release log handles before the next attempt rotates the same files.
+      foreach ($copy in @($outCopy, $errCopy)) {
+        if ($copy) { try { [void]$copy.Wait(1000) } catch {} }
+      }
+      $child.Dispose()
+    }
   }
   if (([DateTime]::UtcNow - $started).TotalSeconds -ge 60) { $crashes = 0 }
   $crashes++
@@ -217,6 +229,7 @@ export class BackgroundPortal {
   private service: Service | null = null;
   private connection: Connection | null = null;
   private launcherSource?: string;
+  private stoppedSince?: number;
   state: BackgroundState;
   readonly label: string;
   get runtimeDirectory() { return path.join(this.directory, 'portal-service'); }
@@ -226,6 +239,20 @@ export class BackgroundPortal {
       message: ['darwin', 'win32'].includes(platform) ? '未启用后台服务' : '此版本的后台服务支持 macOS 和 Windows' };
   }
   private get domain() { return `gui/${process.getuid?.() ?? 0}`; }
+  async observe() {
+    // An observation must not overwrite live state while start/stop changes it.
+    const observer = new BackgroundPortal(this.directory, this.run, this.platform, this.home);
+    observer.service = this.service && { ...this.service };
+    observer.connection = this.connection;
+    observer.state = { ...this.state };
+    observer.stoppedSince = this.stoppedSince;
+    const portal = await observer.portalState();
+    return { portal, background: observer.state, stoppedSince: observer.stoppedSince };
+  }
+  acceptObservation(value: Awaited<ReturnType<BackgroundPortal['observe']>>) {
+    this.state = value.background;
+    this.stoppedSince = value.stoppedSince;
+  }
   private powershell(script: string, input?: string) {
     return this.run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(windowsPowerShellScript(script), 'utf16le').toString('base64')], input);
   }
@@ -278,6 +305,8 @@ if ([string]$t.State -eq 'Running' -and (Test-Path -LiteralPath $pidFile)) {
     }
     this.state = { supported: this.state.supported, installed: true, enabled, running, existing: service.existing, label: service.label, pid,
       message: !loaded ? '后台服务当前未注册或未加载，配置已保留，可点击启动 Portal 恢复' : enabled ? '登录后自动启动 · 退出客户端后继续运行 · 连续异常退出最多重试 5 次' : '后台服务已停用，不会随登录启动' };
+    if (!enabled || running) this.stoppedSince = undefined;
+    else this.stoppedSince ??= Date.now();
     return this.state;
   }
   async portalState(): Promise<PortalState> {
@@ -306,10 +335,12 @@ if ([string]$t.State -eq 'Running' -and (Test-Path -LiteralPath $pidFile)) {
     if (this.state.enabled && !this.state.running) {
       const failure = (await tail(path.join(root, '.portal-start-failure'))).trim();
       const conflict = failure === 'conflict' || /another (legacy )?Portal instance is already running/.test(errors);
-      return { ...identity, phase: failure || conflict ? 'error' : 'reconnecting', conflict, managed: !this.service.existing, runtimePath: root, logs,
+      const overdue = this.stoppedSince !== undefined && Date.now() - this.stoppedSince >= 6 * 60_000;
+      return { ...identity, phase: failure || conflict || overdue ? 'error' : 'reconnecting', conflict, managed: !this.service.existing, runtimePath: root, logs,
         message: conflict ? '同一个 Being 已有本机 Portal 在运行，已停止重复启动。请先停止原服务，再点击启动 Portal。'
           : failure ? 'Portal 连续启动失败，已停止自动重试。请检查运行日志，修正后点击启动 Portal。'
-          : '后台 Portal 已退出，正在等待恢复；可点击「重启 Portal」立即重试，无需重启电脑。' };
+          : overdue ? '后台 Portal 超过 6 分钟仍未恢复，请点击「重启 Portal」重试并检查运行日志。'
+          : '后台 Portal 当前未运行，尚未确认自动恢复；可点击「重启 Portal」立即重试。' };
     }
     return { ...identity, ...state, phase: !this.state.enabled || !this.state.running ? 'stopped' : state.phase,
       pid: this.state.pid, managed: !this.service.existing, runtimePath: root,
@@ -438,6 +469,7 @@ else { [string]$t.State }`);
     }
   }
   private async resetRecovery(service: Service) {
+    this.stoppedSince = undefined;
     await rm(path.join(service.root, '.portal-start-attempt'), { force: true });
     // Removing this marker may wake launchd immediately, so clear the budget first.
     await rm(path.join(service.root, '.portal-start-failure'), { force: true });
@@ -528,10 +560,12 @@ if (Test-Path -LiteralPath $supervisorFile -ErrorAction Stop) {
     // Release an already-stopped adopted service; retain its files and registration.
     await rm(path.join(this.directory, 'portal-service.json'), { force: true });
     this.service = null;
+    this.stoppedSince = undefined;
     this.state = { supported: this.state.supported, installed: false, enabled: false, running: false, existing: false, message: '等待启动客户端 Portal' };
   }
   async setService(service: Service) {
     await atomic(path.join(this.directory, 'portal-service.json'), JSON.stringify(service));
+    if (this.service?.root !== service.root) this.stoppedSince = undefined;
     this.service = service;
     return this.refresh();
   }

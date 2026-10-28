@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { command, windowsPowerShellScript, windowsRunner } from '../desktop/main/portal/background';
 import type { Settings } from '../desktop/shared/types';
+import { windowsLogCopy } from '../desktop/main/portal/windows-log-copy';
 
 const roots: string[] = [];
 const ps = (value: string) => "'" + value.replaceAll("'", "''") + "'";
@@ -27,6 +28,19 @@ async function fixture(workspace?: string) {
   return { root, settings, run, credential };
 }
 
+it.skipIf(process.platform !== 'win32')('rotates both output streams during a single run and retains the latest bytes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'portal-log-copy-')); roots.push(root);
+  await powershell(`${windowsLogCopy}
+$data=[Text.Encoding]::UTF8.GetBytes(('a' * 32) + ('b' * 32) + 'latest')
+$a=[PortalLogCopy]::Copy([IO.MemoryStream]::new($data), ${ps(path.join(root, 'out.log'))}, 32)
+$b=[PortalLogCopy]::Copy([IO.MemoryStream]::new($data), ${ps(path.join(root, 'err.log'))}, 32)
+$a.GetAwaiter().GetResult(); $b.GetAwaiter().GetResult()`);
+  for (const name of ['out.log', 'err.log']) {
+    expect(await readFile(path.join(root, name), 'utf8')).toBe('latest');
+    expect(await readFile(path.join(root, name + '.previous'), 'utf8')).toBe('b'.repeat(32));
+  }
+}, 30_000);
+
 it.skipIf(process.platform !== 'win32')('records credential and working-directory errors before the engine can start', async () => {
   const f = await fixture(path.join(os.tmpdir(), 'missing-portal-workspace-' + crypto.randomUUID()));
   await expect(f.run()).rejects.toThrow();
@@ -38,6 +52,29 @@ it.skipIf(process.platform !== 'win32')('records credential and working-director
   expect(errors).toContain('stage=working-directory');
   expect(errors).not.toContain('runner-fixture-secret');
 }, 70_000);
+
+it.skipIf(process.platform !== 'win32')('stops a blocked engine when log rotation fails instead of waiting forever', async () => {
+  const f = await fixture(); await f.credential();
+  await powershell(`Add-Type -OutputAssembly ${ps(f.settings.portalBinary)} -OutputType ConsoleApplication -TypeDefinition @'
+using System;
+using System.Threading;
+public class FloodFixture {
+  public static int Main(string[] args) {
+    string line = new string('x', 65536);
+    for (int i = 0; i < 256; i++) Console.WriteLine(line);
+    Thread.Sleep(60000);
+    return 0;
+  }
+}
+'@`);
+  const script = path.join(f.root, 'run.ps1');
+  await writeFile(script, (await readFile(script, 'utf8')).replace('Start-Sleep -Seconds 5', 'Start-Sleep -Milliseconds 20'));
+  // An exclusive reader makes deleting the previous generation fail on Windows.
+  await powershell(`$locked=[IO.File]::Open(${ps(path.join(f.root, 'portal.log.previous'))}, 'Create', 'Write', 'None')
+try { & ${ps(script)} } finally { $locked.Dispose() }`);
+  expect(await readFile(path.join(f.root, 'supervisor.err.log'), 'utf8')).toContain('stage=wait-engine');
+  expect(await readFile(path.join(f.root, '.portal-start-failure'), 'utf8')).toBe('crash-limit');
+}, 40_000);
 
 it.skipIf(process.platform !== 'win32')('retains exit codes and prior stderr, stops on conflict, and bounds rapid crash retries', async () => {
   const f = await fixture(); await f.credential();

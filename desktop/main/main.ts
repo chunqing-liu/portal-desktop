@@ -28,6 +28,7 @@ import os from 'node:os';
 import { access, mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { SettingsStore } from './app/settings';
 import { ClientErrorLog } from './app/error-log';
+import { BackgroundPoll } from './app/background-poll';
 import { createLogArchive } from './app/log-archive';
 import { portalLogText } from './portal/diagnostics';
 import { PortalSupervisor } from './portal/supervisor';
@@ -100,6 +101,7 @@ let notifications: DesktopNotifications;
 let cancelTownPairing: (() => void) | undefined;
 let updatePoll: ReturnType<typeof setInterval> | undefined;
 let backgroundPoll: ReturnType<typeof setInterval> | undefined;
+let resourcePoll: ReturnType<typeof setInterval> | undefined;
 let quitting = false;
 let quitCleanupDone = false;
 let sessionEnding = false;
@@ -107,10 +109,12 @@ let tray: Tray | undefined;
 let lifecycleError = '';
 const errorLog = new ClientErrorLog(userData, () => [store?.connection?.token || '', store?.connection?.relaySecret || '']);
 let mutation = Promise.resolve();
+let pendingMutations = 0;
 let prepareInstallerShutdown: ((target: string) => void) | undefined;
 let pendingInstallerTarget: string | undefined;
 const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
-  const next = mutation.then(operation);
+  pendingMutations++;
+  const next = mutation.then(operation).finally(() => { pendingMutations--; });
   mutation = next.then(() => {}, () => {});
   return next;
 };
@@ -122,6 +126,7 @@ async function cleanupForQuit() {
 }
 function finishQuit() {
   clearInterval(backgroundPoll); clearInterval(updatePoll);
+  clearInterval(resourcePoll);
   townLive?.dispose(); notifications?.clear(); proxy.abortAll();
   // Installer shutdown reaches here directly, without the normal before-quit
   // handler. Let the window close instead of cancelling quit and hiding it.
@@ -164,12 +169,30 @@ function createWindow() {
     errorLog.info(`renderer-${level}`, message);
   });
   window.webContents.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => { if (isMainFrame && !inPlace) closePluginSessions(); });
-  window.webContents.on('render-process-gone', () => closePluginSessions());
+  window.webContents.on('render-process-gone', (_event, details) => {
+    errorLog.report('renderer-gone', JSON.stringify(details));
+    closePluginSessions();
+  });
+  window.on('unresponsive', () => errorLog.report('window-unresponsive', '主窗口无响应'));
+  window.on('responsive', () => errorLog.info('window-responsive', '主窗口已恢复响应'));
   window.webContents.on('destroyed', () => closePluginSessions());
 }
 
 async function ready() {
   errorLog.info('client-start', `version=${app.getVersion()} platform=${process.platform}/${process.arch} pid=${process.pid}`);
+  app.on('child-process-gone', (_event, details) => errorLog.report('child-process-gone', JSON.stringify(details)));
+  const sampleResources = () => {
+    try {
+      errorLog.info('client-resources', JSON.stringify({
+        system: { totalBytes: os.totalmem(), freeBytes: os.freemem() },
+        main: process.memoryUsage(),
+        processes: app.getAppMetrics().map(({ pid, type, cpu, memory }) => ({ pid, type, cpu, memory })),
+      }));
+    } catch (error) { errorLog.report('resource-sample', error); }
+  };
+  sampleResources();
+  resourcePoll = setInterval(sampleResources, 60_000);
+  resourcePoll.unref();
   if (process.platform === 'win32') {
     try { repairDevelopmentShortcut(app.getPath('appData'), shell); }
     catch (error) { errorLog.report('notification-identity', error); }
@@ -941,16 +964,24 @@ async function ready() {
     updatePoll = setInterval(() => { void updates.check(); }, 6 * 60 * 60 * 1000);
     updatePoll.unref();
   }
-  let pollingBackground = false;
-  backgroundPoll = setInterval(() => {
-    if (quitting || pollingBackground || portal.managing || !store.connection) return;
-    pollingBackground = true;
-    void exclusive(publishBackground).catch(error => {
+  const observer = new BackgroundPoll({
+    revision: () => mutation,
+    allowed: () => !quitting && !pendingMutations && !portal.managing && Boolean(store.connection),
+    read: () => background.observe(),
+    publish: value => {
+      background.acceptObservation(value);
+      // Preserve takeover diagnostics until the user resolves the conflict.
+      if (takeover.holdMessage) return;
+      portal.state = value.portal;
+      portal.emit('state', value.portal);
+    },
+    error: error => {
       errorLog.report('background-poll', error);
-      portal.state = { phase: 'error', message: '无法读取后台服务状态，请在本机设置中重新启用。', logs: [] };
+      portal.state = { phase: 'error', message: '后台状态查询失败，将降低频率重试；可在本机设置中检查服务。', logs: [] };
       portal.emit('state', portal.state);
-    }).finally(() => { pollingBackground = false; });
-  }, 3000);
+    },
+  });
+  backgroundPoll = setInterval(() => { void observer.tick(); }, 1000);
   backgroundPoll.unref();
 }
 const squirrelEvent = process.platform === 'win32' ? installerEvent(process.argv) : undefined;
