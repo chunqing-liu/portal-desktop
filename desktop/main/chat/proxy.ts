@@ -1,4 +1,5 @@
 import { ATTACHMENT_TRANSFER_TIMEOUT_MS } from '../../shared/attachment-limits';
+import {attachmentError} from '../../shared/attachment-error';
 import { attachmentRoute, handleAttachment } from './attachments';
 import { handleImageGeneration, imageGenerationRoute } from './image-generations';
 import type { Connection } from './connection';
@@ -71,14 +72,18 @@ export class ChatProxy {
         const encoder = new TextEncoder();
         const cleanup = () => this.requests.delete(controller);
         let cancelled = false;
+        let stage = '准备附件';
         return new Response(new ReadableStream({
           start: stream => {
             const emit = (value: unknown) => { if (!cancelled) stream.enqueue(encoder.encode(JSON.stringify(value) + '\n')); };
-            void handleAttachment(request, connection, scene, this.fetchUpstream, signal, progress => emit({type:'progress',...progress}), this.onAttachmentUploaded)
+            void handleAttachment(request, connection, scene, this.fetchUpstream, signal, progress => {
+              stage = progress.phase === 'uploading' ? '上传至对象存储' : progress.phase === 'confirming' ? '确认上传结果' : '准备附件或申请上传地址';
+              emit({type:'progress',...progress});
+            }, this.onAttachmentUploaded)
               .then(async response => {
-                const value = await response.json();
-                emit(response.ok ? {type:'complete',attachment:value} : {type:'error',status:response.status,error:value.error});
-              }).catch(() => emit({type:'error',error:'附件上传失败，请检查连接后重试'}))
+                const value = await response.json().catch(() => ({}));
+                emit(response.ok ? {type:'complete',attachment:value} : {type:'error',status:response.status,error:`${stage}失败 (HTTP ${response.status})：${attachmentError(new Error(typeof value.error === 'string' ? value.error : String(value.error?.code || '服务返回错误')))}`});
+              }).catch(error => emit({type:'error',error:`${stage}失败：${attachmentError(signal.aborted ? signal.reason : error)}`}))
               .finally(() => { cleanup(); if (!cancelled) stream.close(); });
           },
           cancel() { cancelled = true; controller.abort(); cleanup(); },

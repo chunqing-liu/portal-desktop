@@ -4,6 +4,7 @@ export function AttachmentProcessing({items,name,thinking=false}:{items:ChatItem
   const message=items.find(item=>item.kind==='message' && item.queued && !item.retry && (item.attachmentUploads?.length || item.attachmentViews?.length));
   if(!message || message.kind!=='message')return null;
   const current=message?.kind==='message' ? message : undefined;
+  if(current?.attachmentUploads?.some(file=>file.progress?.phase==='failed'))return null;
   const parts=current?.attachmentViews?.flatMap(view=>view.parts.filter(part=>part.type==='attachment')) || [];
   const uploading=current?.attachmentUploads?.some(file=>file.progress?.phase!=='complete') && !parts.length;
   const parsing=!!current && (!parts.length && !uploading || parts.some(part=>!['ready','failed','unavailable'].includes(part.parse_status)));

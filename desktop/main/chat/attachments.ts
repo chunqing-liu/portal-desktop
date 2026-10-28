@@ -85,7 +85,7 @@ export async function handleAttachment(request: Request, connection: Connection,
         grant.headers.set('Content-Length', String(staged.size));
         const uploaded = await fetcher(grant.url, {method: 'PUT', headers: grant.headers, body, signal, credentials: 'omit', redirect: 'error', duplex:'half'} as RequestInit);
         // An already-written staging object is verified by complete; never overwrite it.
-        if (!uploaded.ok && uploaded.status !== 409 && uploaded.status !== 412) throw new Error('附件上传失败，请重试');
+        if (!uploaded.ok && uploaded.status !== 409 && uploaded.status !== 412) throw new Error(`对象存储拒绝上传 (HTTP ${uploaded.status})`);
         await uploaded.body?.cancel();
       }
       progress?.({phase:'confirming',loaded:staged.size,total:staged.size});

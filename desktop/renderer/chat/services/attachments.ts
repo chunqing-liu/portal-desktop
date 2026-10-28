@@ -49,10 +49,10 @@ export async function prepareAttachments(input: {
       const bytes = file.blob || Uint8Array.from(atob(file.base64), c => c.charCodeAt(0));
       const attachment = await uploadAttachment(request, '/api/attachments?filename=' + encodeURIComponent(file.name), {
         method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream','Idempotency-Key':file.uploadKey,...(file.sourceToken ? {'X-Portal-Attachment-Source':file.sourceToken} : {})}, body:bytes,
-      }, value => input.progress?.(file, value));
-      if (!/^[a-zA-Z0-9_-]{1,160}$/.test(attachment.attachment_id) || attachment.status !== 'ready') throw new Error('附件上传尚未确认');
+      }, value => { file.uploadProgress = value; input.progress?.(file, value); });
       file.attachmentId = attachment.attachment_id;
-      input.progress?.(file, {phase:'complete',loaded:file.size,total:file.size});
+      file.uploadProgress = {phase:'complete',loaded:file.size,total:file.size};
+      input.progress?.(file, file.uploadProgress);
       file.base64 = ''; delete file.blob; delete file.previewUrl; await save();
     }
   }
