@@ -151,8 +151,12 @@ npm run test:browser
 ### 仓库结构
 
 ```text
-desktop/           Electron 主进程、preload、界面与设计文档
-heart-portal/      Rust Portal 客户端兼容分支子模块（打包时合并远程 main）
+desktop/           Electron 主进程、preload、界面与实现说明
+web/               独立 Web 入口与部署
+plugins/sdk/       对外插件类型契约
+docs/              文档导航、设计方案、历史核查与种子说明
+experiments/       不参与产品构建的独立原型
+heart-portal/      Rust Portal 固定提交子模块（构建不自动更新源码）
 scripts/           资源准备、构建、测试与发布脚本
 tests/             客户端单元测试与集成测试
 resources/         品牌资源、上游许可及本地构建产物
@@ -180,13 +184,13 @@ loom.html          React 聊天页挂载入口
 
 - [x] Grove 增加 Plugin 标签与筛选，保留 Kit/App 路径；支持本地导入和 Grove 下载。
 - [x] 版本化清单、动态页面入口、隔离 HTML 加载、主题同步和插件私有存储。
-- [x] [SDK 1.4](DEVELOPER-API-SDK.md#part-3--客户端插件-api--sdk)：独立 TypeScript 类型包、Town 读取、Being 历史/草稿/确认发送与流式回复、命令面板、插件设置和原子存储更新。
+- [x] [SDK 1.4](DEVELOPER-API-SDK.md#grove-插件-sdk)：独立 TypeScript 类型包、Town 读取、Being 历史/草稿/确认发送与流式回复、命令面板、插件设置和原子存储更新。
 - [x] 插件工作区上下文、侧栏与资源菜单、可取消领域事件，以及当前场景任务状态；流程看板支持资源协作和节点关联任务。
 - [x] 启用、停用、卸载、来源记录与会话撤销，无需修改客户端源码。
 - [x] 社区星图流程看板已迁移成独立插件，实测覆盖画布、拖拽、评论与数据恢复。
 - [ ] 自动更新与回退、签名、全库检索、更多界面贡献和受控工具调用。
 
-单独克隆 [starmap](https://github.com/chunqing-liu/starmap)，在该仓库执行 `npm ci` 和 `npm run check`，在「工具库」→「Plugin」导入它的 `dist` 目录即可打开流程看板。插件拥有独立 CI 产物和 tag 发版流程，客户端仓库不包含其实现。详见 [Plugin API v1](DEVELOPER-API-SDK.md#part-3--客户端插件-api--sdk) 和 [看板插件](https://github.com/chunqing-liu/starmap)。Grove 使用现有 App + plugin 标签及固定 Release asset 分发，未向线上发布条目；不直接兼容 Obsidian 或 Codex 插件包。
+单独克隆 [starmap](https://github.com/chunqing-liu/starmap)，在该仓库执行 `npm ci` 和 `npm run check`，在「工具库」→「Plugin」导入它的 `dist` 目录即可打开流程看板。插件拥有独立 CI 产物和 tag 发版流程，客户端仓库不包含其实现。详见 [Plugin API v1](DEVELOPER-API-SDK.md#grove-插件-sdk) 和 [看板插件](https://github.com/chunqing-liu/starmap)。Grove 使用现有 App + plugin 标签及固定 Release asset 分发，未向线上发布条目；不直接兼容 Obsidian 或 Codex 插件包。
 
 ### 单会话编排：待定方案
 
@@ -213,18 +217,7 @@ Loom 与 Town 凭据分别通过系统密钥库加密保存，配对码不落盘
 
 ## 文档导航
 
-| 文档 | 内容 |
-| --- | --- |
-| [构建与交付](desktop/BUILDING.md) | 平台环境、安装包位置、构建故障与卸载 |
-| [架构说明](desktop/ARCHITECTURE.md) | 进程、凭据、代理、Portal 与 Town 的实现边界 |
-| [测试说明](desktop/TESTING.md) | 分项命令、测试隔离、覆盖范围及验证记录 |
-| [Town SDK 接入](desktop/TOWN-SDK.md) | 配对、REST、SSE、发送与原生回复的协议对照 |
-| [配套更新](desktop/UPDATING.md) | 客户端与 Portal 的升级、恢复和发布流程 |
-| [Portal 恢复](desktop/PORTAL-RECOVERY.md) | 启动失败、手动重启、诊断日志与 Windows 启动说明 |
-| [发布说明](desktop/RELEASE_NOTES.md) | 版本交付说明 |
-| [开发者 API / SDK 指南](DEVELOPER-API-SDK.md) | Heart/Town API、插件 SDK 速查、接入边界与示例 |
-| [共同工作空间探索](desktop/SHARED-WORKSPACE.md) | 历史设计与待协商的场景协议，不代表已实现或当前路线图 |
-| [上游来源](UPSTREAM.md) | Loom 来源、Portal 固定提交与兼容分支维护 |
+[文档索引](docs/README.md)统一收录开发部署、API / SDK、功能说明、设计方案与历史验收记录。
 
 ## 参与贡献
 
@@ -235,7 +228,7 @@ Loom 与 Town 凭据分别通过系统密钥库加密保存，配对码不落盘
 3. 代码改动运行类型检查和相关测试；界面改动附截图或录屏及验证环境。纯文档改动检查链接、命令与示例即可。
 4. PR 说明问题、行为变化、验证结果与未覆盖的平台；同步更新受影响文档，保持中英文 README 一致，不将计划写成已完成。
 
-报告问题请包含客户端版本/构建标识、操作系统与架构、复现步骤、预期和实际结果，可附脱敏诊断报告。不要提交真实连接链接、token、私人对话、个人 Portal 配置、Kit 密钥或构建产物。Portal 构建使用兼容分支合并远程 `main` 后的源码；如需固定版本，请通过 `HEART_PORTAL_SOURCE` 指定源码目录。
+报告问题请包含客户端版本/构建标识、操作系统与架构、复现步骤、预期和实际结果，可附脱敏诊断报告。不要提交真实连接链接、token、私人对话、个人 Portal 配置、Kit 密钥或构建产物。Portal 默认构建父仓库记录的子模块提交；更新兼容分支和 gitlink 的流程见[上游来源](UPSTREAM.md)。`HEART_PORTAL_SOURCE` 仅用于显式指定其他源码目录。
 
 ## 许可与致谢
 
@@ -245,4 +238,4 @@ Loom 与 Town 凭据分别通过系统密钥库加密保存，配对码不落盘
 
 纯静态 OSS 包：运行 `npm run package:web:static`，输出 `out/town-web-oss.zip`。支持设置页添加到主屏幕，默认直连真实 Town 并直接配对，无域名检测或连接预验证，见 [OSS 部署说明](web/OSS.md)。
 
-工具库现统一提供 App、Kit、Plugin 分类和“仅本机存在”筛选，Plugin 分类内可导入与管理插件。模块沿用弹窗与右侧面板，插件支持页面和资源协作侧栏。详见 [插件说明](DEVELOPER-API-SDK.md#part-3--客户端插件-api--sdk)。
+工具库现统一提供 App、Kit、Plugin 分类和“仅本机存在”筛选，Plugin 分类内可导入与管理插件。模块沿用弹窗与右侧面板，插件支持页面和资源协作侧栏。详见 [插件说明](DEVELOPER-API-SDK.md#grove-插件-sdk)。

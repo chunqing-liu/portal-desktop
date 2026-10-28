@@ -32,7 +32,7 @@ import {
 } from "./models/chat";
 import { inCurrentScene, isGlobalBeingMessage, sceneItems, sceneName, type HistoryScope } from "./models/scenes";
 import { useModel } from "../shared/hooks/use-model";
-import { CodeClipboard, Markdown } from "../shared/components/markdown";
+import { CodeClipboard } from "../shared/components/markdown";
 import { type ComposerHandle } from "../shared/components/rich-composer";
 import { ChatComposer } from "./components/composer";
 import { ComposerAddMenu } from './components/composer-add-menu';
@@ -159,7 +159,6 @@ function ChatView({
   })));
   const surfaceContext = useMemo(() => ({ blocks: surfaceBlocks }), [surfaceBlocks]);
   const currentSceneName = sceneName(state.currentScene, state.currentScene);
-  const showActivity = state.historyScope === "all" || ((state.showSbsMessages || !!state.activeScene.sceneId) && inCurrentScene(state.activeScene, state.currentScene));
   const messages = useRef<HTMLDivElement>(null),
     composer = useRef<ComposerHandle>(null),
     fileInput = useRef<HTMLInputElement>(null);
@@ -658,7 +657,7 @@ function ChatView({
         </div>}
         <div id="input-area">
           {state.intelligentUIForMessage && state.intelligentUITargetTitle && <div className="iui-context-target" role="status"><span>修改「{state.intelligentUITargetTitle}」<small>将携带原界面和当前选择</small></span><button type="button" aria-label="取消本条界面修改" onClick={() => state.setIntelligentUIForMessage(false)}>×</button></div>}
-          {!state.historyLoading && <JumpToLatest items={visibleItems} container={messages} elements={messageElements} scrollLock={scrollLock} clearAnchor={releaseAnchor} />}
+          {!state.historyLoading && <JumpToLatest container={messages} scrollLock={scrollLock} clearAnchor={releaseAnchor} />}
           <div
             id="pending-files"
             className={state.files.length ? "active" : ""}

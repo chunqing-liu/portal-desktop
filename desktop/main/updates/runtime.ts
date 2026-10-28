@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, chmod, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { BackgroundPortal, atomic, fingerprint, unixRunner, windowsRunner, type Service } from '../portal/background';
 import type { Connection } from '../chat/connection';

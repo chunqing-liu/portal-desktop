@@ -10,8 +10,3 @@ export const demoSource = JSON.stringify({
     { id: 'reset', type: 'button', label: '恢复默认', action: 'reset' },
   ],
 }, null, 2);
-export const generationPrompt = `请为我的需求生成可交互界面，使用一个标记为 intelligent-ui 的 Markdown JSON 代码块。所有交互在客户端本地运行。
-协议：{version:1,title:string,state:{状态名:字符串/数字/布尔值/null},body:组件数组}。
-组件必须有唯一 id 和 type。支持 stack/row（children）、text/metric（label、value）、slider（label、bind、min、max、step）、input/select/toggle（label、bind，select 需 options 字符串数组）、table/chart（label、columns 字符串数组、rows 二维表达式数组，chart 两列分别为标签与数值）、button（label、action:"reset"）。bind 对应 state 的字段。
-value 和单元格可用字面量、{"state":"字段名"} 或 {"op":"操作名","args":[表达式,...]}。操作支持 add/mul（2–20 项）、sub/div/eq（2 项）、round（1 项）、concat（1–20 项）、if（条件、真值、假值）。不要使用 JavaScript、HTML、函数、URL、外部依赖或其他属性。JSON 必须合法；状态字段用英文字母开头。说明文字放在代码块外。
-示例：\n\`\`\`intelligent-ui\n${demoSource}\n\`\`\`\n\n我的需求：`;

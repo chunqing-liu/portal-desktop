@@ -42,8 +42,8 @@ DOM 引用仅用于焦点、原生 dialog、动画、滚动、选区测量和浏
 
 聊天页在隔离 iframe 内使用自己的 React root：`chat/page.tsx` 组合消息、输入、过程记录、
 模型设置、OAuth、隐私说明和 Being 信息。`chat/services/runtime.ts` 保留 Loom 的流式协议、
-断线恢复、watchdog 与历史对账，读写的是消息对象而非 DOM；`chat/models/chat.ts` 和
-`runtime.d.ts` 定义组件与协议间的类型契约。生命周期结束会取消请求并释放计时器与订阅。
+断线恢复、watchdog 与历史对账，读写的是消息对象而非 DOM；`chat/models/chat.ts` 中的
+`ChatRuntime` 与 `RuntimeOptions` 定义组件与协议间的类型契约。生命周期结束会取消请求并释放计时器与订阅。
 `app/hooks/use-chat-bridge.ts` 校验来源、frame 和 revision；`chat/services/bridge.ts` 处理子页面的状态回传，
 不替换全局 fetch，也不向 iframe 暴露 preload。主进程、preload、Rust 引擎不依赖 React。
 详见 [渲染器维护说明](renderer/README.md)。
@@ -68,13 +68,13 @@ DOM 引用仅用于焦点、原生 dialog、动画、滚动、选区测量和浏
 
 HTTP 202 已接收但始终未开始处理的消息，如果连续有效巡检确认服务端无活动流满 60 秒，且再次对账历史仍无最终回复，会结束本地等待并释放场景队列，提示结果未确认。巡检失败造成超过 20 秒的观察缺口会重新计时，任何活动流都会取消空闲判定；客户端不自动重发原消息。时间分隔线参考当前可见消息，包括其他运行时添加的全局 SBS 回复，避免显示过时的场景时间。
 
-此协议报告消息来自哪个客户端房间。`renderer/shared/models/scene.ts` 中的页面、筛选和选中对象仍是本地观察，不随这两个字段上传；完整页面环境快照及 Heart 接收回执的讨论见 [共同工作空间](SHARED-WORKSPACE.md)。
+此协议报告消息来自哪个客户端房间。`renderer/shared/models/scene.ts` 中的页面、筛选和选中对象仍是本地观察，不随这两个字段上传；完整页面环境快照及 Heart 接收回执的讨论见 [共同工作空间](../docs/design/SHARED-WORKSPACE.md)。
 
 对话左上角始终显示当前选择的场景，列表保留其选中状态。“显示全部场景上下文”是当前场景下的显示开关，不再作为独立场景列出；开启后展示其他场景消息及来源，输入框、附件和发送仍作用于当前场景，关闭后恢复当前场景过滤。场景详情始终可查看。显示范围通过校验 frame 来源与 revision 的消息桥同步；它不会改变发送场景，也不会将展示的历史额外注入请求。
 
 ## 与现有项目的适配
 
-Rust 引擎源码随 `heart-portal/` 目录一起版本管理，客户端与引擎由同一次提交记录，CI 和本机构建读取同一版本。来源见根目录 UPSTREAM.md；发布包只包含编译后的 Portal 可执行文件和许可，不包含源码或 Cargo 构建缓存。
+Rust 引擎源码通过 `heart-portal/` Git 子模块管理，父仓库的 gitlink 固定引擎提交，CI 和本机构建读取同一版本。来源见根目录 UPSTREAM.md；发布包只包含编译后的 Portal 可执行文件和许可，不包含源码或 Cargo 构建缓存。
 
 `loom.html` 仅保留 React 挂载点与本地资源引用。`scripts/build-chat.mjs` 编译 React 聊天组件、
 共享 Markdown 与高亮模块，并复制样式；`scripts/prepare-desktop.mjs` 将这些资源纳入桌面构建。
@@ -114,9 +114,9 @@ macOS 可识别配置目录、连接链接和已知启动脚本均匹配的原 H
 
 对话内容左缘提供刻度式快速索引：悬停或键盘聚焦预览该轮提问和回复，点击跳转，滚动时高亮当前位置，并可回到最新消息。索引直接从聊天 frame 的已加载消息生成，不再单独保存副本。左侧搜索接收限定长度的提问摘要，校验 frame source/origin 和当前 revision 后以纯文本渲染，展开/收起采用淡入与高度过渡，遵循系统减少动态效果设置。跳转复用聊天滚动控制器，保留草稿并暂停流式输出的自动跟随。
 
-聊天记录采用 `loom-local` b113faa（Loom 1.8.2）的 IndexedDB 思路，存储实现位于 `renderer/chat/services/history-cache.ts`。当前不按 Being 显示名或 `scene_id` 过滤、分组，当前连接历史接口返回的所有来源统一展示。数据库使用不含凭据的 Being 服务地址作为稳定且唯一的标识，避免同名 Being、frame revision、主题或显示名变化导致缓存串用或丢失；不同服务的 seq 不相互覆盖。`messages` 以服务端 seq 为主键，消息与 `meta.lastSeq` 在同一事务提交。缓存先加载最近 300 条，再通过 `after` 分页补增量；首次无缓存时读取最近 100 条，不回填此前的全部历史，也不因首屏渲染上限删除旧记录。live/replay 完成后从 history 取已确认消息入库，保留 local echo 去重。离线读取不依赖 `/api/status`。IndexedDB 在持久化的客户端 session/profile 内，未做应用层加密；存储失败退回网络，清除 profile 会移除缓存。草稿、附件二进制、未完成回复以及服务端历史缺失的思考/工具细节不作为聊天历史备份。Being 在进行中的回复里收到新消息时，界面保留用户消息与运行状态，但不再把“消息已送达”一类传输状态插入对话内容。
+聊天记录采用 `loom-local` b113faa（Loom 1.8.2）的 IndexedDB 思路，存储实现位于 `renderer/chat/services/history-cache.ts`。缓存按 Being 服务地址保存全部来源，界面再按当前场景或“显示全部场景上下文”筛选，详见上文消息来源场景。数据库使用不含凭据的 Being 服务地址作为稳定且唯一的标识，避免同名 Being、frame revision、主题或显示名变化导致缓存串用或丢失；不同服务的 seq 不相互覆盖。`messages` 以服务端 seq 为主键，消息与 `meta.lastSeq` 在同一事务提交。缓存先加载最近 300 条，再通过 `after` 分页补增量；首次无缓存时读取最近 100 条，不回填此前的全部历史，也不因首屏渲染上限删除旧记录。live/replay 完成后从 history 取已确认消息入库，保留 local echo 去重。离线读取不依赖 `/api/status`。IndexedDB 在持久化的客户端 session/profile 内，未做应用层加密；存储失败退回网络，清除 profile 会移除缓存。草稿、附件二进制、未完成回复以及服务端历史缺失的思考/工具细节不作为聊天历史备份。Being 在进行中的回复里收到新消息时，界面保留用户消息与运行状态，但不再把“消息已送达”一类传输状态插入对话内容。
 
-已覆盖内置对话、本机 Portal、小镇内容客户端、Kit 清单/导入以及桌面打包。篝火/邮局/卷轴的真实数据仍取决于 Town 服务的认证授权。当前不扩展多会话或自建服务端能力，逐次工具审批尚未实现。macOS Developer ID 签发与 Portal 源仓一致，公证暂缓；检查更新和手动安装后的 Portal 配套升级见 UPDATING.md。后台登录自启已支持 macOS 和 Windows，Windows 需在目标系统进一步验证；Linux 暂仅支持临时运行。登录前启动及休眠时联网不在本功能范围内。
+已覆盖内置对话、本机 Portal、小镇内容客户端、Kit 清单/导入以及桌面打包。篝火/邮局/卷轴的真实数据仍取决于 Town 服务的认证授权。当前不扩展多会话或自建服务端能力，逐次工具审批与命令沙箱已接通，权限模式及平台边界见[工具权限](TOOL-PERMISSIONS.md)。macOS Developer ID 签发与 Portal 源仓一致，公证暂缓；检查更新和手动安装后的 Portal 配套升级见 UPDATING.md。后台登录自启已支持 macOS 和 Windows，Windows 需在目标系统进一步验证；Linux 暂仅支持临时运行。登录前启动及休眠时联网不在本功能范围内。
 
 Electron 的 API 和隔离配置参考
 [protocol](https://www.electronjs.org/docs/latest/api/protocol) 与
@@ -128,7 +128,7 @@ Seed Garden 是公开阅读模块：主进程开放 `/api/seeds` 的分页/搜�
 
 `app/components/navigation.tsx` 在弹窗内提供主要 Town 功能切换，当前标题独立突出；入口统一调用 `AppModel.navigate`，每次进入都清理旧详情并重新读取，旧请求不能覆盖新页面。种子、卷轴和书架共用 `town/components/reading-actions.tsx` 的复制链接与浏览器打开操作栏。
 
-客户端界面插件契约统一见 [开发指南 Part 3](../DEVELOPER-API-SDK.md#part-3--客户端插件-api--sdk)。main/plugins 管理清单、安装、私有存储、上下文权限与会话事件；renderer/plugins 提供导航、命令、侧栏及资源菜单。工作区 DTO 来自 SceneStore 和 Town 详情，任务元数据复用 SceneTaskObserver；通知只表示数据变化。Grove 的 plugin 标签条目走专用安装器，Portal Kit 路径保持独立。首个迁移插件在独立的 [starmap 仓库](https://github.com/chunqing-liu/starmap) 维护，源码、画布依赖与 CI 出包均由插件仓库管理，客户端只保留通用宿主和 SDK。
+客户端界面插件契约统一见 [开发指南 Part 3](../DEVELOPER-API-SDK.md#grove-插件-sdk)。main/plugins 管理清单、安装、私有存储、上下文权限与会话事件；renderer/plugins 提供导航、命令、侧栏及资源菜单。工作区 DTO 来自 SceneStore 和 Town 详情，任务元数据复用 SceneTaskObserver；通知只表示数据变化。Grove 的 plugin 标签条目走专用安装器，Portal Kit 路径保持独立。首个迁移插件在独立的 [starmap 仓库](https://github.com/chunqing-liu/starmap) 维护，源码、画布依赖与 CI 出包均由插件仓库管理，客户端只保留通用宿主和 SDK。
 
 `TownClient` 使用独立 GET 路由表与固定 `https://beings.town` 源。IPC 不接受任意请求地址、
 方法或认证头。配对通过固定 `POST /api/client/pair/confirm` 交换 `{town_id, code}`（兼容旧 `{being_id, code}`），主进程校验输入、响应身份和 token，再加密保存。token 不返回渲染器，配对码不落盘。公开目录/Grove/Embers 不带凭据；篝火、围炉、邮件及卷轴使用独立 Town 凭据，按 SDK 使用 Authorization Bearer，仅发给固定 Town 源。

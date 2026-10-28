@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, chmod, copyFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';

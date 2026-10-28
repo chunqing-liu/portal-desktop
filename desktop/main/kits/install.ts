@@ -104,7 +104,7 @@ export async function runInstallCommand(program: string, args: string[], cwd: st
 interface Prepared { plan: KitInstallPlan; root: string; directory: string; manifest: any; settings: Settings; created: number }
 export class KitInstaller {
   private pending = new Map<string, Prepared>();
-  constructor(private cache: string, private fetcher: typeof fetch = fetch) {}
+  constructor(private fetcher: typeof fetch = fetch) {}
   async prepare(id: string, settings: Settings): Promise<KitInstallPlan> {
     for (const [ticket, value] of this.pending) if (Date.now() - value.created > 30 * 60000) await this.discard(ticket);
     if (this.pending.size >= 3) throw new Error('请先关闭其他 Kit 安装窗口。');

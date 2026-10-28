@@ -56,7 +56,7 @@ function LoadedAttachmentMessage({message}: {message: Message}) {
   return <div className="content attachment-message">{views.map(view => <div key={view.message_id}>
     {view.channel !== 'portal' && <small>{view.channel} · {view.scene_label}</small>}
     {view.parts.filter(part=>part.type==='attachment').map((part,index)=><AttachmentCard key={part.attachment_id} part={part} endpoint={endpoint} localImage={views.length===1 ? localImages[index] : undefined}/>)}
-    <AttachmentProcessing items={[message]} name="" />
+    <AttachmentProcessing items={[message]} />
     <div className="attachment-message-copy">
       {view.parts.filter(part=>part.type==='text').map((part,i)=><p className="attachment-original-text" key={i}><CommandMessageText text={part.text}/></p>)}
     </div>

@@ -69,7 +69,7 @@ describe('Grove SDK capabilities and lifecycle', () => {
   it.each(['close', 'disable', 'identity'])('drops pending results after %s without locking the registry', async action => {
     let key = 'a', finish!: (result: unknown) => void;
     const started = deferred<void>();
-    const service: PluginServices = { contextKey: () => key, call: async (_method, _value, ctx) => { started.resolve(); return new Promise(resolve => { finish = resolve; }); } };
+    const service: PluginServices = { contextKey: () => key, call: async () => { started.resolve(); return new Promise(resolve => { finish = resolve; }); } };
     const { host, session } = await registry(service);
     const pending = host.call(session.token, 'town.query', { kind: 'seeds' });
     const rejected = expect(pending).rejects.toThrow(/关闭|切换/);

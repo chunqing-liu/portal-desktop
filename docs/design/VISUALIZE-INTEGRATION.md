@@ -1,5 +1,7 @@
 # Visualize 接入与 Portal harness 对标
 
+> 设计与演进记录：已实现、待实现和历史方案按各节说明区分；当前使用与实现入口见[文档导航](../README.md)。文中代码路径与命令默认相对仓库根目录。
+
 2026-10-20。以下是基于当前源码、安装的 Visualize 1.0.50 技能与 Codex 官方资料形成的接入设计，尚未实现新的技能加载器、产物协议或 Codex 后端。
 
 ## 当前 review 结果
@@ -135,4 +137,4 @@ Being 主运行器仍需知道这些工具，并在适用任务里加载相应�
 - [官方 Skills 说明](https://learn.chatgpt.com/docs/build-skills)：名称和描述先加载，使用时读取完整技能。
 - [Codex App Server](https://learn.chatgpt.com/docs/app-server)：线程、回合、事件、继续输入和中断。
 - [Codex tool scheduling 源码](https://github.com/openai/codex/blob/e18a20d6eb6f5ede32a69fb56e3fe276d5e9d914/codex-rs/core/src/tools/parallel.rs)。
-- 当前实现范围和源码对照：[LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md](LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md)。
+- 当前实现范围和源码对照：[LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md](../../desktop/LOCAL-ARTIFACTS-AND-PORTAL-HARNESS.md)。

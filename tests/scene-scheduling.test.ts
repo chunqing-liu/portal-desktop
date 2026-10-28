@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { it, expect, vi } from 'vitest';
 import { mkdtemp, writeFile, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

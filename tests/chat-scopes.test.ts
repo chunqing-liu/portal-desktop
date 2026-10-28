@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatState, type ChatItem } from "../desktop/renderer/chat/models/chat";
 import { inCurrentScene, messageScene, sceneItems, sceneName, sceneTransitionNotice, stripSceneTransition, withSceneTransition } from "../desktop/renderer/chat/models/scenes";
-import { withScheduling } from "../desktop/renderer/chat/models/scheduling";
 import { createChatRuntime } from "../desktop/renderer/chat/services/runtime";
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });

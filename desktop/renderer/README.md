@@ -24,12 +24,15 @@ renderer/
 │  ├─ page.tsx
 │  ├─ components/           身份、发送、内容阅读和安装面板
 │  └─ models/               Town 状态、请求协调和消息筛选
+├─ plugins/                插件页面、独立窗口与宿主 UI 协作
+├─ preview/                隔离的 PPTX 预览运行时
 ├─ portal/page.tsx          本机 Portal 页面
 ├─ browser/                内置浏览器页面及 hooks/ 分栏交互
 └─ shared/                 跨功能复用
    ├─ components/          弹窗、Markdown 与代码高亮
    ├─ models/              状态订阅基类、共享场景数据
    ├─ hooks/               React 状态订阅
+   ├─ intelligent-ui/      智能 UI 协议、组件、状态与隔离运行时
    └─ lib/                 导航解析等纯函数
 ```
 
@@ -53,8 +56,9 @@ renderer/
 `scripts/build-chat.mjs` 编译聊天资源，桌面准备脚本将它们纳入安装包。
 
 `chat/services/runtime.ts` 保留 Loom 流式、重试、重放、watchdog 和历史对账协议，
-更新领域对象，不创建或修改界面节点。`chat/models/chat.ts` 与 `runtime.d.ts`
-定义 UI 契约，`hooks/use-chat-session.ts` 统一释放请求、计时器和订阅。
+更新领域对象，不创建或修改界面节点。`chat/models/chat.ts` 中的 `ChatRuntime` 与
+`RuntimeOptions` 定义 UI 契约；`chat/services/scene-runtime.ts` 统一管理跨场景发送队列，
+`chat/services/scene-queue.ts` 负责队列持久化，`chat/hooks/use-chat-session.ts` 统一释放请求、计时器和订阅。
 
 `app/hooks/use-chat-bridge.ts` 与 `chat/services/bridge.ts` 校验通信来源、frame 和版本。
 聊天 iframe 在页面切换时保持挂载，保留草稿和流式状态；它没有 preload、Node、本机
@@ -66,7 +70,7 @@ Markdown 和高亮 token 直接渲染为 React 元素，不使用 HTML 注入。
 
 ## 验证
 
-`npm run typecheck`、`npm test` 检查类型、状态及模块依赖边界；
+`npm run typecheck`（含未使用声明检查）、`npm test` 检查类型、状态及模块依赖边界；
 `npm run test:chat-react` 验证完整聊天页；`npm run test:sbs-refresh`、
 `npm run test:town-names`、`npm run test:seed-garden` 验证功能之间的界面联动。
 桌面检查见[测试说明](../TESTING.md)，进程划分见[桌面目录说明](../README.md)。

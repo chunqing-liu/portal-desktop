@@ -31,5 +31,5 @@ verify the client and engine together, then commit the `heart-portal` gitlink in
 Portal Desktop. Retain the original license notices in `heart-portal/LICENSE` and
 `resources/HEART-PORTAL-LICENSE`.
 
-The `hardening/` directory contains historical design and verification notes from
-the original workspace; they are not a description of the current source layout.
+Historical reviews and verification records live in [docs/archive](docs/archive/README.md).
+Design proposals are listed separately in the [documentation index](docs/README.md).

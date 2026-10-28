@@ -1,8 +1,6 @@
 # 桌面代码目录
 
-Portal Desktop 包含 Electron 主进程、隔离的 preload 和 React 界面。原先堆在
-`desktop/` 外层的 TS 文件承担窗口、系统服务、网络请求、凭据、安装与更新工作，
-现按进程和功能归入以下目录。
+Portal Desktop 包含 Electron 主进程、隔离的 preload 和 React 界面。源码按进程和功能组织如下。
 
 ```text
 desktop/
@@ -12,6 +10,7 @@ desktop/
 │  ├─ chat/                 Being 连接解析、就绪检查、受限聊天代理
 │  ├─ portal/               Rust 子进程、后台守护、旧服务发现与接管、状态读取
 │  ├─ town/                 Town REST、配对凭据、SSE 和 IPC
+│  ├─ plugins/              插件安装、权限、私有存储与宿主调用
 │  ├─ kits/                 Kit 清单、导入安装和 IPC
 │  ├─ browser/              原生 WebContentsView、会话和 URL 规则
 │  └─ updates/              版本检查、引擎升级、客户端安装与签名校验
@@ -36,3 +35,5 @@ desktop/
 - [React 界面结构](renderer/README.md)：业务模块及二级目录规范。
 - [桌面架构](ARCHITECTURE.md)：运行路径与信任边界。
 - [构建说明](BUILDING.md)、[测试说明](TESTING.md)：构建和验证入口。
+
+完整文档分类见[文档导航](../docs/README.md)。设计提案集中在 `docs/design/`，历史核查与验收集中在 `docs/archive/`。
