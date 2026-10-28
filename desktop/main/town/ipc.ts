@@ -1,4 +1,3 @@
-import type { ClientBrowser } from '../browser/browser';
 import type { SecretStorage, SettingsStore } from '../app/settings';
 import type { TownClient, TownCredentials } from './client';
 import { TOWN_ORIGIN, townRoute } from './client';

@@ -43,7 +43,7 @@ npm run build:web
 
 Electron 测试使用合成服务和合成文件，覆盖超过旧限制的 11 MiB 文件实际上传及下载、上传代理、慢解析后刷新复用、文件顺序、图片预览、详情、accepted 历史回显。截图保存在 `test-results/attachments/desktop-attachments.png`。
 
-已使用客户端当前连接的 Being 进行真实样本上传与解析验收，结果及限制见 ATTACHMENTS-TEST-REPORT.md 和 MUSE-ATTACHMENTS-REVIEW.md。自动化合成测试与真实链路验收分别记录。
+已使用客户端当前连接的 Being 进行真实样本上传与解析验收，结果及限制见[样本验收记录](../docs/archive/ATTACHMENTS-TEST-REPORT.md)和[Muse 对照记录](../docs/archive/MUSE-ATTACHMENTS-REVIEW.md)。自动化合成测试与真实链路验收分别记录。
 
 
 ## 交互与本机文件
@@ -55,5 +55,3 @@ Electron 测试使用合成服务和合成文件，覆盖超过旧限制的 11 M
 - 本机或已校验下载的文件，支持格式点击后在右侧栏预览（PDF、PPTX、XLSX、文本及 DOCX 解析内容）；其他格式使用系统应用打开，卡片菜单提供“打开所在位置”。每次操作先校验本机文件；文件丢失或内容变化后回退到下载。
 - 非本机附件首次下载弹窗选目录，后续复用；客户端设置 → 通用 → 下载统一更改目录，附件菜单不提供目录设置。下载进度实时显示；落盘文件再次通过 SHA-256 校验后才切换为打开。文件记录及目录存于用户配置目录的 `attachment-downloads.json`。
 - 上传流使用 Node fetch 传输 OSS（Electron net.fetch 不兼容该请求流）；其他请求保留 Electron 网络栈，签名 OSS 请求仍禁止重定向及携带 Heart 凭据。
-
-实际样本验收见 [ATTACHMENTS-TEST-REPORT.md](ATTACHMENTS-TEST-REPORT.md)。

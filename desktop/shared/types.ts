@@ -1,4 +1,4 @@
-import type { TownKind, TownQuery, TownResult } from '../../plugins/sdk';
+import type { TownQuery, TownResult } from '../../plugins/sdk';
 export type { TownKind, TownQuery, TownResult } from '../../plugins/sdk';
 export interface UpdateState {
   phase: 'idle' | 'checking' | 'available' | 'current' | 'unavailable';

@@ -165,7 +165,7 @@ it("uses only deployment-configured Loom targets and rejects cross-origin writes
 it("allows only configured OSS origins, including preflight and streaming responses", async () => {
   let calls = 0;
   const upstream = await listen(
-    createServer((req, res) => {
+    createServer((_req, res) => {
       calls++;
       res.setHeader("Content-Type", "text/event-stream");
       res.end("event: hello\ndata: {}\n\n");

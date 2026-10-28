@@ -50,7 +50,7 @@ export function SurfaceArtifact({ messageId, blockId, source, streaming, ...acti
       onActivate={() => {
         activate();
       }}
-      onSnapshot={(text, values, apps) => {
+      onSnapshot={(_text, values, apps) => {
         if (selectedRevision !== null) return;
         const current: Parameters<NonNullable<UIActions['onSnapshot']>> = [JSON.stringify({ surfaceId: surface.id, revision: latest?.revision || 0, title: version?.doc.title, document: version?.doc, values, apps }), values, apps];
         snapshot.current = current;

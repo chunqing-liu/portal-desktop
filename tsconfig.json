@@ -17,7 +17,9 @@
       "vite/client"
     ],
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": [
     "web/**/*.ts",

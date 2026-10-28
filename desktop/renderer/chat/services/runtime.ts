@@ -413,7 +413,6 @@ function createStreamRuntime(state: any, options: any): any {
   // 每个 reader / poller 启动时 ++writerEpoch 并记住自己的号；写之前对一次号，
   // 对不上就静默丢弃。任何路径上的重叠都因此变得无害。
   let writerEpoch = 0;
-  let sendQueue: any[] = [];
 
   let activeStreamPollTimer: any = null;
 
@@ -562,7 +561,6 @@ function createStreamRuntime(state: any, options: any): any {
 
   // ═══ TUI Activity Bar ═══
   let tuiTimer: any = null;
-  let tuiStartTime = null;
   let tuiElapsedTimer: any = null;
 
   const tuiLabels: Record<string, string> = {
@@ -581,7 +579,6 @@ function createStreamRuntime(state: any, options: any): any {
 
   let tuiCurrentState: any = null;
   let tuiCurrentArg = "";
-  let tuiCurrentPreview = "";
   let turnContext = "";
 
   // ── Per-breath activity log ─────────────────────────────────
@@ -667,7 +664,7 @@ function createStreamRuntime(state: any, options: any): any {
     entry.arg = extractKeyArg(parseToolInput(data.input));
     entry.label = tuiLabels[entry.name!] || "在行动";
     actionLogPush(entry);
-    tuiSet(entry.name, null, { arg: entry.arg, preview: "" });
+    tuiSet(entry.name, null, { arg: entry.arg });
     setStatus("thinking");
   }
 
@@ -677,11 +674,11 @@ function createStreamRuntime(state: any, options: any): any {
     // A completed parallel tool must not shorten the watchdog budget for its peers.
     livePhase = pending ? "tool" : "reasoning";
     livePendingTool = pending?.name || null;
-    if (pending) tuiSet(pending.name, null, { arg: pending.arg, preview: "" });
+    if (pending) tuiSet(pending.name, null, { arg: pending.arg });
     else if (entry?.error) {
       tuiSet("error", (tuiLabels[entry.name!] || entry.name || "行动") + " ✗");
       tuiTimer = setTimeout(() => tuiSet("thinking"), 1500);
-    } else tuiSet("thinking", null, { preview: "" });
+    } else tuiSet("thinking");
     scheduleRenderActivityLog();
   }
 
@@ -736,7 +733,6 @@ function createStreamRuntime(state: any, options: any): any {
   function tuiSet(stateName: any, label: any = null, opts: any = {}) {
     tuiCurrentState = label || tuiLabels[stateName] || "在行动";
     tuiCurrentArg = opts.arg || "";
-    tuiCurrentPreview = opts.preview || "";
     clearTimeout(tuiTimer);
     clearInterval(tuiElapsedTimer);
     tuiElapsedTimer = setInterval(() => {
@@ -780,17 +776,11 @@ function createStreamRuntime(state: any, options: any): any {
     }
   }
 
-  function updateTuiPreviewInline(preview: any) {
-    tuiCurrentPreview = preview;
-    changed();
-  }
-
   function tuiClear() {
     clearInterval(tuiElapsedTimer);
     tuiElapsedTimer = null;
     tuiCurrentState = null;
     tuiCurrentArg = "";
-    tuiCurrentPreview = "";
     tuiHintText = "";
     updateRun();
     changed();
@@ -984,13 +974,6 @@ function createStreamRuntime(state: any, options: any): any {
         date.getDate() === today.getDate()) return time;
     return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${time}`;
   }
-  function formatSize(bytes: any) {
-    return bytes < 1024
-      ? bytes + "B"
-      : bytes < 1048576
-        ? (bytes / 1024).toFixed(1) + "KB"
-        : (bytes / 1048576).toFixed(1) + "MB";
-  }
   // Filter out DSML/tool_call raw content
   function cleanContent(text: any) {
     if (!text) return "";
@@ -1133,39 +1116,6 @@ function createStreamRuntime(state: any, options: any): any {
     for (const file of pendingFiles) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
     pendingFiles = [];
     renderPendingFiles();
-  }
-
-  function updateQueueIndicator() {
-    state.queued = sendQueue.length;
-    updateSendButton();
-  }
-
-  function queueDraft() {
-    const msg = (state.draft || "").trim();
-    if (!msg && !pendingFiles.length) return false;
-    sendQueue.push({ message: msg, files: [...pendingFiles], intelligentUI: state.intelligentUIEnabled && state.intelligentUIForMessage });
-    clearComposer();
-    updateQueueIndicator();
-    return true;
-  }
-
-  let lastSendFailed = false;
-
-  function flushQueuedMessage() {
-    if (isStreaming || !sendQueue.length) return;
-    const next = sendQueue.shift();
-    updateQueueIndicator();
-    send(next.message, next.files, { intelligentUI: next.intelligentUI });
-  }
-
-  function scheduleFlushQueue() {
-    if (!sendQueue.length) return;
-    if (lastSendFailed) {
-      // 失败后等 3 秒再发下一条，给网络恢复时间
-      setTimeout(flushQueuedMessage, 3000);
-    } else {
-      flushQueuedMessage();
-    }
   }
 
   function sleepAbortable(ms: any, signal: any) {
@@ -1548,10 +1498,8 @@ function createStreamRuntime(state: any, options: any): any {
     setStatus("connected");
     tuiDone();
     clearTuiHint();
-    lastSendFailed = false;
     settleReplyBoundary();
     updateSendButton();
-    scheduleFlushQueue();
     return recovered;
   }
 
@@ -1609,7 +1557,7 @@ function createStreamRuntime(state: any, options: any): any {
   // 也是 watchdog probe 热切换到 replay 通道的落点。
   // 返回 { outcome: 'done' | 'switch_to_replay' | 'aborted' | 'server_error', streamId, localSeq }
   // 异常（AbortError / TypeError / 其它）向上抛给调用方统一处理。
-  async function consumeChatStream(res: any, msg: any, filesToSend: any) {
+  async function consumeChatStream(res: any) {
     routedStreaming = false;
     let streamTimeoutId: any = null;
     let watchdogAborted = false;
@@ -1810,9 +1758,7 @@ function createStreamRuntime(state: any, options: any): any {
                 entry.preview = truncate(entry.text.trim(), 100);
                 scheduleRenderActivityLog();
               }
-              tuiSet("thinking", null, {
-                preview: truncate(entry.preview || "", 60),
-              });
+              tuiSet("thinking");
             }
 
             if (eventType === "tool_use") recordToolStart(data);
@@ -1844,7 +1790,6 @@ function createStreamRuntime(state: any, options: any): any {
               setStatus("connected");
               tuiDone();
               clearTuiHint();
-              lastSendFailed = false;
               syncHistoryCursor(); // 推进游标，避免之后的增量对账重画这条回复
             }
 
@@ -1859,7 +1804,6 @@ function createStreamRuntime(state: any, options: any): any {
               setStatus("error");
               tuiClear();
               actionLogClear();
-              lastSendFailed = true;
             }
           } catch (parseErr: any) {
             // data 行以 { 或 [ 开头说明是真的 JSON 格式错误，值得记录
@@ -1969,9 +1913,6 @@ function createStreamRuntime(state: any, options: any): any {
     currentStreamId = null;
     isStreaming = false;
     updateSendButton();
-    // 恢复流程在途时先不放队列——否则可能在 cutover 之前又起一条新 breath
-    if (pendingRecovery) return;
-    scheduleFlushQueue();
   }
 
   // splice 分支：isStreaming 为 true 时发消息。
@@ -2212,7 +2153,7 @@ function createStreamRuntime(state: any, options: any): any {
   async function driveChatStream(res: any, msg: any, filesToSend: any, requestMessage = msg, attachmentAccepted = false) {
     let handedOff = false;
     try {
-      const result = await consumeChatStream(res, msg, filesToSend);
+      const result = await consumeChatStream(res);
       if (result.outcome === "done" && !result.handled && pendingReply) {
         // Reasoning/tool events are not a final reply. Every unresolved EOF
         // needs a bounded wait, retaining any newer splice request's baseline.
@@ -2271,7 +2212,6 @@ function createStreamRuntime(state: any, options: any): any {
       if (wasTimeout) {
         addTimeoutRetryMessage();
         setStatus("error");
-        lastSendFailed = true;
       } else if (userStoppedStream) {
         // 用户手动停止：内容已在屏幕上，只需推进历史游标避免下次对账重复渲染
         noteStreamEcho();
@@ -2291,13 +2231,11 @@ function createStreamRuntime(state: any, options: any): any {
         // 初始连接就失败，消息根本没送出去 → 保留手动重试按钮
         addNetworkFailureMessage(msg, filesToSend, requestMessage);
         setStatus("error");
-        lastSendFailed = true;
         tuiClear();
       }
     } else {
       addMessage("system", "⚠ " + e.message);
       setStatus("error");
-      lastSendFailed = true;
       tuiClear();
     }
     isStreaming = false;
@@ -2393,7 +2331,6 @@ function createStreamRuntime(state: any, options: any): any {
       );
       abandonLiveStream();
       await reconcileHistory({ full: true });
-      scheduleFlushQueue();
       return;
     }
 
@@ -2616,8 +2553,6 @@ function createStreamRuntime(state: any, options: any): any {
   // 滚动位置跳变、正在流的 streamMessage 被抹掉、移动端每次切 tab 回来都闪一下。
   // /api/history 的 HistoryMessage 是带 seq 的（http.rs:419-425），有 seq 就能增量对账。
   let lastHistorySeq = 0;
-  let lastReconcileSawBeing = false;
-  let lastHistoryReplyScenes: any[] = [];
   let reconcileInFlight: any = null;
   const cacheEndpoint = location.protocol === "beings:"
     ? params.get("history_scope") || ""
@@ -2979,10 +2914,7 @@ function createStreamRuntime(state: any, options: any): any {
     // Ordinary refreshes must retain pending runs even before the first history seq.
     opts = { ...opts, preserve: opts.preserve ?? !opts.full };
     const owner = options.historyOwner?.();
-    if (owner) return owner.reconcileHistory({ ...opts, preserve: true }).then((added: any) => {
-      lastReconcileSawBeing = owner.lastHistoryReplyIn(state.currentScene);
-      return added;
-    });
+    if (owner) return owner.reconcileHistory({ ...opts, preserve: true });
     if (reconcileInFlight) return reconcileInFlight;
     reconcileInFlight = reconcileHistoryOnce(opts).finally(() => {
       reconcileInFlight = null;
@@ -3035,8 +2967,6 @@ function createStreamRuntime(state: any, options: any): any {
 
   async function reconcileHistoryOnce({ full = false, preserve = false } = {}) {
     preserve = preserve || state.items.some((item: {kind:string;historySeq?:number}) => item.kind === "message" && !!item.historySeq);
-    lastReconcileSawBeing = false;
-    lastHistoryReplyScenes = [];
     try {
       let hydrated = false;
       // The shell can select/refresh a scene before start() finishes reading
@@ -3086,12 +3016,8 @@ function createStreamRuntime(state: any, options: any): any {
       if (!incremental && !preserve) {
         resetMessages();
         toCache = msgs;
-        lastHistoryReplyScenes = msgs.filter(m => !isHistoryMarker(m) && m.role !== "user").map(messageScene);
         await renderHistoryBatched(toCache);
         added = toCache.length;
-        lastReconcileSawBeing = toCache.some(
-          (m) => !isHistoryMarker(m) && m.role !== "user" && inCurrentScene(messageScene(m), state.currentScene),
-        );
       } else {
         if (cursorSyncInFlight) await cursorSyncInFlight;
         const fresh = msgs.filter((m) => (Number(m.seq) || 0) > lastHistorySeq);
@@ -3107,10 +3033,6 @@ function createStreamRuntime(state: any, options: any): any {
           const scene = messageScene(m);
           if (mergePersistedHistory(m) || consumeLocalEcho(role, m.content, scene, historyIdentity(m, scene))) continue; // 本地已经渲染过了
           addHistoryMessage(m);
-          if (role === "being") {
-            lastHistoryReplyScenes.push(scene);
-            if (inCurrentScene(scene, state.currentScene)) lastReconcileSawBeing = true;
-          }
           added++;
         }
         if (added) changed();
@@ -3637,9 +3559,7 @@ function createStreamRuntime(state: any, options: any): any {
           entry.preview = truncate(entry.text.trim(), 100);
           scheduleRenderActivityLog();
         }
-        tuiSet("thinking", null, {
-          preview: truncate(entry.preview || "", 60),
-        });
+        tuiSet("thinking");
         break;
       }
       case "tool_use":
@@ -3670,7 +3590,6 @@ function createStreamRuntime(state: any, options: any): any {
         updateSendButton();
         clearTuiHint();
         reconcileHistory();
-        scheduleFlushQueue();
         break;
     }
   }
@@ -3695,7 +3614,6 @@ function createStreamRuntime(state: any, options: any): any {
     setStatus("connected");
     tuiDone();
     clearTuiHint();
-    lastSendFailed = false;
     syncHistoryCursor();
   }
 
@@ -3727,12 +3645,10 @@ function createStreamRuntime(state: any, options: any): any {
     tuiDone();
     clearTuiHint();
     removeThinkingIndicator();
-    lastSendFailed = false;
     updateSendButton();
     // 不做历史渲染 — 内容已经在屏幕上了，只推进游标，
     // 这样之后的增量对账不会把刚流出来的回复再画一遍
     syncHistoryCursor();
-    scheduleFlushQueue();
   }
 
   let routedStreaming = false;
@@ -3871,7 +3787,6 @@ function createStreamRuntime(state: any, options: any): any {
     restoreSceneHistory,
     reconcileHistory,
     syncHistoryCursor,
-    lastHistoryReplyIn: (scene: any) => lastHistoryReplyScenes.some(reply => inCurrentScene(reply, scene)),
     replyCompletedAt: () => currentRun?.label === "已回复" ? currentRun.end || 0 : 0,
     sceneActivity: () => {
       if (replayTransportOnly && !pendingReply) return null;

@@ -1,5 +1,7 @@
 # 官方 Intelligent UI 示例核查与客户端改进方向
 
+> 历史核查与验收记录：结论和验证范围对应文中日期，不代表当前实现状态。当前文档见[文档导航](../README.md)。文中代码路径与命令默认相对仓库根目录。
+
 核查日期：2026-10-12。本文是本轮 DOM、CSS、交互与公开 HTML 的实查记录；不是已完成的客户端改造说明。
 
 来源：[官方页面](https://openai.com/zh-Hans-CN/index/gpt-6-for-everyone/)、[退休计算器 HTML](https://cdn.openai.com/ctf-cdn/intelligent-ui/roth-calculator-v4.html)、[分账工具 HTML](https://cdn.openai.com/ctf-cdn/intelligent-ui/bill-splitter-v5.html)、[游戏 HTML 入口](https://cdn.openai.com/ctf-cdn/intelligent-ui/retro-game-player-v3.html)。后面三个地址均来自官方页面实际 iframe 的 src。

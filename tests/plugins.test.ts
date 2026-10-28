@@ -160,7 +160,7 @@ describe('desktop plugin contract', () => {
   });
   it('rejects native Plugin installation through the Kit installer before downloading', async () => {
     const { root } = await fixture(); let calls = 0;
-    const installer = new KitInstaller(root, async () => { calls++; return Response.json({ name: 'plugin', kind: 'plugin', tags: [] }); });
+    const installer = new KitInstaller(async () => { calls++; return Response.json({ name: 'plugin', kind: 'plugin', tags: [] }); });
     await expect(installer.prepare('plugin', { workspace: root, kitsEnabled: true } as Settings)).rejects.toThrow('Plugin');
     expect(calls).toBe(1);
   });

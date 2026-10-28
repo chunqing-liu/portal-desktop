@@ -3,10 +3,8 @@ import { splitSchedulingHint } from "../models/scheduling";
 import { markdownText } from "../../shared/components/markdown";
 import type { ChatItem, Message } from "../models/chat";
 
-export function JumpToLatest({ items, container, elements, scrollLock, clearAnchor }: {
-  items: ChatItem[];
+export function JumpToLatest({ container, scrollLock, clearAnchor }: {
   container: RefObject<HTMLDivElement | null>;
-  elements: RefObject<Map<string, HTMLDivElement>>;
   scrollLock: RefObject<boolean>;
   clearAnchor: () => void;
 }) {

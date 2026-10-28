@@ -22,7 +22,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result})+'\\n'); });`
   await writeFile(config, `kits_dir = ${JSON.stringify(kits)}\nkits_enabled = true\n`);
   const settings: Settings = { endpoint: '', being: '', hasToken: true, workspace: dir, portalBinary: process.execPath, portalName: 'test', autoStart: false, allowExec: false, kitsEnabled: true, portalConfigPath: config };
   const data = await readFile(file); const requests: any[] = [];
-  const installer = new KitInstaller(dir, async (url, options) => { requests.push([url, options]); return String(url).endsWith('/download') ? new Response(data) : Response.json({ name: manifest.name, version: manifest.version, manifest }); });
+  const installer = new KitInstaller(async (url, options) => { requests.push([url, options]); return String(url).endsWith('/download') ? new Response(data) : Response.json({ name: manifest.name, version: manifest.version, manifest }); });
   return { dir, source, data, kits, settings, installer, requests };
 }
 it('downloads and atomically activates a Kit for Portal without a manual import', async () => {
@@ -86,7 +86,7 @@ it.skipIf(process.platform === 'win32')('rejects archive symlinks before exposin
 it('uses Grove provision fields missing from the archive and refuses a mismatched bundle', async () => {
   const f = await fixture(); const manifest = JSON.parse(await readFile(path.join(f.source, 'manifest.json'), 'utf8'));
   let name = manifest.name;
-  const installer = new KitInstaller(f.dir, async url => String(url).endsWith('/download') ? new Response(f.data) : Response.json({ name, version: manifest.version, manifest: { provision: { env: [{ name: 'CATALOG_KEY', description: 'From Grove', required: true }] } } }));
+  const installer = new KitInstaller(async url => String(url).endsWith('/download') ? new Response(f.data) : Response.json({ name, version: manifest.version, manifest: { provision: { env: [{ name: 'CATALOG_KEY', description: 'From Grove', required: true }] } } }));
   const plan = await installer.prepare('fixture-id', f.settings);
   expect(plan.environment).toEqual([{ name: 'CATALOG_KEY', description: 'From Grove', required: true }]);
   await installer.discard(plan.ticket); name = 'different-kit';
@@ -98,10 +98,10 @@ it('does not download App repositories or entries without an installable Kit bun
     if (String(url).endsWith('/download')) throw new Error('Unexpected download');
     return Response.json({ name: 'fixture-kit', version: '1', kind: 'app', repo_url: 'https://github.com/example/app', has_bundle: false });
   };
-  await expect(new KitInstaller(f.dir, fetcher as typeof fetch).prepare('app-id', f.settings)).rejects.toThrow('App 没有 Kit bundle');
+  await expect(new KitInstaller(fetcher as typeof fetch).prepare('app-id', f.settings)).rejects.toThrow('App 没有 Kit bundle');
   const noBundle = async (url: string | URL | Request) => {
     if (String(url).endsWith('/download')) throw new Error('Unexpected download');
     return Response.json({ name: 'fixture-kit', version: '1', kind: 'kit', has_bundle: false });
   };
-  await expect(new KitInstaller(f.dir, noBundle as typeof fetch).prepare('kit-id', f.settings)).rejects.toThrow('没有可下载');
+  await expect(new KitInstaller(noBundle as typeof fetch).prepare('kit-id', f.settings)).rejects.toThrow('没有可下载');
 });

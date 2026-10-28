@@ -2,9 +2,9 @@ import {describe,it,expect} from 'vitest';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {AttachmentProcessing} from '../desktop/renderer/chat/components/attachment-processing';
-const render=(message?:any,thinking=false)=>renderToStaticMarkup(createElement(AttachmentProcessing,{items:message?[message]:[],name:'Being',thinking}));
+const render=(message?:any)=>renderToStaticMarkup(createElement(AttachmentProcessing,{items:message?[message]:[]}));
 describe('attachment assistant status transitions',()=>{
- it('moves from queued to upload to parse to thinking, then disappears after reply',()=>{
+ it('moves from queued to upload to parse, then disappears when ready',()=>{
   const message:any={kind:'message',role:'user',queued:true,attachmentUploads:[{name:'report.pdf',size:10}]};
   expect(render(message)).toContain('等待发送');
   message.attachmentUploads[0].progress={phase:'uploading',loaded:5,total:10};
@@ -16,10 +16,12 @@ describe('attachment assistant status transitions',()=>{
   message.attachmentViews[0].parts[0].parse_status='ready';
   expect(render(message)).toBe('');
   message.queued=false;
-  expect(render(message,true)).toBe('');
-  expect(render(message,false)).toBe('');
+  expect(render(message)).toBe('');
  });
  it('does not keep a failed send in an endless processing state',()=>{
   expect(render({kind:'message',queued:true,retry:()=>{},attachmentUploads:[{name:'bad.pdf',size:1}]})).toBe('');
+ });
+ it('hides processing immediately when an upload fails before retry is attached',()=>{
+  expect(render({kind:'message',queued:true,attachmentUploads:[{name:'bad.pdf',size:1,progress:{phase:'failed',loaded:0,total:1}}]})).toBe('');
  });
 });

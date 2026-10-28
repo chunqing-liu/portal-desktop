@@ -281,7 +281,7 @@ async function ready() {
   }, net.fetch.bind(net) as typeof fetch, TOWN_ORIGIN, () => townCredentials.display, target => notifications.receive(target), reportTownRequest);
   const town = new TownClient(() => townCredentials.token, net.fetch.bind(net) as typeof fetch, TOWN_ORIGIN, () => townLive.state.beingId || '', reportTownRequest);
   townLive.restart();
-  kitInstaller = new KitInstaller(directory, downloadFetch);
+  kitInstaller = new KitInstaller(downloadFetch);
   portal = new PortalSupervisor(directory);
   portal.on('log', line => errorLog.info('portal-output', line));
   background = new BackgroundPortal(directory);

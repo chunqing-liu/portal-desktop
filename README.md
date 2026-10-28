@@ -154,7 +154,11 @@ The [CI workflow](.github/workflows/desktop-tests.yml) runs macOS / Windows chec
 ### Repository layout
 
 ```text
-desktop/           Electron main process, preload, UI, and design documents
+desktop/           Electron main process, preload, UI, and implementation guides
+web/               Standalone Web entry points and deployment
+plugins/sdk/       Public plugin type contracts
+docs/              Documentation index, designs, historical reviews, and seeds
+experiments/       Isolated prototypes outside the product build
 heart-portal/      Pinned Rust Portal submodule
 scripts/           Asset preparation, builds, tests, and release scripts
 tests/             Client unit and integration tests
@@ -183,13 +187,13 @@ The following TODOs are grouped by implementation direction, without committed r
 
 - [x] Plugin tags and filtering in Grove, local imports and Grove downloads alongside existing Kit/App flows.
 - [x] Versioned manifests, dynamic navigation, sandboxed HTML views, theme synchronization and private plugin storage.
-- [x] [SDK 1.4](DEVELOPER-API-SDK.md#part-3--客户端插件-api--sdk): standalone TypeScript types, Town reads, Being history/drafts/confirmed streaming chats, command palette, plugin settings and atomic storage updates.
+- [x] [SDK 1.4](DEVELOPER-API-SDK.md#grove-插件-sdk): standalone TypeScript types, Town reads, Being history/drafts/confirmed streaming chats, command palette, plugin settings and atomic storage updates.
 - [x] Workspace context, sidebar/resource slots, disposable domain events and current-scene task status; Pipeline integrates resource collaboration and explicit node/task bindings.
 - [x] Enable, disable, uninstall, source records and session revocation without patching client source.
 - [x] The community Pipeline board is now an independent plugin, with canvas, dragging, comments and persistence verified in Electron.
 - [ ] Automatic updates/rollback, signing, catalog-wide search, additional contributions and controlled tool calls.
 
-Clone [starmap](https://github.com/chunqing-liu/starmap) separately and run `npm ci` followed by `npm run check` there, then open Tools → Plugins and import its `dist` directory. The plugin has its own CI artifacts and tagged releases; no plugin implementation is bundled in this client repository. See [Plugin API v1](DEVELOPER-API-SDK.md#part-3--客户端插件-api--sdk) and the [Pipeline plugin](https://github.com/chunqing-liu/starmap). Grove distribution uses existing Apps with a plugin tag and a fixed Release asset; no live catalog entry has been published. Obsidian and Codex plugin packages are not directly compatible.
+Clone [starmap](https://github.com/chunqing-liu/starmap) separately and run `npm ci` followed by `npm run check` there, then open Tools → Plugins and import its `dist` directory. The plugin has its own CI artifacts and tagged releases; no plugin implementation is bundled in this client repository. See [Plugin API v1](DEVELOPER-API-SDK.md#grove-插件-sdk) and the [Pipeline plugin](https://github.com/chunqing-liu/starmap). Grove distribution uses existing Apps with a plugin tag and a fixed Release asset; no live catalog entry has been published. Obsidian and Codex plugin packages are not directly compatible.
 
 ### Single-conversation orchestration: under consideration
 
@@ -216,20 +220,7 @@ Enabling command execution lets Portal run commands with the current user's priv
 
 ## Documentation
 
-The detailed implementation documents below are currently primarily in Chinese. This README and [README_CN.md](README_CN.md) cover the same features, setup, and roadmap.
-
-| Document | Contents |
-| --- | --- |
-| [Building and distribution](desktop/BUILDING.md) | Platform setup, package locations, build failures, and uninstalling |
-| [Architecture](desktop/ARCHITECTURE.md) | Processes, credentials, proxies, Portal, and Town boundaries |
-| [Testing](desktop/TESTING.md) | Individual commands, isolation, coverage, and validation records |
-| [Town SDK integration](desktop/TOWN-SDK.md) | Pairing, REST, SSE, posting, and native replies |
-| [Paired updates](desktop/UPDATING.md) | Client and Portal upgrades, recovery, and release workflow |
-| [Portal recovery](desktop/PORTAL-RECOVERY.md) | Startup failures, manual restart, diagnostic logs, and Windows launch guidance (Chinese) |
-| [Release notes](desktop/RELEASE_NOTES.md) | Release delivery notes |
-| [Developer API / SDK guide](DEVELOPER-API-SDK.md) | Heart/Town APIs, plugin SDK reference, access boundaries and examples |
-| [Shared workspace exploration](desktop/SHARED-WORKSPACE.md) | Historical design and protocols requiring agreement; not implemented features or the current roadmap |
-| [Source provenance](UPSTREAM.md) | Loom origins, the pinned Portal revision, and compatibility-branch maintenance |
+See the [documentation index](docs/README.md) for development and deployment guides, API / SDK references, feature documentation, design proposals, and historical verification records. The detailed guides are primarily in Chinese.
 
 ## Contributing
 
